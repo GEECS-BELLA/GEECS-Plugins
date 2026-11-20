@@ -314,6 +314,7 @@ The device writes that drive the machine through its trigger states.
 | `states` | `dict[TriggerState, list[TriggerWrite]]` | no | empty | For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched. |
 | `description` | `str` | no | '' | Optional note about what setup this profile is for. |
 | `use_scan_mode` | `bool` | no | False | Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a fly run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case — the shot message is the only trigger. |
+| `shot_gate` | `ShotGateSpec (optional)` | no | None | A permission-to-fire service the worker waits on before every shot: a 'safe' received after the previous shot permits the next; unreachable or not safe holds it, and a long hold pauses the scan. Leave empty for no gate. |
 
 Example:
 
@@ -354,6 +355,17 @@ One device variable set during a state transition.
 | `device` | `str` | yes | — | The device to write to, e.g. 'U_DG645_ShotControl' or a gas-jet controller — any settable device can take part in a transition. |
 | `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'Trigger.Source'. |
 | `value` | `str` | yes | — | The value to send, exactly as the device expects it — a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges'). |
+
+### ShotGateSpec
+
+A software interlock server the worker waits on before every shot.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `host` | `str` | yes | — | The service's host name or IP address on the facility network. |
+| `port` | `int` | yes | — | The service's TCP port. |
+| `hold_pause_s` | `float` | no | 60.0 | Seconds a shot waits for permission before the scan pauses with the service's reason (resuming waits again; a pause never fires). |
+| `holdoff_s` | `float` | no | 0.0 | Seconds added to the time a shot is fired before a safe verdict counts as the next shot's permission: its data must be taken that much after the fire (or, for a verdict with no data stamp, received that much after it). Covers a device clock ahead of the worker's, and, for interlocks with no data stamp, the time the server takes to see a shot. A device clock behind the worker's cannot be covered here: the clocks must agree. |
 
 ## `experiment_defaults`
 
@@ -717,7 +729,7 @@ One thing a page does to a device of the family, and the roles it writes.
 
 ### Panel
 
-How a device page lays out the family's roles: the control rail and the readings strip.
+How a device page lays out the family's roles: the control rail, the readings strip and the trends.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
@@ -726,6 +738,7 @@ How a device page lays out the family's roles: the control rail and the readings
 | `buttons` | `dict[str, tuple[str, str]]` | no | empty | A two-state rail role drawn as a pair of buttons, its labels for 0 then 1 (an acquire as Stop / Start), in place of its type's control. The role is writable, in the rail, and a bit or a whole number limited to [0, 1]. |
 | `tweak` | `dict[str, TweakHint]` | no | empty | A rail setpoint drawn with its step and step buttons beside it, in place of three separate controls: the key is the setpoint, the hint its step setpoint and its forward and reverse commands, all writable and in the key's rail group. |
 | `show_while` | `dict[str, str]` | no | empty | An array an axis draws, shown by default while a monitored role reads 1 (a processed spectrum while background subtraction is on); otherwise the axis' first array. A viewer's own choice wins. |
+| `trends` | `list[PanelTrend]` | no | empty | The time plots the settables page draws under the readings, in order: each a title, unique in the panel, and the monitored numeric roles it draws against wall-clock time (a loop's value beside its setpoint). Four at most: each is a plot of its own height between the readings and the role tables, redrawn every second (five times a second on a window of 30 s or less). A role may sit in several trends and need not be a reading. A kind whose page has a data pane of its own (a camera's image, a trace's plot) draws no trends. |
 
 ### PanelGroup
 
@@ -746,6 +759,15 @@ A setpoint drawn with a step and a pair of step buttons beside it (the motor rec
 | `step` | `str` | yes | — | The setpoint holding the step size (the motor record's 'twv'). |
 | `forward` | `str` | yes | — | The command that steps forward by it ('twf'): the record moves, the page computes nothing. |
 | `reverse` | `str` | yes | — | The command that steps back by it ('twr'). |
+
+### PanelTrend
+
+One time plot under a device page's readings: a few roles' values against wall-clock time.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The plot's heading on the page. |
+| `roles` | `list[str]` | yes | — | The family roles the plot draws, one line each, in order: one to four monitored roles whose value is a number (a readback, a setpoint, a bit or a counter; never text, an enum, a command, an array or an image). The page labels each line by the role's label and the y axis by the roles' unit when they share one. |
 
 ## `panel_devices`
 

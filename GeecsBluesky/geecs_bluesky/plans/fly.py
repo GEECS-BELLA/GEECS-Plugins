@@ -204,6 +204,7 @@ class FlyRun(OnDemand):
         self.clock.tick()
         if self.presses:
             yield from bps.wait_for([self._press])
+        return True  # a tick always fires (no box, no gate)
 
     def _wait(self, base: dict[str, Any]):
         pressed = [p for p in self.required if p.name in self.pressed]

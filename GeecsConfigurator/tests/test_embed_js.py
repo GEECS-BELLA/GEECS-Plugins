@@ -35,6 +35,7 @@ function el(tag) {
     setAttribute(k, v) { this.attrs[k] = String(v); if (k === "value") this.value = String(v); },
     getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
     appendChild(c) { c.parentNode = this; this.children.push(c); if (this.tagName === "SELECT" && c.attrs.selected !== undefined) this.value = c.attrs.value; return c; },
+    insertBefore(c, ref) { c.parentNode = this; const i = this.children.indexOf(ref); this.children.splice(i < 0 ? this.children.length : i, 0, c); return c; },
     removeChild(c) { this.children = this.children.filter((x) => x !== c); },
     addEventListener(k, fn) { this.on[k] = fn; },
     get firstChild() { return this.children[0] || null; },
@@ -46,6 +47,8 @@ global.document = { createElement: el, createTextNode: (t) => Object.assign(el("
 const walk = (n, f, out = []) => { if (f(n)) out.push(n); n.children.forEach((c) => walk(c, f, out)); return out; };
 const button = (scope, text) => walk(scope, (n) => n.tagName === "BUTTON" && n.textContent === text)[0];
 const settle = () => new Promise((r) => setTimeout(r, 5));
+const stored = {};  // the browser's localStorage: where the live toggle is remembered
+Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = String(v); } } });
 global.GeecsForm = require(process.argv[1]);
 const G = require(process.argv[2]);
 const C = JSON.parse(require("fs").readFileSync(0, "utf8"));
@@ -77,7 +80,7 @@ const hold = { url: null, until: null };
   who = "Ada";
   button(drawer, "Save").on.click(); await settle();
   out.sent = seen.filter((s) => s[0] !== "GET");
-  out.saved = saved;
+  out.saved = saved.slice();
   button(drawer, "Preview").on.click();
   out.preview = previews[0];
   // the same document again: the drawer as it was, nothing fetched
@@ -104,6 +107,22 @@ const hold = { url: null, until: null };
   C.answers["POST " + C.api + "/api/dry-run/setup?experiment=Bench&id=far.yaml"] = [200, { kind: "setup", by: "portal", ran: true, refusal: "name: bad name", errors: [{ loc: ["name"], msg: "a bad name" }] }];
   button(document.body.children[0], "Save").on.click(); await settle();
   out.placed = walk(walk(document.body.children[0], (n) => n.attrs["data-path"] === "name")[0], () => true).some((n) => n._t === "a bad name");
+  // a dry run that ran with nothing to confirm: the one press saves, its line kept; one that asks waits for its own Save
+  const dry = "POST " + C.api + "/api/dry-run/setup?experiment=Bench&id=far.yaml", puts = () => seen.filter((s) => s[0] === "PUT" && s[1].includes("far.yaml")).length;
+  C.answers["PUT " + C.api + "/api/documents/setup/far.yaml?experiment=Bench"] = [200, { outcome: "committed", author: "Ada via configurator", etag: "e3", tier: "operator", changes: [] }];
+  C.answers[dry] = [200, { kind: "setup", by: "portal", ran: true, detail: "binds", outcomes: [{ check: "binding", result: "passed" }] }];
+  button(document.body.children[0], "Save").on.click(); await settle();
+  out.onePress = [puts(), document.body.children[0].textContent.includes("dry run of your edit: binds"), document.body.children[0].textContent.includes("Committed")];
+  C.answers[dry] = [200, { kind: "setup", by: "scanner", ran: true, detail: "one thing", questions: [{ check: "liveness", title: "is it on?" }] }];
+  button(document.body.children[0], "Save").on.click(); await settle();
+  out.asked = [puts(), document.body.children[0].textContent.includes("It asks: is it on?")];
+  // a check skipped inside a dry run that ran is a check that did not run: it waits too
+  C.answers[dry] = [200, { kind: "setup", by: "scanner", ran: true, outcomes: [{ check: "gateway_liveness", result: "skipped", detail: "no gateway" }] }];
+  button(document.body.children[0], "Save").on.click(); await settle();
+  out.skipped = [puts(), document.body.children[0].textContent.includes("gateway_liveness: skipped")];
+  C.answers[dry] = [200, { kind: "setup", by: "archiver", ran: false, detail: "no archiver" }];
+  button(document.body.children[0], "Save").on.click(); await settle();
+  out.notRun = [puts(), !!button(document.body.children[0], "Save without it")];
   // a bare name is the kind's one document with that stem, in any folder; two are refused, named
   out.stem = G.byStem(["HTU/a.yaml", "HTU/b.yml"], "b");
   try { G.byStem(["HTU/a.yaml", "HTT/a.yaml"], "a"); out.twice = "accepted"; } catch (e) { out.twice = e.message; }
@@ -112,12 +131,39 @@ const hold = { url: null, until: null };
   button(document.body.children[0], "Preview").on.click(); await settle();
   out.previewed = walk(document.body.children[0], (n) => n.tagName === "IMG").length;
   out.toolbar = document.body.children[0].textContent.includes("host tools");
+  // live: off, an edit draws nothing; ticked, it draws at once and again after each edit, once the form is still
+  let live = 0;
+  G.open(Object.assign({}, opts, { id: "low_power.yaml", fields: ["description"], preview: () => { live += 1; return Promise.resolve(el("img")); } })); await settle();
+  const liveDrawer = document.body.children[0], tick = walk(liveDrawer, (n) => n.attrs["aria-label"] === "live preview")[0];
+  const text = walk(walk(liveDrawer, (n) => n.attrs["data-path"] === "description")[0], (n) => ["INPUT", "TEXTAREA"].includes(n.tagName))[0];
+  const type = (t) => { text.value = t; text.on.input({ target: text }); };
+  const still = () => new Promise((r) => setTimeout(r, 750));
+  type("one"); await still();
+  out.liveOff = live;
+  tick.on.click(); await settle();
+  out.remembered = Object.values(stored);
+  type("two"); type("three"); await still(); await still();  // and never again for the draft it shows
+  out.liveOn = live;
+  tick.on.click(); type("four"); await still();
+  out.liveOffAgain = live;
+  out.livePressed = tick.attrs["aria-pressed"];
   // a page not on the kit: the drawer is drawn in a .kit wrapper of its own, with its own scrim
   delete require.cache[require.resolve(process.argv[2])];
   document.body = Object.assign(el("body"), { classList: { contains: () => false } });
+  stored[Object.keys(stored)[0]] = "1";  // live was left on in this browser: the drawer draws as it opens
+  const drawnBefore = previews.length;
   require(process.argv[2]).open(opts); await settle();
+  out.drawsOnOpen = previews.length - drawnBefore;
   const wrap = document.body.children[0];
   out.wrapped = [wrap.attrs.class, wrap.children.map((c) => c.attrs.class), wrap.children[1].attrs["data-scrim"]];
+  // closed while its document was still loading: the load draws no preview for a drawer nobody sees
+  let let_go; hold.until = new Promise((r) => { let_go = r; });
+  hold.url = C.api + "/api/documents/setup/far.yaml?experiment=Bench";
+  const drawnClosed = previews.length;
+  require(process.argv[2]).open(Object.assign({}, opts, { id: "far.yaml" })); await settle();
+  wrap.children[1].setAttribute("data-open", "false");
+  let_go(); await settle();
+  out.drawsClosed = [previews.length - drawnClosed, walk(wrap, (n) => n.attrs["data-path"] === "description").length > 0];
   console.log(JSON.stringify(out));
 })().catch((e) => { console.error(e); process.exit(1); });
 """
@@ -209,6 +255,34 @@ def test_a_bare_name_is_its_stem_in_any_folder_and_never_two(ran: dict) -> None:
 
 def test_a_preview_promise_is_drawn_beside_the_hosts_tools(ran: dict) -> None:
     assert ran["previewed"] == 1 and ran["toolbar"] is True
+
+
+def test_a_dry_run_with_nothing_to_confirm_saves_on_the_one_press(ran: dict) -> None:
+    assert ran["onePress"] == [1, True, True]
+
+
+def test_a_dry_run_that_asks_or_did_not_run_waits_for_its_own_save(ran: dict) -> None:
+    assert ran["asked"] == [1, True] and ran["notRun"] == [1, True]
+    assert ran["skipped"] == [1, True]
+
+
+def test_live_preview_redraws_after_an_edit_only_while_ticked(ran: dict) -> None:
+    # ticking draws once; two quick edits draw once more, when the form is still
+    assert (ran["liveOff"], ran["liveOn"], ran["liveOffAgain"]) == (0, 2, 2)
+    assert ran["livePressed"] == "false"
+
+
+def test_live_is_remembered_in_the_browser_and_draws_as_the_drawer_opens(
+    ran: dict,
+) -> None:
+    assert ran["remembered"] == ["1"] and ran["drawsOnOpen"] == 1
+
+
+def test_a_drawer_closed_while_its_document_loads_draws_no_live_preview(
+    ran: dict,
+) -> None:
+    # the form was drawn (the load arrived), the preview was not asked
+    assert ran["drawsClosed"] == [0, True]
 
 
 def test_off_the_kit_the_drawer_brings_its_own_kit_wrapper_and_scrim(ran: dict) -> None:

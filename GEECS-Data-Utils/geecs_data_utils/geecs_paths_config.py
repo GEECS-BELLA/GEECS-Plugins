@@ -135,11 +135,21 @@ class GeecsPathsConfig:
         self.wavekit_python_path: Optional[Path] = None
         self.wavekit_launcher: Optional[str] = None
         self.wavekit_configs_path: Optional[Path] = None
+        #: The one experiment whose ``Y{YYYY}`` folders sit directly in
+        #: ``base_path`` rather than in ``base_path/<experiment>`` (a data
+        #: tree that predates the convention); ``None``: every experiment
+        #: follows the convention.
+        self.data_root_experiment: Optional[str] = None
 
         if config_path.exists():
             try:
                 _config = ConfigParser()
                 _config.read(config_path)
+                # First: a bad tool path below must not lose it.
+                if _config.has_option("Paths", "data_root_experiment"):
+                    self.data_root_experiment = (
+                        _config["Paths"]["data_root_experiment"].strip() or None
+                    )
                 if _config.has_option("Paths", "frog_dll_path"):
                     self.frog_dll_path = self._validate_path(
                         Path(_config["Paths"]["frog_dll_path"])

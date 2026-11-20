@@ -72,6 +72,11 @@ geecs_control_room/
                     (device_rail.js) from the family's `panel`, the plot (Plotly through the theme's plot.js: one trace per
                     channel, decimated to the plot's width, linear/log, the viewer's window = Plotly's x
                     range, and average); the rules reuse camera_rules.js's
+  trends.py         a settables page's trend history (/api/devices/{name}/trends?seconds=&axis=: the family panel's
+                    trend roles at the PVs the module names, each subscribed in Vole and read over the window with
+                    the read key; `VoleClient`; § "The trends" below)
+  static/trend.js, trend_rules.js   the settables page's trends: one Plotly plot per trend of the family's panel,
+                    the past from trends.py, each line extended from GeecsDevicePage's frames; the rules pure
   static/device_writes.js   a device page's write path (operator, hazard dialog, one list at a time,
                     sent once, `axis` on a per-axis write): every device page's
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
@@ -80,7 +85,7 @@ geecs_control_room/
                     device page: header with the operator, the hazard dialog, the folded role tables, and by default
                     the settables page; a kind with a data component fills `kind_component`: device_camera.html the
                     camera's, device_trace.html the trace's), _panel.html (the rail's macros: control, tweak, rail,
-                    readings, hazard_dialog; one copy), the pages
+                    readings, trends, hazard_dialog; one copy), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
 deploy/
@@ -91,7 +96,8 @@ deploy/
 
 - **A client of Canopy, never a part of it.** Canopy and GeecsCanopy are
   services: Hare's WebSocket for live values, the module's routes for
-  verdicts and writes. Never import `geecs_canopy`, GeecsBluesky, the
+  verdicts and writes, Vole's buffer for a trend's past (read key, § "The
+  trends"). Never import `geecs_canopy`, GeecsBluesky, the
   portal or the logbook (import contract `control-room-edges`). The one
   exception to "through Canopy" is what Hare does not carry: a camera's
   frame and its arrays, and a trace, are read over Channel Access by this
@@ -307,8 +313,9 @@ or a custom plugin in the IOC chain); **FWHM and the 45° second moments**
 are no statistics-plugin output (derivable from sigma x, y, xy and the
 profiles, in the module or a derived channel). Background subtraction and
 rotate/flip exist as plugins: whether a camera runs them is the IOC
-chain's decision. Per-shot trends are Vole's (Canopy's live buffer), never
-a page's. A LabVIEW scope panel only showed traces; the trace page is its
+chain's decision. Per-shot trends of a camera's statistics are Vole's (Canopy's live
+buffer), never the camera page's (the settables page draws the trends a
+family's panel names, § "The trends"). A LabVIEW scope panel only showed traces; the trace page is its
 successor (§ "The trace").
 
 ## The raw frame
@@ -466,9 +473,126 @@ as one list, stopped at the first refusal, so the record never steps by a
 step the field no longer shows (`device_rules.tweakList`); a select, a
 checkbox or a button writes when chosen (`device_rules.commitKey`,
 `writeValue`).
+A feedback loop has no page of its own: its family (`loop_contract`,
+the names of geecs-epics' loop contract) is a `setpoint_device` with a
+panel, so the settables page draws it under the kind word `supply` (the
+mode, the setpoint, the tuning and the travel limits on the rail; the
+mode the engine took, the state and its reason first in the readings: a
+close the engine refuses is an accepted write whose mode reads back Off).
+A loop is a panel device only (`{family: loop_contract, prefix: ...}`, no
+`ioc:`): it is no registry device and no scan axis, since its setpoint
+serves no set tolerance. Its `mode` settles by the mode taken, so a preset
+restore writes it after the setpoint and the limits. The two limits are
+separate restore rows, written one at a time in either order: the
+engine takes a limit even where it crosses the other (restoring a range
+disjoint from the live one crosses on the way in one direction or the
+other, whatever the fixed order) and refuses to close while they are
+crossed, so the family needs no ordering of them.
+A family's panel may name **trends** (§ "The trends" below): the
+loop's value beside its setpoint, and its actuator's readback beside the
+last target. A live image beside it is not this page's.
 A device is classified by its roster `source` first: a gateway device's
 family is its DB device type, never looked up as a family file, even when
 it is spelled like one.
+
+### The trends
+
+The maintainer's ruling of 2026-11-18, on the loop's page: "it's not
+displaying any history of RoC or stage position; that's extremely useful
+for operators". A family's `panel` may name `trends` (GEECS-Schemas
+`PanelTrend`: a title and one to four monitored numeric roles), and the
+settables page draws each as a time plot under the readings
+(`_panel.html`'s `trends`, `trend.js`, `trend_rules.js`), one line per role
+named by the role's label, the y axis the roles' unit when they share one
+(the family's, else the record's EGU from Hare), x the wall clock.
+`device_pages.drawn_trends` trims each to the roles the device serves, and
+a trend with none left is not drawn. Only `device.html` draws them: the
+camera and trace pages fill the pane themselves, and a screen's `group`
+widget draws no trend.
+
+- **The past is Vole's, the present is Hare's.** When the plots are first
+  shown (an axis pane hidden at load reads when it is picked, never
+  before), and on each window choice, the page asks this server once:
+  `GET /api/devices/{name}/trends?seconds=[&axis=]` (`trends.py`), which
+  resolves the device by the module's device route, takes the trend roles'
+  PVs from it (never derived, never from the request: the route cannot be
+  made to subscribe a PV the family's panel does not trend), and for each
+  subscribes it in Vole (`POST /vole/v1/pvs/subscribe/{pv}`) and reads its
+  window (`GET /vole/v1/pvs/{pv}?from=&to=&maxPoints=`, `MAX_POINTS` 4000)
+  with this process's **read** key (`VoleClient`, beside `ModuleClient`;
+  `VOLE_TIMEOUT_S` 3 s for each of the two phases, the roles
+  concurrently; any 2xx is an answer, and the history is read whatever the
+  subscribe said, its failure reported only where there is no history). It
+  is this server's call, not the browser's, because Vole's times are
+  integer nanoseconds (the route answers in milliseconds), the answer's
+  `now` (stamped when the answer is built, after Vole's calls) is the one
+  clock the page draws by (neither a viewer's own clock nor a slow Vole
+  shifts the plot), and a cross-origin `fetch` would need Canopy to allow
+  it where Hare's socket does not. Each line is then extended from the
+  frames the page is already sent (`GeecsDevicePage.frame`, Hare's one
+  socket: no second stream), stamped by the record's own `tsNs`.
+- **Vole as observed** (2026-11-18, against Canopy at the fleet's pin; the
+  code relies on each, and `trends.py`'s docstring keeps the list): a
+  repeated subscribe answers 200; the value held on entering the window
+  comes back as a first sample stamped exactly at `from`, so a buffered PV
+  never answers empty and an empty answer means "not buffered until now";
+  `maxPoints` thins to that many real samples spread over the window
+  (never averages), so a busy PV's past is a thinned one; `severity` is a
+  word (`NO_ALARM`, `INVALID`).
+- **Vole silent is words, never an error.** The route answers 200 with a
+  `state` per role: `history`, `starting` (subscribed and read, nothing
+  yet: Vole has only now begun to buffer it) or `failed` (with `why`). The
+  one line under the window choice (`historyNote`) says which: "Canopy's
+  buffer has only now begun keeping …" apart from "no earlier history
+  (why)", "reading the history" from a window click until its answer, and
+  after a failed later read "could not be read again … the past drawn is
+  the earlier read's" (a past once drawn is kept, `kept`, and is never
+  said to be missing). A fault in `trend.js` never reaches the rail or the
+  readings (a frame, a redraw, a click and the read each catch; Plotly is
+  loaded only when the panel has trends). 404: the device serves no trend
+  role; the module's own refusals and silence keep `device_pages.unread`'s
+  statuses.
+- **What a line is.** The values the page was sent (its past as Vole kept
+  it, thinned there when busy), each held until the next (Plotly's `hv`: a
+  monitored record posts on change, so a straight line between two posts
+  would draw a ramp nobody measured) and, while the newest live point is a
+  value, carried to now. A gap, never a zero and never bridged: a `null`
+  or non-finite value, an INVALID record, a frame that does not say it is
+  connected (`!frame.connected`, the page's reading of a frame), the
+  socket down (a frame arriving after it with the record's old stamp is
+  drawn when it arrived, so the gap keeps its width). The page never
+  computes: no average, no rate, no fit, no error band, no alarm line; a
+  derived quantity worth a trend is a record the IOC serves and a role the
+  family names.
+- **The window** (10 s, 30 s, 2 min, 10 min, 1 h: `device_pages.WINDOWS_S`,
+  10 min on load) is the viewer's own, written nowhere; the x axis is that
+  window ending now, fixed, redrawn each second (five times a second for a
+  window of 30 s or less, to watch a fast loop work); y is the viewer's to
+  zoom.
+- **Bounded, and never silently short.** The live buffer alone is bounded
+  (`trim`): a point older than the longest window goes (it is never drawn
+  again; the newest such stays, the value held on entering), then past
+  `CAP` (20000 per role) the oldest go. The history is never cut to make
+  room. Where the cap took live points newer than the history's end
+  (`hole`), a gap closes the history (its last value is never held across
+  a stretch the page no longer holds) and the page reads the history again,
+  at most every 30 s; a failed re-read says so in the note. Each line is
+  thinned to four points per pixel column (first, lowest, highest, last):
+  a second per-column pass beside `trace_rules.decimate`, kept apart
+  because a held line needs each column's first and last, which min/max
+  alone drops.
+- **Deploy order.** A monitored role the engine does not serve reads
+  unreachable, which makes the device's word `unknown` and hands the
+  archiver a PV that never connects. So a family role new to a contract
+  (the loop's `actuator`, `Actuator_RBV`) deploys after the engine release
+  that serves it, or the instance's panel row carries `omit: [actuator]`
+  until then.
+- **Rules with rows**: `trend_rules.js` in `test_trend_rules_js.py` (which
+  also runs `trend.js` itself over a fake page: the history, the live
+  extension, a dropped socket, a window choice pending and a failed
+  re-read, a hidden pane, the cap's gap and re-read, Vole silent, a
+  throwing Plotly); the route and the template in `test_trends.py` over a
+  stubbed Vole.
 
 The camera page draws its family's panel with the same macros
 (acquisition with acquire's Stop / Start, the crosshairs, the analysis
@@ -665,7 +789,7 @@ since httpx would decode the gzip itself, and the fake CA's `counters` script
 the counter probe and the mid-batch retry. The page scripts run under node (skipped without it; no
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
-`test_directory_rules_js.py` / `test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
+`test_directory_rules_js.py` / `test_device_rules_js.py` / `test_camera_rules_js.py` / `test_trend_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
 `test_screen_rail_js.py` runs the real `device_rail.js` and `device_writes.js` over a fake screen (a widget's `confirm` note asks before any put, the pair's values and enum words, a select narrowed to a family role's choices, a bare PV's field disabled, an unsent choice going back) and the real `screen.js` over a fake page (a widget's `precision` shown as `digits`, never the record's precision the settle is judged by; the rail filling a readout's units from Hare, whose placeholder `test_screens.py` pins in the template); `test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
 by `frame.raw` over `test_images.py`'s fake CA (as int16, as aioca delivers it asked `DBR_SHORT`), its bytes checked on the
 wire, then decoded, transformed and levelled by `camera_rules.js` under node. A rule a

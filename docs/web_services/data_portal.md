@@ -94,7 +94,10 @@ configurator itself, where the groups are too.
 - Change the steps (background, crop, filters, masks) and the measure,
   pick the shot, then press **Preview** to see the result on that shot,
   drawn as a run draws it, and each of the recipe's summaries over the
-  scan's first shots. Preview saves nothing.
+  scan's first shots (the first four, so a summary there is a small
+  sample, not the whole scan's). Press **live**, joined to the button, and the
+  preview redraws after each edit; the choice is remembered in your browser.
+  Preview saves nothing.
 - Type your name and press **Save**. The portal checks the recipe first
   (it must bind to the analysis core); a refusal is drawn at the field and
   nothing is saved. Then the configurator commits it to the configs

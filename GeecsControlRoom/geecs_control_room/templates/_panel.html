@@ -20,6 +20,7 @@
   A screen's `group` widget draws one group with `rail` and the panel's
   readings with `readings` (its ids under the widget's `prefix`, its label
   the first group's `title`).
+  `trends` draws the settables page's time plots (its own comment below).
   A screen draws its widgets through the same `control` (screen.html): a
   pair writes `values` (a toggle's numbers; else 0 and 1), labelled by the
   record's own choices when `spec.enum_labels`; a select offers the record's
@@ -67,6 +68,20 @@
     <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></span></div>
   {% endfor %}
 </div>
+{%- endmacro %}
+
+{#
+  The trends of a settables page (device_pages.drawn_trends: the family panel's `trends`, trimmed to the
+  roles this device serves): the viewer's window choice, one line of words, and a plot host per trend
+  carrying its roles (role, label, units, type). trend.js draws them; without script nothing is drawn.
+#}
+{% macro trends(trends, windows, url, axis=none) -%}
+{% if trends %}<section class="trends" data-trends-url="{{ url }}"{% if axis %} data-axis="{{ axis }}"{% endif %}>
+  <div class="row tools"><div class="field"><label>Window</label><div class="seg" role="group" aria-label="trend window">{% for seconds, label, on in windows %}<button type="button" data-window="{{ seconds }}" aria-pressed="{{ 'true' if on else 'false' }}">{{ label }}</button>{% endfor %}</div></div>
+    <span class="dim trend-note" role="status"></span></div>
+  {% for t in trends %}<article class="panel plot-panel trend" data-trend="{{ t.roles | tojson | forceescape }}"><header><span class="eyebrow">{{ t.title }}</span></header>
+    <div class="trend-plot" aria-label="{{ t.title }} against time"></div></article>{% endfor %}
+</section>{% endif %}
 {%- endmacro %}
 
 {% macro hazard_dialog() -%}

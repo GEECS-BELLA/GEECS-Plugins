@@ -254,7 +254,13 @@ class TestFolderScanCatalog:
 
         def mounted(cls):
             cls.paths_config = type(
-                "Config", (), {"base_path": tmp_path, "experiment": "Thomson"}
+                "Config",
+                (),
+                {
+                    "base_path": tmp_path,
+                    "experiment": "Thomson",
+                    "data_root_experiment": None,
+                },
             )()
 
         monkeypatch.setattr(

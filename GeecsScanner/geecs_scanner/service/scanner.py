@@ -85,6 +85,7 @@ from geecs_scanner.service.models import (
     StatusOut,
     SubmitIn,
     SubmitOut,
+    ShotGateOut,
     TiledWriterOut,
     TriggerProfilePreflightIn,
     VerbIn,
@@ -152,6 +153,11 @@ class ScannerService:
         The Tiled writer's ``heartbeat.json``; defaults to the one under
         ``GEECS_TILED_WRITER_STATE`` (the units' shared state directory).
         Read for the chip and ``/health`` only — never to gate a submit.
+    shot_gates : ShotGateWatches, optional
+        The read-only gate readers behind the "shot gate" chip
+        (:mod:`~geecs_scanner.service.shot_gate`); default: one set for the
+        process, started only when a profile names a gate.  The worker
+        enforces the gate; this only shows it.
     """
 
     def __init__(
@@ -173,6 +179,7 @@ class ScannerService:
         logged_variables: Any = None,
         presets: Any = None,
         device_types: Any = None,
+        shot_gates: Any = None,
     ) -> None:
         self.client = client
         self.resolver = resolver
@@ -188,6 +195,11 @@ class ScannerService:
         self._settables = settables
         self._readback = readback
         self._heartbeat_path = heartbeat_path
+        if shot_gates is None:
+            from geecs_scanner.service.shot_gate import ShotGateWatches
+
+            shot_gates = ShotGateWatches()
+        self._shot_gates = shot_gates
         self._scan_log_list = scan_log_list
         self._logged_variables = logged_variables
         #: The DB's device types (a setup's hazard confirms by family); see :meth:`_db_families`.
@@ -275,6 +287,34 @@ class ScannerService:
         if self._heartbeat_path is None:
             self._heartbeat_path = default_heartbeat_path()
         return read_writer_status(self._heartbeat_path)
+
+    def shot_gate(self, trigger_profile: Optional[str] = None) -> ShotGateOut:
+        """The gate of the profile the form submits under (empty: the default), for the chip.
+
+        Reads the profile from the configs (no client lock, no manager
+        call); a profile naming no gate, or none to tell, answers
+        ``enabled: false`` with the reason, and an unreadable one
+        ``unknown`` (it may name a gate) — never an error, since the page
+        polls this.  Nothing here gates a submit: the worker holds every
+        fire under a gated profile.
+        """
+        from geecs_core.exceptions import GeecsError
+
+        from geecs_scanner.service.shot_gate import disabled, profile_gate, unreadable
+
+        if not hasattr(self.resolver, "resolve_trigger_profile"):
+            return disabled("this scanner reads no trigger profiles")
+        try:
+            name, spec = profile_gate(self.resolver, trigger_profile)
+        except (GeecsError, ValueError, OSError) as exc:
+            # A missing, malformed or invalid profile: shown as unknown, never
+            # hidden — it may name a gate, and the worker will not load it.
+            return unreadable(trigger_profile or "", exc)
+        if not name:
+            return disabled("no trigger profile chosen and no default")
+        if spec is None:
+            return disabled(f"trigger profile {name!r} names no shot gate")
+        return self._shot_gates.status(spec, name)
 
     def status(self) -> StatusOut:
         """One manager poll plus the readiness verdict (never raises)."""

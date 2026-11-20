@@ -121,6 +121,9 @@ geecs_bluesky/
                             #   shot), run_bracket, plugin_reasons, BinCounter,
                             #   name_failed_status, down_devices (the liveness verdict
                             #   the run's gate and apply_setup share)
+  plans/shot_gate.py        # open_gate (connect + first frame before the claim),
+                            #   hold_for_permission (before every fire's baseline; a
+                            #   long hold pauses), fire_gated (the last check + the put)
   plans/sweep.py            # sweep_plan: the Sweep payload through scan_nd, relative/reset
   plans/optimize.py         # optimize_plan: native Xopt loop, one run, one bin per iteration
   plans/calibration.py      # measure_shot_offsets / check_shot_sync (once-run, never a step)
@@ -169,6 +172,10 @@ geecs_bluesky/
                             #   worker's bind and the client's expansion
   log_markers.py            # log-line strings clients parse from the manager's text stream
   utils.py                  # safe_name, identifier_name, resolve_annotations
+  shot_gate.py              # ShotGate — a facility's software interlock server (one way,
+                            #   length-prefixed JSON frames): the reader, the heartbeat, one
+                            #   fresh verdict per fire by data_stamp, fail closed (stdlib
+                            #   only: the scanner's chip runs a reader too)
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
 
@@ -441,7 +448,7 @@ per fire, refires included (`EVENT_SCHEMA.md`).  One slot per shot,
 `shots_per_step` complete shots per position —
 
 ```
-throttle; mark = pause_count
+throttle; [hold for the shot gate's fresh safe]; mark = pause_count
 read every per-shot counter + the witness count   # frame count / acq_timestamp monitor
 [mv(scan_mode, ANNOUNCE)]; mv(box, SINGLESHOT); press Software natives
 wait (bounded) for every required counter         # none required: for the witness
@@ -562,6 +569,69 @@ run lock hold at its prepare.  `expand_preset` refuses its `X.scalars`
 shape a preset alone shows — `optimize` — so the preflight's
 device rules never refuse a native camera for a reason that is not the
 real one.
+
+### The shot gate (a trigger profile's field)
+
+A facility whose Master Control waits for a software interlock server
+before every shot names it in the trigger profile: `shot_gate: {host,
+port, hold_pause_s (60), holdoff_s (0)}` (GEECS-Schemas' `ShotGateSpec`).
+A profile without one changes nothing: no gate, no start key, no column —
+and a laser-off or bench profile at a gated facility leaves it out.  **The
+server's protocol decides when a shot may fire** (its authors' call);
+this package decides how the worker waits for it.
+`shot_gate.ShotGate` is the client — one reader per address for the
+process (`gate_for`), so the last-fire mark follows the physical server
+across runs and profiles, and each profile's view keeps its own hold
+settings; `ShotControl.shot_gate` the profile's; `plans/shot_gate.py` the
+plan stubs.  The rules:
+
+- **The protocol** (v1): a 4-byte big-endian length then UTF-8 JSON, a
+  frame on connect and every ~0.1 s.  Safe only when `ok` and the
+  interlocks (at least one) all say safe; another version or a malformed
+  frame is not safe.  No frame for `HEARTBEAT_S` (1 s), or one over
+  `MAX_FRAME` (64 KiB): not safe, drop and reconnect.  At the run's start
+  the gate must connect **and deliver a frame** within 5 s, or the run is
+  refused (`GeecsShotGateError`) before the box is driven and before the
+  claim.
+- **One fresh verdict per fire**: after a fire, a safe frame permits the
+  next only when every `data_stamp` it carries is later than the fire
+  (+ `holdoff_s`), so it rests on data taken after the shot; a frame
+  carrying none must be *received* that late.  The comparison is the
+  devices' clocks against the worker's: `holdoff_s` covers a device clock
+  **ahead** of the worker's; one **behind** it by more than the shot's
+  latency makes no verdict count, so every shot holds until the pause
+  (the clocks must agree, or the server sends null stamps).  Before the
+  first fire any safe frame permits.
+- **It governs the SINGLESHOT put, nothing else** (`registry.gate_for_run`):
+  every strict `count` / `sweep` / `optimize` fire and every
+  `measure_shot_offsets` shot under the profile; not a fly run (no box)
+  and never a box-less profile (the schema refuses a gate on a profile
+  without SINGLESHOT writes; `ShotControl.shot_gate` is `None` there too),
+  not `mv`, not the box's free-running states.  A permission to fire, never
+  a safety system: the hardware's interlocks stay the safety layer.
+- **The last check is `fire_gated`'s**, with no await between it and the
+  put: a permission that lapsed while the slot read its counters,
+  announced the shot or the calibration armed its devices fires nothing,
+  and the caller holds again (the slot reads its counters again, so the
+  baseline always follows the last hold; a scan-mode shot number announced
+  for it is not re-sent, the refire rule; the calibration's armed devices
+  time out empty and spend no attempt).  The fire is marked when the put
+  is sent, not when the box acknowledges it, and a failed put marks it
+  again.  A lost connection ends permission before its teardown.
+- **The hold sits before the slot's baseline** (after the throttle), so a
+  hold never spends a device's shot timeout; the calibration holds before
+  `fire_and_await_shot` arms its devices, and runs non-rewindable, so a
+  resume replays no SINGLESHOT.  A hold pauses the run with the server's
+  reason only after `hold_pause_s` without permission (a verdict that
+  lapses as a wait returns is waited for again); the resume waits again —
+  a pause never fires.  A shot whose permission keeps lapsing between the
+  hold and the fire pauses once its lapses have lasted `hold_pause_s`
+  (`pause_on_lapses`: timed from its first lapse, again after any pause).  Each row records `gate_hold_s`, the waiting alone
+  (never a pause), the server's time to clear the shot.
+- **Swap points**: `parse_frame` (the frame's body) and `read_frames` (the
+  framing); the freshness rule is `ShotGate.permits`.
+- The worker reads profiles at environment open, so an edited gate applies
+  after the configurator's apply (the reopen), like every profile edit.
 
 ### Sweep
 
