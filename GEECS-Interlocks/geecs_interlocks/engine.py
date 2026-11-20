@@ -20,7 +20,7 @@ from geecs_interlocks.conditions import watched
 from geecs_interlocks.config import Settings, load_interlocks
 from geecs_interlocks.external import ExternalSignals
 from geecs_interlocks.monitor import Event, Monitor, Snapshot
-from geecs_interlocks.sources import DeviceSource, Source
+from geecs_interlocks.sources import DeviceReading, DeviceSource, Source
 from geecs_interlocks.status_server import StatusServer
 
 logger = logging.getLogger(__name__)
@@ -130,6 +130,12 @@ class Engine:
         self.signals.stop()
 
     @property
+    def interlocks(self) -> InterlockSet:
+        """The document the current monitor runs."""
+        with self._lock:
+            return self._interlocks
+
+    @property
     def monitor(self) -> Monitor:
         """The current monitor (replaced by :meth:`reload`)."""
         with self._lock:
@@ -143,20 +149,25 @@ class Engine:
         """The current monitor's state changes."""
         return self.monitor.events()
 
+    def reading(self, device: str) -> DeviceReading:
+        """The current monitor's latest reading of *device*."""
+        return self.monitor.reading(device)
+
     def arm(self, name: str | None = None) -> list[str]:
         """Arm the current monitor's ``config_change`` conditions (see :meth:`Monitor.arm`)."""
         return self.monitor.arm(name)
 
-    def reload(self) -> str:
-        """Re-read the file and swap in a fresh monitor; a line saying what happened.
+    def reload(self, path: Path | None = None) -> str:
+        """Re-read the file (or switch to *path*) and swap in a fresh monitor; a line saying what happened.
 
-        An invalid file leaves the running interlocks untouched. The new
+        An invalid file leaves the running interlocks (and the path) untouched. The new
         monitor starts with every armed interlock waiting, so the verdict is
         unsafe until fresh readings arrive — a reload never carries an old
         OK over.
         """
+        target = self.path if path is None else path
         try:
-            interlocks, origin = load_interlocks(self.path)
+            interlocks, origin = load_interlocks(target)
             ports = external_ports(interlocks)
             self.signals.open(ports)
         except Exception as exc:
@@ -167,6 +178,7 @@ class Engine:
         with self._lock:
             old, self._monitor = self._monitor, fresh
             self._interlocks = interlocks
+            self.path = target
         old.stop()
         self.signals.retain(ports)
         message = f"reloaded {len(interlocks.interlocks)} interlock(s) from {origin}"

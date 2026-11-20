@@ -49,6 +49,17 @@ logger = logging.getLogger(__name__)
 
 #: Updates per second from each demo device (a GEECS device's usual 5 Hz).
 UPDATE_HZ = 5.0
+#: The demo's whole experiment for the builder: the file's devices, more of
+#: their variables, and devices nothing watches yet (every one scripted).
+DEMO_CATALOG: dict[str, list[str]] = {
+    "DEMO_PointingCam": ["MeanCounts", "CentroidY", "TargetY", "Exposure"],
+    "DEMO_VacuumGauge": ["Setpoint"],
+    "DEMO_Chiller": ["Temperature", "Flow"],
+    "DEMO_Windmill": ["Current"],
+    "DEMO_TapeCam": ["MaxCounts", "MeanCounts", "CentroidX", "CentroidY", "TargetX"],
+    "DEMO_JetStage": ["Position", "Velocity"],
+}
+
 #: The NaN window: every this many seconds…
 NAN_EVERY_S = 90.0
 #: …for this long.
@@ -158,6 +169,17 @@ class DemoScript:
                     )
                     script._watch(*key)
         return script
+
+    def with_catalog(self, catalog: dict[str, list[str]]) -> DemoScript:
+        """Also publish every variable in *catalog* (slow waves, safe values); returns the script."""
+        for k, (device, variables) in enumerate(sorted(catalog.items())):
+            for n, variable in enumerate(variables):
+                key = (device, variable)
+                if key not in self.waves and key not in self.steps:
+                    center = 100.0 * (n + 1)
+                    self.waves[key] = _Wave(center, center * 0.05, 0.0, 30.0 + 7 * n, k)
+                self._watch(device, variable)
+        return self
 
     def _watch(self, device: str, variable: str | None) -> None:
         variables = self.devices.setdefault(device, set())
@@ -374,6 +396,7 @@ __all__ = [
     "DemoScript",
     "DemoSource",
     "FakeDevices",
+    "DEMO_CATALOG",
     "FakeSender",
     "NAN_EVERY_S",
     "UPDATE_HZ",

@@ -306,3 +306,17 @@ class TestArming:
             make(source, threshold()).arm()
         with pytest.raises(ValueError, match="holds no settings"):
             make(source, threshold()).arm("vac")
+
+
+class TestCheckStatuses:
+    def test_each_condition_reports_on_its_own(self, source):
+        monitor = make(source, group(SAT, DRIFT))
+        source.push("Cam", Max=4095, X=1, X0=0)
+        checks = monitor.step().statuses[0].checks
+        assert [c.unsafe for c in checks] == [True, False]
+        assert checks[0].value == 4095 and checks[0].limit == 4000
+        assert checks[1].value == 1 and checks[1].diagnostic == ""
+
+    def test_off_has_no_checks(self, source):
+        status = make(source, threshold(enabled=False)).step().statuses[0]
+        assert status.checks == ()

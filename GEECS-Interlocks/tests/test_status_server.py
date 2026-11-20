@@ -61,6 +61,13 @@ def test_a_departed_client_is_dropped(server):
     assert server.frames_sent > 0
 
 
+def test_the_address_after_stop_is_the_requested_one():
+    srv = StatusServer(lambda: Snapshot(), "127.0.0.1", 0)
+    srv.start()
+    srv.stop()
+    assert srv.address == ("127.0.0.1", 0)
+
+
 def test_a_taken_port_raises(server):
     other = StatusServer(lambda: Snapshot(), "127.0.0.1", server.address[1])
     with pytest.raises(OSError):

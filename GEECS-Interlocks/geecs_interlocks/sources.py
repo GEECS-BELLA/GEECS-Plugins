@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -67,6 +67,10 @@ class Source(Protocol):
 
     def reading(self, device: str) -> DeviceReading:
         """The latest reading of *device* (:data:`NOT_CONNECTED` if none yet)."""
+
+
+#: Builds a source over ``device → variables`` (the builder's live preview of one device).
+PreviewFactory = Callable[[Mapping[str, set[str]]], Source]
 
 
 class ReadingCache:
@@ -214,6 +218,7 @@ class DeviceSource:
 __all__ = [
     "CONNECT_RETRY_S",
     "NOT_CONNECTED",
+    "PreviewFactory",
     "DeviceReading",
     "DeviceSource",
     "ReadingCache",

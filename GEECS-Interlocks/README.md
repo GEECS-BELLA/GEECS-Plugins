@@ -28,6 +28,17 @@ In a second terminal, see exactly what Master Control would receive:
 poetry run geecs-interlocks listen 127.0.0.1:5001
 ```
 
+The server window opens with it (the `gui` extra; `--no-window` runs
+headless):
+
+- **Monitor** — the verdict strip, Master Control's clients, Arm settings,
+  Reload file, Always on top, the interlocks worst first (a group expands
+  into its checks), and the server log under them.
+- **Builder** — pick a device, pick a variable, set the check, and choose
+  the interlock it joins ("Add to" an existing one groups it). Edits are a
+  draft until **Save and reload**, which validates, shows the diff, writes
+  the file and reloads without dropping Master Control.
+
 The demo scripts every device, sends the external signal's UDP packets
 itself and moves the windmill's settings now and then, so every state shows
 up within a couple of minutes. `--fake-devices` in place of `--demo` starts
@@ -61,3 +72,9 @@ armed. `listen` reads either.
 Ports and bind addresses (the stream, the web client, the external signals)
 come from `config.ini [interlocks]`; see `geecs_interlocks/config.py`. With
 none set, everything listens on `127.0.0.1` only.
+
+## The log
+
+Every line goes to the terminal, the window's log pane and a daily file,
+`interlocks-YYYY-MM-DD.log`, kept 30 days, in `config.ini [interlocks]
+log_dir` (default `~/.config/geecs_python_api/interlock_logs/`).

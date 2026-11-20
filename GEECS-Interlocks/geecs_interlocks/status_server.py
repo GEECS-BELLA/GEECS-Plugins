@@ -127,6 +127,7 @@ class StatusServer:
             self._thread.join(ACCEPT_POLL_S * 4)
         if self._socket is not None:
             self._socket.close()
+            self._socket = None  # address falls back to the requested one
 
     def _frame(self) -> bytes:
         snapshot = self._snapshot()

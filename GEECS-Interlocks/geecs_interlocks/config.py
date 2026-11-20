@@ -13,6 +13,7 @@ client half of the site profile)::
     web_port = 8600
     external_host = 0.0.0.0   # where external (UDP) signals are received
     wire_format = summary     # or legacy (geecs_interlocks.wire)
+    log_dir = <folder>        # the daily log files (default: beside this file)
 
 Every key is optional. Without them every server listens on ``127.0.0.1``
 only — a laptop running the demo is never reachable from the network until
@@ -56,6 +57,7 @@ class Settings(BaseModel):
     web_port: int = Field(DEFAULT_WEB_PORT, ge=0, le=65535)
     external_host: str = LOCAL_HOST
     wire_format: WireFormat = DEFAULT_WIRE_FORMAT
+    log_dir: Path | None = None
 
     @classmethod
     def from_config_ini(cls, config_path: Path | None = None) -> Settings:
@@ -73,6 +75,7 @@ class Settings(BaseModel):
                 "web_port",
                 "external_host",
                 "wire_format",
+                "log_dir",
             )
             if (value := entry(key)) is not None
         }

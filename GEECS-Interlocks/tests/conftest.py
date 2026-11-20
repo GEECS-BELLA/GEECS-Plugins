@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
@@ -9,6 +10,10 @@ from geecs_schemas import InterlockSet
 
 from geecs_interlocks.external import NO_SIGNAL, SignalReading
 from geecs_interlocks.sources import NOT_CONNECTED, DeviceReading
+
+
+# The GUI tests draw offscreen: no display, no window on the screen.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 class FakeSource:

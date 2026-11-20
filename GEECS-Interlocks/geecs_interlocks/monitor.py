@@ -75,6 +75,29 @@ EVENTS_KEPT = 500
 
 
 @dataclass(frozen=True)
+class CheckStatus:
+    """One condition of an interlock, at one tick (a group's rows in a table).
+
+    Attributes
+    ----------
+    condition :
+        One line saying what it watches (:func:`describe`).
+    unsafe :
+        Whether this condition is unsafe on its own.
+    diagnostic :
+        Why it is unsafe (empty when it is not).
+    value, limit :
+        As :class:`InterlockStatus`'s, for this condition alone.
+    """
+
+    condition: str
+    unsafe: bool
+    diagnostic: str = ""
+    value: float | None = None
+    limit: float | None = None
+
+
+@dataclass(frozen=True)
 class InterlockStatus:
     """One interlock as every reader sees it, at one tick.
 
@@ -98,6 +121,8 @@ class InterlockStatus:
         Wall-clock seconds (``time.time()``) when it entered *state*.
     armable :
         It holds settings an operator arms (a ``config_change`` condition).
+    checks :
+        Each condition on its own, in file order (empty while ``off``).
     """
 
     name: str
@@ -109,6 +134,7 @@ class InterlockStatus:
     limit: float | None = None
     since: float = 0.0
     armable: bool = False
+    checks: tuple[CheckStatus, ...] = ()
 
     @property
     def unsafe(self) -> bool:
@@ -288,6 +314,10 @@ class Monitor:
         with self._lock:
             return list(self._events)
 
+    def reading(self, device: str) -> DeviceReading:
+        """The source's latest reading of *device* (any thread)."""
+        return self._source.reading(device)
+
     def trend(self, name: str) -> list[tuple[float, float]]:
         """``(wall-clock, value)`` points of *name* over the last :data:`TREND_S`."""
         with self._lock:
@@ -396,11 +426,14 @@ class Monitor:
             self._inputs(interlock.name, i, c, now)
             for i, c in enumerate(interlock.conditions)
         ]
-        verdict = _combine(
-            [
-                evaluate(c, i, tripped=tripped)
-                for c, i in zip(interlock.conditions, inputs, strict=True)
-            ]
+        verdicts = [
+            evaluate(c, i, tripped=tripped)
+            for c, i in zip(interlock.conditions, inputs, strict=True)
+        ]
+        verdict = _combine(verdicts)
+        checks = tuple(
+            CheckStatus(describe(c), v.unsafe, v.diagnostic, *_measured(c, i))
+            for c, i, v in zip(interlock.conditions, inputs, verdicts, strict=True)
         )
         new_state, diagnostic = self._next_state(tracker, verdict, interlock, now)
         if new_state != tracker.state:
@@ -429,6 +462,7 @@ class Monitor:
             limit,
             tracker.since,
             armable,
+            checks,
         )
 
     def _next_state(
@@ -542,6 +576,7 @@ class Monitor:
 
 __all__ = [
     "EVENTS_KEPT",
+    "CheckStatus",
     "STATES",
     "TICK_S",
     "TREND_S",
