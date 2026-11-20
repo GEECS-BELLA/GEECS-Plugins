@@ -71,3 +71,14 @@ class TestBuffer:
         buffer.emit(record("a"))
         buffer.clear()
         assert buffer.records() == []
+
+
+def test_a_closed_handler_reopens_on_the_next_record(tmp_path):
+    """logging.config (uvicorn's, for one) closes every handler; the file must survive it."""
+    handler = DailyFileHandler(tmp_path, today=lambda: dt.date(2026, 11, 20))
+    handler.emit(record("before"))
+    handler.close()
+    handler.emit(record("after"))
+    handler.close()
+    lines = (tmp_path / "interlocks-2026-11-20.log").read_text().split()
+    assert lines == ["before", "after"]

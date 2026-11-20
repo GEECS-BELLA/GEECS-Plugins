@@ -47,6 +47,8 @@ logger = logging.getLogger("geecs_interlocks")
 
 #: Seconds between two reconnect attempts of ``listen``.
 LISTEN_RETRY_S = 2.0
+#: Seconds the web client gets to bind before the server goes on without it.
+WEB_START_S = 5.0
 #: How long ``--arm-at-start`` waits for the settings to arrive.
 ARM_WAIT_S = 30.0
 
@@ -90,6 +92,11 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--no-window", action="store_true", help="run headless (no server window)"
     )
+    serve.add_argument("--web-host", help="the web client's bind address")
+    serve.add_argument("--web-port", type=int, help="the web client's port")
+    serve.add_argument(
+        "--no-web", action="store_true", help="do not serve the web client"
+    )
     serve.add_argument(
         "--arm-at-start",
         action="store_true",
@@ -108,7 +115,14 @@ def _settings(args: argparse.Namespace) -> Settings:
     settings = Settings.from_config_ini()
     overrides = {
         key: value
-        for key in ("status_host", "status_port", "wire_format", "external_host")
+        for key in (
+            "status_host",
+            "status_port",
+            "wire_format",
+            "external_host",
+            "web_host",
+            "web_port",
+        )
         if (value := getattr(args, key)) is not None
     }
     return settings.model_copy(update=overrides)
@@ -166,6 +180,56 @@ def _builder_sources(
     return catalog, lambda variables: DeviceSource(variables)
 
 
+class WebClient:
+    """The web client's server on a thread of its own (uvicorn), and where it listens."""
+
+    def __init__(
+        self, engine: Engine, settings: Settings, experiment: str | None
+    ) -> None:
+        import uvicorn
+
+        from geecs_interlocks.web import create_app
+
+        config = uvicorn.Config(
+            create_app(engine, experiment=experiment),
+            host=settings.web_host,
+            port=settings.web_port,
+            log_level="warning",
+            log_config=None,  # uvicorn's own config would close the server's log handlers
+        )
+        self._server = uvicorn.Server(config)
+        self._thread = threading.Thread(
+            target=self._server.run, name="interlock-web", daemon=True
+        )
+        host = (
+            "127.0.0.1" if settings.web_host in ("0.0.0.0", "") else settings.web_host
+        )
+        self.url = f"http://{host}:{settings.web_port}/"
+
+    def start(self) -> bool:
+        """Start serving; ``False`` (and a warning) if it did not come up in time."""
+        self._thread.start()
+        deadline = time.monotonic() + WEB_START_S
+        while not self._server.started and self._thread.is_alive():
+            if time.monotonic() > deadline:
+                break
+            time.sleep(0.05)
+        if not self._server.started:
+            logger.warning(
+                "the web client did not start (is port %s taken?); serving Master "
+                "Control without it",
+                self.url.rsplit(":", 1)[-1].strip("/"),
+            )
+            return False
+        logger.info("web client on %s", self.url)
+        return True
+
+    def stop(self) -> None:
+        """Stop serving."""
+        self._server.should_exit = True
+        self._thread.join(5)
+
+
 def _wait_headless() -> None:
     done = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: done.set())
@@ -198,6 +262,9 @@ def serve(args: argparse.Namespace, buffer: LogBuffer | None = None) -> int:
     )
 
     experiment = None if args.interlocks else (args.experiment or settings.experiment)
+    web = None if args.no_web else WebClient(engine, settings, experiment)
+    if web is not None and not web.start():
+        web = None
     try:
         window = None if args.no_window else _window_runner()
         if window is None:
@@ -210,8 +277,11 @@ def serve(args: argparse.Namespace, buffer: LogBuffer | None = None) -> int:
                 catalog,
                 preview,
                 experiment=experiment,
+                web_url=None if web is None else web.url,
             )
     finally:
+        if web is not None:
+            web.stop()
         if sender is not None:
             sender.stop()
         engine.stop()

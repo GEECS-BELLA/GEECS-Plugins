@@ -70,8 +70,8 @@ class DailyFileHandler(logging.Handler):
         """Append *record* to today's file (opening it, and pruning, on a new day)."""
         try:
             day = self._today()
-            if day != self._day:
-                self._open(day)
+            if day != self._day or self._stream is None:
+                self._open(day)  # a new day, or closed under us (logging reconfigured)
             assert self._stream is not None
             self._stream.write(self.format(record) + "\n")
             self._stream.flush()
@@ -100,10 +100,11 @@ class DailyFileHandler(logging.Handler):
         return gone
 
     def close(self) -> None:
-        """Close today's file."""
+        """Close today's file (the next record opens it again)."""
         if self._stream is not None:
             self._stream.close()
             self._stream = None
+        self._day = None
         super().close()
 
 

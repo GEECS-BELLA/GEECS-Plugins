@@ -119,7 +119,10 @@ class TestHistory:
         monitor.step()
         changes = [(e.old, e.new) for e in monitor.events()]
         assert changes == [("waiting", "ok"), ("ok", "tripped")]
-        assert [v for _, v in monitor.trend("vac")] == [1.0, 50.0]
+        (series,) = monitor.trend("vac")
+        assert [v for _, v in series.points] == [1.0, 50.0]
+        assert series.limit == 10.0 and series.condition == "Gauge P > 10"
+        assert monitor.trend("nope") == []
         assert monitor.snapshot().statuses[0].limit == 10.0
 
     def test_lifecycle_drives_the_source(self, source):
@@ -320,3 +323,14 @@ class TestCheckStatuses:
     def test_off_has_no_checks(self, source):
         status = make(source, threshold(enabled=False)).step().statuses[0]
         assert status.checks == ()
+
+
+def test_a_group_keeps_one_trend_per_check(source):
+    monitor = make(source, group(SAT, DRIFT))
+    source.push("Cam", Max=100, X=3, X0=0)
+    monitor.step()
+    source.push("Cam", Max=200)
+    monitor.step()
+    sat, drift = monitor.trend("cam")
+    assert [v for _, v in sat.points] == [100, 200] and sat.limit == 4000
+    assert [v for _, v in drift.points] == [3, 3] and drift.limit == 5

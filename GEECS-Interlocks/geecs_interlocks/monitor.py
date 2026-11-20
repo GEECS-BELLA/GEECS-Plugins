@@ -68,7 +68,7 @@ _UNSAFE_STATES = frozenset({"waiting", "tripped", "settling"})
 
 #: Seconds between two evaluations.
 TICK_S = 0.1
-#: Seconds of trend kept per interlock.
+#: Seconds of trend kept per check.
 TREND_S = 300.0
 #: Verdict changes kept for the event log.
 EVENTS_KEPT = 500
@@ -180,6 +180,15 @@ class Event:
     diagnostic: str = ""
 
 
+@dataclass(frozen=True)
+class TrendSeries:
+    """One check's recent values, for a plot against its limit."""
+
+    condition: str
+    limit: float | None
+    points: tuple[tuple[float, float], ...]
+
+
 @dataclass
 class _Tracker:
     """One interlock's mutable state between ticks (the loop thread's alone)."""
@@ -188,7 +197,8 @@ class _Tracker:
     state: State = "waiting"
     since: float = field(default_factory=time.time)
     settle_from: float | None = None
-    trend: deque[tuple[float, float]] = field(default_factory=deque)
+    #: One ``(wall-clock, value)`` series per condition, in file order.
+    trends: list[deque[tuple[float, float]]] = field(default_factory=list)
 
 
 def _measured(
@@ -318,12 +328,25 @@ class Monitor:
         """The source's latest reading of *device* (any thread)."""
         return self._source.reading(device)
 
-    def trend(self, name: str) -> list[tuple[float, float]]:
-        """``(wall-clock, value)`` points of *name* over the last :data:`TREND_S`."""
+    def trend(self, name: str) -> list[TrendSeries]:
+        """Each check of *name*: its ``(wall-clock, value)`` points over the last :data:`TREND_S`.
+
+        Empty for an unknown name; a check with no number (a settings check)
+        has no points.
+        """
         with self._lock:
             for tracker in self._trackers:
                 if tracker.interlock.name == name:
-                    return list(tracker.trend)
+                    statuses = {s.name: s for s in self._snapshot.statuses}
+                    checks = statuses[name].checks if name in statuses else ()
+                    return [
+                        TrendSeries(
+                            describe(condition),
+                            checks[i].limit if i < len(checks) else None,
+                            tuple(tracker.trends[i]) if i < len(tracker.trends) else (),
+                        )
+                        for i, condition in enumerate(tracker.interlock.conditions)
+                    ]
         return []
 
     # -- arming ---------------------------------------------------------------
@@ -441,17 +464,18 @@ class Monitor:
                 Event(now_wall, interlock.name, tracker.state, new_state, diagnostic)
             )
             tracker.state, tracker.since = new_state, now_wall
-        # A trend needs one number: a group's lives on its rows (per condition).
+        with self._lock:
+            while len(tracker.trends) < len(checks):
+                tracker.trends.append(deque(maxlen=self._trend_len))
+            for series, check in zip(tracker.trends, checks, strict=False):
+                if check.value is not None:
+                    series.append((now_wall, check.value))
+        # The interlock's own number: its check's, when it has only one.
         value, limit = (
             _measured(interlock.conditions[0], inputs[0])
             if len(interlock.conditions) == 1
             else (None, None)
         )
-        if value is not None:
-            with self._lock:
-                tracker.trend.append((now_wall, value))
-                while len(tracker.trend) > self._trend_len:
-                    tracker.trend.popleft()
         return InterlockStatus(
             interlock.name,
             interlock.description,
@@ -584,5 +608,6 @@ __all__ = [
     "InterlockStatus",
     "Monitor",
     "Snapshot",
+    "TrendSeries",
     "State",
 ]

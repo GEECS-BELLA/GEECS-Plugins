@@ -54,6 +54,17 @@ poetry run geecs-interlocks serve --config <name>
 `--experiment <experiment>` when `config.ini` names none; `--arm-at-start`
 arms the `config_change` interlocks once their settings have arrived.
 
+## The web client
+
+`serve` also serves a read-only page for any browser on the network,
+`http://<server>:8600/` (`config.ini [interlocks] web_host`, `web_port`;
+`--no-web` to leave it out): the verdict, the interlocks worst first, and an
+inspector with each check's recent trend against its limit and its history.
+The selection is in the address (`?interlock=<name>`), so a link opens it.
+If the page stops hearing from the server for 2 s it says **No signal**,
+shows the last verdict with its time and greys every state: it never keeps
+showing a verdict it is no longer receiving. Nothing on the page writes.
+
 ## The stream
 
 Two message formats, chosen with `config.ini [interlocks] wire_format` or

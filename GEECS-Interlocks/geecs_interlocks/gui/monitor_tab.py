@@ -31,49 +31,11 @@ from geecs_interlocks.gui.log_pane import LogPane
 from geecs_interlocks.gui.theme import SAFE_COLOURS, STATE_COLOURS
 from geecs_interlocks.logs import LogBuffer
 from geecs_interlocks.monitor import STATES, InterlockStatus, Snapshot
+from geecs_interlocks.present import is_age, number_text, verdict_text
 
 #: Milliseconds between two redraws.
 REFRESH_MS = 200
 COLUMNS = ("State", "Interlock", "Value", "Reason")
-
-
-def number_text(value: float | None, seconds: bool = False) -> str:
-    """A value for the table: four significant digits (an age in seconds), a dash for none."""
-    if value is None:
-        return "—"
-    return (
-        f"{value:.1f} s"
-        if seconds and value < 10
-        else f"{value:.0f} s"
-        if seconds
-        else f"{value:.4g}"
-    )
-
-
-def _is_age(condition_line: str) -> bool:
-    """Whether a check's value is an age (stale and external checks)."""
-    return (
-        " connected" in condition_line
-        or "updating every" in condition_line
-        or " on UDP " in condition_line
-    )
-
-
-def verdict_text(snapshot: Snapshot) -> tuple[str, str]:
-    """The strip's headline and its detail line."""
-    armed = [s for s in snapshot.statuses if s.armed]
-    if not snapshot.statuses:
-        return "No interlocks", "no interlocks file — reported unsafe"
-    if not armed:
-        return "Nothing armed", "every interlock is off — reported unsafe"
-    if snapshot.safe:
-        return "Safe", f"all {len(armed)} armed interlocks OK"
-    bad = [s for s in armed if s.unsafe]
-    since = min(s.since for s in bad)
-    tripped = sum(s.state == "tripped" for s in bad)
-    headline = "Tripped" if tripped else "Not ready"
-    when = time.strftime("%H:%M:%S", time.localtime(since))
-    return headline, f"{len(bad)} of {len(armed)} armed not OK · since {when}"
 
 
 def _rank(status: InterlockStatus) -> int:
@@ -255,7 +217,7 @@ class MonitorTab(QWidget):
         value = (
             f"{len(status.checks)} checks"
             if grouped
-            else number_text(status.value, _is_age(status.condition))
+            else number_text(status.value, is_age(status.condition))
         )
         name = status.name + ("  (holds settings)" if status.armable else "")
         item = QTreeWidgetItem([status.state, name, value, status.diagnostic])
@@ -275,7 +237,7 @@ class MonitorTab(QWidget):
                     [
                         "",
                         check.condition,
-                        number_text(check.value, _is_age(check.condition)),
+                        number_text(check.value, is_age(check.condition)),
                         reason,
                     ]
                 )
@@ -322,4 +284,4 @@ class MonitorTab(QWidget):
         QDesktopServices.openUrl(QUrl(self._web_url))
 
 
-__all__ = ["COLUMNS", "REFRESH_MS", "MonitorTab", "number_text", "verdict_text"]
+__all__ = ["COLUMNS", "REFRESH_MS", "MonitorTab"]
