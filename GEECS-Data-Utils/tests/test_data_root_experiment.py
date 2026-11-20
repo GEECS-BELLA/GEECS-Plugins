@@ -166,8 +166,12 @@ class TestFolderCatalog:
         catalog = FolderScanCatalog()
         with pytest.raises(OSError, match="unreachable"):
             catalog.list_runs("Flat", date(*DAY))
+        mapped.experiment = "Flat"  # the default experiment, named by ""
+        with pytest.raises(OSError, match="unreachable"):
+            catalog.list_runs("", date(*DAY))
         (mapped.base_path / "Y2020").mkdir()  # the share is back; the day has no scans
         assert catalog.list_runs("Flat", date(*DAY)) == []
+        assert catalog.list_runs("", date(*DAY)) == []
 
 
 class TestExperimentDirPresent:

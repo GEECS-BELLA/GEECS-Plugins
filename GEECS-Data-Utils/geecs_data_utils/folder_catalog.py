@@ -324,7 +324,9 @@ class FolderScanCatalog:
             return folder
         # The data_root_experiment's folder is the root itself, which may be
         # a bare mount point that exists while the share is down.
-        if root is None or not experiment_dir_present(root, experiment):
+        config = current_paths_config()
+        name = experiment or (config.experiment if config is not None else "")
+        if root is None or not experiment_dir_present(root, name):
             raise OSError(
                 f"the data root {str(root) if root else '(none in config.ini [Paths])'} "
                 "is unreachable: is the data share mounted?"
