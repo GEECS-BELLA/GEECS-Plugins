@@ -34,7 +34,9 @@ import numpy as np
 import pandas as pd
 from geecs_data_utils.data.binning import BinningConfig, bin_rows
 from geecs_data_utils.data.row_filters import RowFilters, filter_mask
-from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep, subtract_background
+from geecs_analysis.image_prep import HIT_FILTERS, ImagePrep
+from geecs_analysis.steps.background_frame import BackgroundFrameSpec, background_frame
+from geecs_data_utils.frames import Frame
 from geecs_data_utils.io import shot_images, shot_traces
 from geecs_data_utils.io.array1d import Data1DResult
 from geecs_data_utils.data.scan_merge import (
@@ -568,7 +570,7 @@ def tile_array(
 
     *background* comes off each shot first (the camera's average over the
     background scan, :func:`background_array`), then *prep* cleans it
-    (``geecs_data_utils.data.image_prep``: X-ray hits out, then centred
+    (``geecs_analysis.image_prep``: X-ray hits out, then centred
     on its beam), so a bin's average is of subtracted, centred shots.
 
     ``geecs_data_utils.io.shot_images.average_scan_rows``: shots the
@@ -583,13 +585,18 @@ def tile_array(
         No shot of the tile has an image; the reason why.
     """
     back = background_array(background, device) if background is not None else None
+    # By array index: neither the image nor the average carries coordinates.
+    by_index = BackgroundFrameSpec(source="background", alignment="samples")
 
     def prepare(image: np.ndarray) -> np.ndarray:
         if back is not None:
             try:
-                image = subtract_background(image, back)
+                less = background_frame(
+                    Frame.from_array(image), by_index, Frame.from_array(back)
+                )
             except ValueError as why:
-                raise NoImage(str(why)) from None
+                raise NoImage(f"the background cannot be taken off: {why}") from None
+            image = np.array(less.data)  # a frame's samples are read-only
         return prep.apply(image)
 
     found = shot_images.average_scan_rows(

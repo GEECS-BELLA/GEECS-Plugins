@@ -18,12 +18,6 @@ from geecs_data_utils.data.binning import (
     bin_frame,
     compute_bin_key,
 )
-from geecs_data_utils.data.curve_fit import (
-    CurveFit,
-    FitModel,
-    FitParameter,
-    fit_curve,
-)
 from geecs_data_utils.data.row_filters import (
     FilterCondition,
     FilterGroup,
@@ -48,10 +42,6 @@ __all__ = [
     "BinningConfig",
     "bin_frame",
     "compute_bin_key",
-    "CurveFit",
-    "FitModel",
-    "FitParameter",
-    "fit_curve",
     "FilterCondition",
     "FilterGroup",
     "RowFilters",

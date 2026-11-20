@@ -211,8 +211,10 @@ class PortalState:
                 "(start it with --processing-configs)",
             )
         try:
-            # Check the optional runtime even when the router is cached.
-            importlib.import_module("geecs_analysis.engine.compiled")
+            # Check the optional runtime even when the router is cached:
+            # ScanAnalysis is what the extra adds (the analysis core
+            # itself is always installed).
+            importlib.import_module("scan_analysis.core_preview")
             ephemeral = importlib.import_module("geecs_portal.processing")
         except ImportError as exc:
             raise HTTPException(

@@ -5,13 +5,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from geecs_data_utils.data.image_prep import (
-    ImagePrep,
+from geecs_analysis.algorithms.beam_centre import (
     beam_centre,
     centre_on,
-    remove_hits,
     threshold_level,
 )
+from geecs_analysis.algorithms.hot_pixels import remove_hot_pixels
+from geecs_analysis.image_prep import ImagePrep, remove_hits
 
 
 def _beam(row: float, col: float, shape=(41, 61), background=10.0) -> np.ndarray:
@@ -97,12 +97,64 @@ def test_hits_on_a_broad_beam_are_removed_and_only_they_change() -> None:
     assert int((out != hit).sum()) == len(spots)
 
 
-def test_a_background_is_taken_off_pixel_by_pixel() -> None:
-    from geecs_data_utils.data.image_prep import subtract_background
+def test_the_medians_are_the_median_step_and_the_result_is_the_callers() -> None:
+    """``median3``/``median5`` are the ``median`` step; the array may be written."""
+    from scipy.ndimage import median_filter
 
-    image = np.array([[10, 20], [30, 40]], dtype=np.uint16)
-    back = np.array([[1.0, 2.0], [3.0, 50.0]])
-    out = subtract_background(image, back)
-    np.testing.assert_allclose(out, [[9, 18], [27, -10]])  # floats: may go below 0
-    with pytest.raises(ValueError, match="background"):
-        subtract_background(image, np.zeros((3, 2)))
+    rng = np.random.default_rng(3)
+    image = rng.integers(0, 4096, (12, 15)).astype(np.uint16)
+    for kernel in (3, 5):
+        out = remove_hits(image, f"median{kernel}")
+        expected = median_filter(image.astype(float), size=kernel, mode="reflect")
+        np.testing.assert_array_equal(out, expected)
+        assert out.dtype == np.float64 and out.flags.writeable
+
+
+def _dark(rng: np.random.Generator) -> np.ndarray:
+    """A dark frame: a 100-count pedestal with a single count on one pixel in twenty."""
+    return 100 + rng.poisson(0.05, (200, 200)).astype(np.uint16)
+
+
+def test_single_counts_on_a_dark_frame_are_not_hits() -> None:
+    """More than half the pixels on one value: the measured noise is zero, the floor holds."""
+    dark = _dark(np.random.default_rng(7))
+    assert int((dark != 100).sum()) > 1000  # plenty of lone counts to mistake
+    np.testing.assert_array_equal(remove_hits(dark, "hot"), dark)
+
+
+def test_a_dark_frame_less_its_averaged_background_keeps_its_counts() -> None:
+    """The background's own scatter (far under a count) is not the noise either."""
+    rng = np.random.default_rng(7)
+    dark = _dark(rng)
+    image = dark - (100.03 + rng.normal(0, 0.02, dark.shape))
+    np.testing.assert_array_equal(remove_hits(image, "hot"), image)
+
+
+def test_noise_rounded_to_whole_counts_is_not_a_hit() -> None:
+    rng = np.random.default_rng(7)
+    image = np.rint(100 + rng.normal(0, 0.3, (200, 200)))
+    np.testing.assert_array_equal(remove_hits(image, "hot"), image)
+
+
+def test_a_real_hit_on_a_dark_frame_still_goes() -> None:
+    dark = _dark(np.random.default_rng(7)).astype(float)
+    hit = dark.copy()
+    hit[50, 60] += 40
+    out = remove_hits(hit, "hot")
+    assert out[50, 60] <= 101
+    assert int((out != hit).sum()) == 1
+
+
+def test_the_noise_floor_is_in_the_images_units_and_can_be_set() -> None:
+    """A normalised image names its own floor; zero is the measured noise alone."""
+    dark = _dark(np.random.default_rng(7))
+    assert int((remove_hot_pixels(dark, noise_floor=0.0) != dark).sum()) > 1000
+    scaled = dark / 4096.0
+    hit = scaled.copy()
+    hit[50, 60] += 40 / 4096.0
+    np.testing.assert_array_equal(remove_hot_pixels(hit), hit)  # under one "count"
+    out = remove_hot_pixels(hit, noise_floor=1 / 4096.0)
+    assert int((out != hit).sum()) == 1 and out[50, 60] < hit[50, 60]
+    for bad in (-1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="noise floor"):
+            remove_hot_pixels(dark, noise_floor=bad)

@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from geecs_data_utils.data.curve_fit import (
+from geecs_analysis.algorithms.curve_fit import (
     FWHM_PER_SIGMA,
     _initial_guess,
     fit_curve,
@@ -279,7 +279,7 @@ def test_a_result_survives_its_json_round_trip(fit):
 def test_every_model_has_a_formula():
     from typing import get_args
 
-    from geecs_data_utils.data.curve_fit import FORMULAS, FitModel
+    from geecs_analysis.algorithms.curve_fit import FORMULAS, FitModel
 
     assert set(FORMULAS) == set(get_args(FitModel)) - {"polynomial"}
 

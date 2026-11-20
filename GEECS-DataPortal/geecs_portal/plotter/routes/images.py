@@ -21,7 +21,7 @@ import pandas as pd
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
+from geecs_analysis.image_prep import HIT_FILTERS, ImagePrep
 from geecs_data_utils.data.scan_merge import SCAN_BIN_COLUMN
 from geecs_data_utils.io.display_png import colour_bar_png, safe_cmap, to_display_png
 from pydantic import BaseModel
@@ -358,7 +358,7 @@ def strip_code(
     by = f", pick_by=frame[{pick_by!r}]" if strip == "pick" and pick_by else ""
     return (
         "from datetime import date\n"
-        "from geecs_data_utils.data.image_prep import ImagePrep\n"
+        "from geecs_analysis.image_prep import ImagePrep\n"
         + _code_head(day, scan, experiment, refs, mtol, binx)
         + f"prep = ImagePrep(hits={prep.hits!r}, centre={prep.centre!r})\n"
         f"for tile in images.tiles(frame, {strip!r}{by}{_code_bins(refs)}):\n"
