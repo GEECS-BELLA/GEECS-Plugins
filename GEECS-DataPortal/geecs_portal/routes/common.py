@@ -19,6 +19,7 @@ from geecs_data_utils.data.sfile import (
     sfile_path_for_scan,
 )
 from geecs_data_utils.scan_frame import scan_frame
+from geecs_data_utils.tiled_schema import has_acq_timestamp
 from geecs_data_utils.tiled_catalog import (
     RunSummary,
     fmt_time_of_day,
@@ -107,7 +108,9 @@ def _sticky_query(state: dict, **overrides) -> str:
     return urlencode(kept, doseq=True)
 
 
-def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], bool]:
+def _acq_timestamp(
+    detail, device: str, shot: int, folder: Optional[Path] = None
+) -> tuple[Optional[float], bool]:
     """The event row's ``acq_timestamp`` for *device* at 1-based *shot*.
 
     :func:`geecs_data_utils.io.shot_images.row_acq_timestamp` over the
@@ -119,15 +122,34 @@ def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], boo
     or ``(None, True)`` on a gap. On rows that are not frames (gated,
     shot-table) a device with neither is ``(None, True)`` too: no ordinal
     fallback there.
+
+    With the scan *folder*, a derived folder's capture stack
+    (``<device>-<suffix>``, no record or column of its own) answers with
+    the device it is named after: the longest prefix among the devices
+    with a record or a column, then that device's record when the shot
+    table joined it, else its column (``shot_images.stack_parent_device``).
     """
     frame = detail.data
     ordinal_ok = getattr(detail, "rows_are_frames", True)
     if frame is None or shot < 1 or shot > len(frame):
         return (None, not ordinal_ok)  # a gated run with no rows: never ordinal
     shots = detail.shots() if hasattr(detail, "shots") else None
-    if shots is not None and shots.covers(device):
-        return (shots.stamp_for(device, shot), True)
-    value, present = shot_images.row_acq_timestamp(frame, device, shot)
+    if shots is not None:
+        if shots.covers(device):
+            return (shots.stamp_for(device, shot), True)
+        has_column = has_acq_timestamp([str(c) for c in frame.columns])
+        if not has_column(device):
+            # One parent, the longest prefix among the devices with a record
+            # or a column; then a record wins over a sampled column for it,
+            # as it does for the device itself.
+            parent = shot_images.stack_parent_device(
+                folder, device, lambda name: shots.covers(name) or has_column(name)
+            )
+            if parent is not None and shots.covers(parent):
+                return (shots.stamp_for(parent, shot), True)
+            if parent is not None:
+                device = parent
+    value, present = shot_images.row_acq_timestamp(frame, device, shot, folder)
     return (value, present or not ordinal_ok)
 
 

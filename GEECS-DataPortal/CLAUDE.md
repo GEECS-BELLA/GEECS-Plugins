@@ -879,7 +879,12 @@ folder catalog loaded no event table — `routes.common._file_shot`;
 convention), vendor-SDK formats (`.himg`/`.has`) as a path card, never
 rendered.  The event column matches through
 `tiled_schema.device_acq_timestamp_column`; a device that missed the
-shot 404s — a missing shot must never render a neighbour's image.  Display rendering is
+shot 404s — a missing shot must never render a neighbour's image.  A
+derived folder's capture stack (`<device>-<suffix>`, no column or record
+of its own) joins on the device it is named after
+(`shot_images.stack_parent_device`; `routes.common._acq_timestamp` asks
+the shot table's record for that device first); a derived folder of
+per-shot files still falls back to order.  Display rendering is
 percentile-windowed (1–99.7) 16-bit → 8-bit PNG.  **Lazy per-shot
 loading is a hard rule** (the NAS pathology is file count) — never
 eager-thumbnail a scan from native files.  Device names are validated

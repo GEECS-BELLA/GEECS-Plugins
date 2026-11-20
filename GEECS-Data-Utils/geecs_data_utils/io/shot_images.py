@@ -22,7 +22,9 @@ The event row decides which file is the shot's: :func:`row_acq_timestamp`
 reads the device's ``acq_timestamp`` (and its ``valid`` flag) from a scan's
 table, :func:`row_file_shot` the shot number in its ``ScanNNN_<device>_SSS``
 file names. A device that missed the shot is refused — **a missing shot
-never shows a neighbour's image**.
+never shows a neighbour's image**. A derived folder's capture stack
+(``<device>-<suffix>``) joins on the stamps of the device it is named after
+(:func:`stack_parent_device`); a derived folder of per-shot files does not.
 
 Lazy per shot: nothing here lists or reads a whole scan's images; a caller
 holding a :class:`ShotPixelCache` can keep a completed scan's pixels.
@@ -222,14 +224,64 @@ def device_kind(
     return DeviceKind("native", device_dir, ext)
 
 
+def stack_parent_device(
+    scan_folder: Optional[Path], device: str, known: Callable[[str], bool]
+) -> Optional[str]:
+    """The device whose row stamps a derived capture stack joins on, or ``None``.
+
+    A derived folder (``<device>-<suffix>``, e.g. a scope's
+    ``-scopeTrace.Channel1`` or a camera's ``-interpSpec``) has no
+    ``acq_timestamp`` column of its own, but its stack's frame stamps are
+    its parent device's, so the parent's column joins it exactly
+    (:func:`~geecs_data_utils.tiled_schema.derived_folder_parent`: the
+    folder's own column always wins, the longest matching prefix next).
+
+    Stacks only.  A derived folder of per-shot files (``-interp``,
+    ``-Spatial``, ``-Temporal``) answers ``None`` and keeps the order
+    fallback: its file names have not been checked against the parent's
+    stamps, and a join there would refuse frames that display today.
+
+    Parameters
+    ----------
+    scan_folder : Path or None
+        The scan's existing folder (read-only: one stack probe, and only
+        for a folder whose prefix names a known device).
+    device : str
+        The device folder name.
+    known : callable
+        ``known(name) -> bool``: whether a name is a device with stamps to
+        join on — ``tiled_schema.has_acq_timestamp(columns)`` for a scan
+        table, a shot table's ``covers`` for its records.
+
+    Returns
+    -------
+    str or None
+        The parent's name; ``None`` without a folder, for a folder that is
+        itself known, with no such parent, or with no capture stack.
+    """
+    if scan_folder is None or Path(device).name != device:
+        return None  # a name that is not one path part is no device folder
+    parent = tiled_schema.derived_folder_parent(device, known)
+    if parent is None or find_stack_file(scan_folder / device) is None:
+        return None
+    return parent
+
+
 def row_acq_timestamp(
-    frame: Optional[pd.DataFrame], device: str, shot: int
+    frame: Optional[pd.DataFrame],
+    device: str,
+    shot: int,
+    scan_folder: Optional[Path] = None,
 ) -> tuple[Optional[float], bool]:
     """The scan table's ``acq_timestamp`` for *device* at 1-based *shot*.
 
     Column matching goes through
     :func:`~geecs_data_utils.tiled_schema.device_acq_timestamp_column` and
-    :func:`~geecs_data_utils.tiled_schema.device_valid_column`.
+    :func:`~geecs_data_utils.tiled_schema.device_valid_column`. A derived
+    folder with a capture stack and no column of its own reads the column
+    and the ``valid`` companion of the device it is named after
+    (:func:`stack_parent_device`, which needs *scan_folder*); a derived
+    folder of per-shot files has no column, as before.
 
     Parameters
     ----------
@@ -239,6 +291,9 @@ def row_acq_timestamp(
         The device name.
     shot : int
         1-based shot number (the row).
+    scan_folder : Path, optional
+        The scan's existing folder. Without it a derived folder is never
+        joined on its parent.
 
     Returns
     -------
@@ -255,7 +310,13 @@ def row_acq_timestamp(
     columns = [str(c) for c in frame.columns]
     column = tiled_schema.device_acq_timestamp_column(columns, device)
     if column is None:
-        return (None, False)
+        parent = stack_parent_device(
+            scan_folder, device, tiled_schema.has_acq_timestamp(columns)
+        )
+        if parent is None:
+            return (None, False)
+        device = parent
+        column = tiled_schema.device_acq_timestamp_column(columns, device)
     valid = tiled_schema.device_valid_column(columns, device)
     if valid is not None:
         try:
@@ -606,7 +667,7 @@ def load_row_array(
     """
     if frame is not None and not 1 <= row <= len(frame):
         return ShotArray(kind="missing", reason=f"no shot {row} in this scan")
-    stamp, present = row_acq_timestamp(frame, device, row)
+    stamp, present = row_acq_timestamp(frame, device, row, scan_folder)
     if present and stamp is None:
         return ShotArray(kind="missing", reason="the device missed this shot")
     return load_shot_array(
