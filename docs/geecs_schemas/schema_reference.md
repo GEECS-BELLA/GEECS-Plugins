@@ -729,7 +729,7 @@ One thing a page does to a device of the family, and the roles it writes.
 
 ### Panel
 
-How a device page lays out the family's roles: the control rail and the readings strip.
+How a device page lays out the family's roles: the control rail, the readings strip and the trends.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
@@ -738,6 +738,7 @@ How a device page lays out the family's roles: the control rail and the readings
 | `buttons` | `dict[str, tuple[str, str]]` | no | empty | A two-state rail role drawn as a pair of buttons, its labels for 0 then 1 (an acquire as Stop / Start), in place of its type's control. The role is writable, in the rail, and a bit or a whole number limited to [0, 1]. |
 | `tweak` | `dict[str, TweakHint]` | no | empty | A rail setpoint drawn with its step and step buttons beside it, in place of three separate controls: the key is the setpoint, the hint its step setpoint and its forward and reverse commands, all writable and in the key's rail group. |
 | `show_while` | `dict[str, str]` | no | empty | An array an axis draws, shown by default while a monitored role reads 1 (a processed spectrum while background subtraction is on); otherwise the axis' first array. A viewer's own choice wins. |
+| `trends` | `list[PanelTrend]` | no | empty | The time plots the settables page draws under the readings, in order: each a title, unique in the panel, and the monitored numeric roles it draws against wall-clock time (a loop's value beside its setpoint). Four at most: each is a plot of its own height between the readings and the role tables, redrawn every second (five times a second on a window of 30 s or less). A role may sit in several trends and need not be a reading. A kind whose page has a data pane of its own (a camera's image, a trace's plot) draws no trends. |
 
 ### PanelGroup
 
@@ -758,6 +759,15 @@ A setpoint drawn with a step and a pair of step buttons beside it (the motor rec
 | `step` | `str` | yes | — | The setpoint holding the step size (the motor record's 'twv'). |
 | `forward` | `str` | yes | — | The command that steps forward by it ('twf'): the record moves, the page computes nothing. |
 | `reverse` | `str` | yes | — | The command that steps back by it ('twr'). |
+
+### PanelTrend
+
+One time plot under a device page's readings: a few roles' values against wall-clock time.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The plot's heading on the page. |
+| `roles` | `list[str]` | yes | — | The family roles the plot draws, one line each, in order: one to four monitored roles whose value is a number (a readback, a setpoint, a bit or a counter; never text, an enum, a command, an array or an image). The page labels each line by the role's label and the y axis by the roles' unit when they share one. |
 
 ## `panel_devices`
 

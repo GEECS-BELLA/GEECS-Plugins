@@ -336,3 +336,6 @@ def test_a_loop_is_drawn_whole_by_the_settables_page() -> None:
     assert (
         family.role("mode").settled_by == "mode_taken"
     )  # a preset restore writes the mode last
+    # the actuator's readback beside the last target, and the two histories an operator reads a loop by
+    assert drawn["readings"][drawn["readings"].index("target") + 1] == "actuator"
+    assert [(t.title, t.roles) for t in family.panel.trends] == [("Value", ["value_display", "setpoint_display"]), ("Actuator", ["actuator", "target"])]  # fmt: skip

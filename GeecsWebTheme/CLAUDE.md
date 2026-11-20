@@ -66,7 +66,8 @@ scalar plot) is **Plotly, drawn through `plot.js`**, the one template this
 package derives from its tokens. Images are each surface's own for now: the
 Control Room's canvas frame viewer is right for 16-bit frames and stays, and
 the Data Portal is bound by nothing about images while it evolves.
-Adoption: the Control Room's trace page draws through it (2026-11-05); the
+Adoption: the Control Room's trace page draws through it (2026-11-05), and
+the settables page's trends (2026-11-18); the
 camera page's lineouts and histogram are still its own canvas drawing (owed:
 onto `plot.js`, `decimate` moving here from `trace_rules.js` if the camera
 needs it); the portal's figures are below.

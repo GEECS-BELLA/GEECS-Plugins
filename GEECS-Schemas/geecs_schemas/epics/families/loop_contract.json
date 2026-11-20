@@ -34,6 +34,7 @@
     {"name": "error", "suffix": "Error_RBV", "type": "readback", "label": "error", "fields": ["EGU", "PREC"], "archive": true},
     {"name": "step", "suffix": "Step_RBV", "type": "readback", "label": "last step", "fields": ["EGU", "PREC"], "archive": true},
     {"name": "target", "suffix": "Target_RBV", "type": "readback", "label": "last target", "fields": ["EGU", "PREC"], "archive": true},
+    {"name": "actuator", "suffix": "Actuator_RBV", "type": "readback", "label": "actuator", "fields": ["EGU", "PREC"], "archive": true},
     {"name": "owns", "suffix": "Owns_RBV", "type": "bit", "label": "loop is writing the actuator", "archive": true},
     {"name": "steps", "suffix": "Steps_RBV", "type": "readback", "label": "steps taken"},
     {"name": "frame_id", "suffix": "FrameId_RBV", "type": "readback", "label": "frame id", "level": "expert"},
@@ -61,6 +62,10 @@
       {"title": "Tuning", "roles": ["gain", "deadband", "max_step", "average"]},
       {"title": "Travel limits", "roles": ["limit_low", "limit_high"]}
     ],
-    "readings": ["mode_taken", "state", "reason", "reason_text", "value_display", "setpoint_display", "value", "error", "step", "target", "steps", "owns", "off_since_boot"]
+    "readings": ["mode_taken", "state", "reason", "reason_text", "value_display", "setpoint_display", "value", "error", "step", "target", "actuator", "steps", "owns", "off_since_boot"],
+    "trends": [
+      {"title": "Value", "roles": ["value_display", "setpoint_display"]},
+      {"title": "Actuator", "roles": ["actuator", "target"]}
+    ]
   }
 }
