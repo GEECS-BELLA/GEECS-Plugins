@@ -37,9 +37,9 @@ def legacy(snapshot):
     return render_status(snapshot, "legacy")
 
 
-def test_legacy_is_the_default():
-    assert DEFAULT_WIRE_FORMAT == "legacy"
-    assert render_status(snap(status("a", "ok"))) == "SAFE: a"
+def test_summary_is_the_default():
+    assert DEFAULT_WIRE_FORMAT == "summary"
+    assert render_status(snap(status("a", "ok"))) == "SAFE | OK: a"
 
 
 class TestSummary:
@@ -111,6 +111,25 @@ class TestKeywordRules:
         snapshot = mixed(mix)
         message = render_status(snapshot, wire_format)
         assert ("WARNING" in message.upper()) is (not snapshot.safe)
+
+    @pytest.mark.parametrize("mix", MIXES)
+    def test_summary_holds_exactly_one_keyword(self, mix):
+        """Master Control reads a frame only when it holds a single SAFE or WARNING."""
+        snapshot = mixed(mix)
+        message = summary(snapshot)
+        keywords = re.findall("safe|warning", message, re.IGNORECASE)
+        assert keywords == (["SAFE"] if snapshot.safe else ["WARNING"])
+
+    @pytest.mark.parametrize("statuses", [(), (status("a", "off"),)])
+    def test_summary_one_keyword_when_nothing_is_watched(self, statuses):
+        assert re.findall("safe|warning", summary(snap(*statuses)), re.IGNORECASE) == [
+            "WARNING"
+        ]
+
+    def test_legacy_repeats_the_keyword(self):
+        """Why summary is the default: two armed interlocks, two keywords."""
+        message = legacy(snap(status("a", "ok"), status("b", "ok")))
+        assert len(re.findall("safe", message, re.IGNORECASE)) == 2
 
     @pytest.mark.parametrize("mix", MIXES)
     def test_summary_safe_only_leading_an_all_clear(self, mix):

@@ -71,7 +71,7 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--wire-format",
         choices=WIRE_FORMATS,
-        help="the stream's message format (default: config.ini, else legacy)",
+        help="the stream's message format (default: config.ini, else summary)",
     )
     serve.add_argument(
         "--external-host", help="where external (UDP) signals are received"

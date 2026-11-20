@@ -12,7 +12,7 @@ client half of the site profile)::
     web_host = 0.0.0.0        # where the web client listens
     web_port = 8600
     external_host = 0.0.0.0   # where external (UDP) signals are received
-    wire_format = legacy      # or summary (geecs_interlocks.wire)
+    wire_format = summary     # or legacy (geecs_interlocks.wire)
 
 Every key is optional. Without them every server listens on ``127.0.0.1``
 only — a laptop running the demo is never reachable from the network until

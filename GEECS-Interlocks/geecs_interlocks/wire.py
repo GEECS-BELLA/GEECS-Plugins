@@ -4,24 +4,29 @@ A frame is a 4-byte big-endian length, then that many bytes of UTF-8 text,
 every :data:`SEND_INTERVAL_S`. The text comes in one of two formats
 (:data:`WireFormat`), chosen per server:
 
-``legacy`` (the default: the original server's, which Master Control reads
-today) — one part per armed interlock, joined with ``" | "``::
-
-    SAFE: <name> | SAFE: <name>                         every armed interlock OK
-    WARNING! <name> - <reason> | SAFE: <name>           a trip
-    WARNING! No monitors registered                     nothing armed, or no file
-
-``summary`` — the overall verdict first, then one part per interlock::
+``summary`` (the default) — the overall verdict first, then one part per
+interlock::
 
     SAFE | OK: <name> | OK: <name>
     WARNING! TRIPPED | TRIPPED: <name> - <reason> | OK: <name>
     WARNING! TRIPPED | OFF: <name>                      nothing armed
     WARNING! TRIPPED | NO INTERLOCKS                    no interlocks file
 
-**The keyword rules** (pinned by the tests over every mix of states): a
-frame holds ``WARNING`` exactly when it is not an all-clear, in both formats;
-in ``summary`` the word "safe" appears only as the leading ``SAFE`` of an
-all-clear. So any keyword search a reader does is right. Inside a name or a
+``legacy`` — the original server's: one part per armed interlock, joined
+with ``" | "``::
+
+    SAFE: <name> | SAFE: <name>                         every armed interlock OK
+    WARNING! <name> - <reason> | SAFE: <name>           a trip
+    WARNING! No monitors registered                     nothing armed, or no file
+
+**Master Control reads a frame only when it holds a single keyword** — one
+``SAFE`` or one ``WARNING``, in any case. ``summary`` always does (pinned by
+the tests over every mix of states): its one keyword is the leading word,
+``SAFE`` for an all-clear and ``WARNING! TRIPPED`` otherwise. ``legacy``
+repeats a keyword per interlock, so Master Control can read it only while a
+single interlock is armed; it stays for that case and for other readers.
+In both formats a frame holds ``WARNING`` exactly when it is not an
+all-clear. Inside a name or a
 reason "safe" is sent as ``sa-fe``, "warning" as ``warn-ing``, and ``|`` as
 ``/``.
 
@@ -49,10 +54,10 @@ SEND_INTERVAL_S = 0.1
 #: A frame longer than this is a broken stream, not a message.
 MAX_FRAME_BYTES = 16 * 1024 * 1024
 
-#: The two message formats; ``legacy`` is what Master Control reads today.
+#: The two message formats; only ``summary`` keeps Master Control's one-keyword rule.
 WireFormat = Literal["legacy", "summary"]
 WIRE_FORMATS: tuple[WireFormat, ...] = get_args(WireFormat)
-DEFAULT_WIRE_FORMAT: WireFormat = "legacy"
+DEFAULT_WIRE_FORMAT: WireFormat = "summary"
 
 #: ``summary``: the verdict that leads every frame.
 ALL_SAFE = "SAFE"

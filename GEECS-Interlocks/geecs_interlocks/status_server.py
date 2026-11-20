@@ -54,7 +54,7 @@ class StatusServer:
     interval :
         Seconds between frames to one client.
     wire_format :
-        The message format (``legacy``: what Master Control reads today).
+        The message format (``summary``: one keyword per frame, as Master Control needs).
     """
 
     def __init__(

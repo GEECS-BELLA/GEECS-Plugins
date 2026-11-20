@@ -48,13 +48,15 @@ arms the `config_change` interlocks once their settings have arrived.
 Two message formats, chosen with `config.ini [interlocks] wire_format` or
 `--wire-format` (details in `geecs_interlocks/wire.py`):
 
-- `legacy` (default): the original server's format, which Master Control
-  reads today: `SAFE: <name> | WARNING! <name> - <reason>`.
-- `summary`: the verdict first: `SAFE | OK: <name>` or
+- `summary` (default): the verdict first: `SAFE | OK: <name>` or
   `WARNING! TRIPPED | TRIPPED: <name> - <reason>`.
+- `legacy`: the original server's format:
+  `SAFE: <name> | WARNING! <name> - <reason>`.
 
-In both, a frame holds `WARNING` exactly when it is not an all-clear.
-`listen` reads either.
+Master Control reads a frame only when it holds a single `SAFE` or
+`WARNING`. `summary` always does; `legacy` repeats the keyword per
+interlock, so it works with Master Control only while one interlock is
+armed. `listen` reads either.
 
 Ports and bind addresses (the stream, the web client, the external signals)
 come from `config.ini [interlocks]`; see `geecs_interlocks/config.py`. With

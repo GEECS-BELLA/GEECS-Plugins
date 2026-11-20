@@ -67,7 +67,7 @@ def test_a_taken_port_raises(server):
         other.start()
 
 
-def test_the_default_stream_is_legacy():
+def test_the_default_stream_is_summary():
     srv = StatusServer(
         lambda: Snapshot((InterlockStatus("a", "", "", "tripped", "P=5"),)),
         "127.0.0.1",
@@ -77,6 +77,6 @@ def test_the_default_stream_is_legacy():
     srv.start()
     try:
         with connect(srv) as sock:
-            assert read_frame(sock) == "WARNING! a - P=5"
+            assert read_frame(sock) == "WARNING! TRIPPED | TRIPPED: a - P=5"
     finally:
         srv.stop()

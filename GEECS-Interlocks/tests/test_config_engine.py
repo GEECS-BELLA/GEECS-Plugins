@@ -98,7 +98,7 @@ class TestEngine:
 
     def test_stream_serves_the_engine(self, engine):
         with socket.create_connection(engine.stream.address, timeout=2) as sock:
-            assert read_frame(sock).startswith("WARNING! vac - ")
+            assert read_frame(sock).startswith("WARNING! TRIPPED | TRIPPED: vac")
 
     def test_reload_swaps_and_keeps_the_stream(self, engine):
         write(engine.path, threshold("vac"), threshold("second"))
