@@ -624,9 +624,10 @@ design rules"). The rules that are the portal's own:
   went (the Images page's bins are the strip's own tiles). Deleting any
   of it is an `/api` change for the owner, not a cleanup.
 - **Accepted debt, for a later PR of the arc:** the other
-  duplicates the move brought in (`plotter/scans.default_x` is
-  `routes/plot_api._default_x`; `scans.display_name` overlaps
-  `_pretty_names`; fold toward the plotter's, which a page uses). That PR also hands the plotter the portal's catalog
+  duplicate the move brought in (`scans.display_name` overlaps
+  `_pretty_names`; fold toward the plotter's, which a page uses). The
+  default X is already one rule, `analysis.default_x`: the one module
+  both the scan page's routes and the plotter import. That PR also hands the plotter the portal's catalog
   (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
   folder-only even under `--tiled`; the folder catalog caches finished
   scans itself), and with it folds the Add-scan drawer's day listing

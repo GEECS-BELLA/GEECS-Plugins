@@ -11,6 +11,9 @@ snippet quotes), making pandas values JSON-safe (NaN → ``null``), and
 generating the notebook snippet that reproduces each response exactly —
 the arc's reproducibility doctrine.
 
+Also here, because both the scan page's routes and the plotter import
+this module: :func:`default_x`, the one default-X rule of every plot.
+
 No FastAPI imports here: bad params raise :class:`BadParam` and the app
 maps that to 400.
 """
