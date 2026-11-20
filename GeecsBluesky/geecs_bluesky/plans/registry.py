@@ -25,6 +25,7 @@ from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.background import BackgroundSnapshot
 from geecs_bluesky.devices.ca._view import owner_of
+from geecs_bluesky.devices.ca.liveness import stale_text
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import (
     refuse_native_cameras,
@@ -75,6 +76,7 @@ from geecs_bluesky.plans.strict import (
     needed_device_names,
     name_failed_status,
     run_bracket,
+    stale_devices,
 )
 from geecs_bluesky.plans.sweep import sweep_movers, sweep_plan
 from geecs_bluesky.utils import safe_name
@@ -375,6 +377,33 @@ def refuse_listed_witness(devices: Sequence[Any]) -> None:
             "run's witness, recorded in every strict row automatically — drop it "
             "from the run's devices"
         )
+
+
+def warn_after_open(plan: Any, warnings: Sequence[str]) -> Any:
+    """Log *warnings* once more right after ``open_run``: the start document opens ``scan.log``.
+
+    A WARNING logged while the plan binds lands in the worker's journal
+    alone; this repeats it where the operator reads the run.  *plan*
+    unchanged when there are none.
+    """
+    if not warnings:
+        return (yield from plan)
+    seen: list[Msg] = []
+
+    def _proc(msg: Msg) -> tuple[Any, Any]:
+        if msg.command != "open_run" or any(m is msg for m in seen):
+            return None, None
+        seen.append(msg)
+
+        def _open_then_warn():
+            uid = yield msg
+            for text in warnings:
+                logger.warning("%s", text)
+            return uid
+
+        return _open_then_warn(), None
+
+    return (yield from bpp.plan_mutator(plan, _proc))
 
 
 def witness_wrapper(
@@ -801,6 +830,18 @@ def strict_plan(  # noqa: C901, PLR0915
             None if fly else shot_control, detectors, needed, movers
         )
         per_shot = [d for d in detectors if is_per_shot(d)]
+        # A condition or a mover is never waited on: a frozen loop (connected,
+        # publishing nothing) would go unnoticed, so it is WARNED, never refused.
+        stale = yield from stale_devices(
+            [*(d for d in detectors if not is_per_shot(d)), *movers]
+        )
+        start_warnings: list[str] = []
+        if stale:
+            start_warnings.append(
+                f"{stale_text(stale)} — connected, but its LabVIEW loop has not "
+                "updated: recorded anyway, its values may be stale (check the device)"
+            )
+            logger.warning("%s", start_warnings[-1])
         # Scan mode (#1084): the profile's flag selects it; refuse what it
         # cannot carry before the box is driven, then thread the control
         # through the hook (the announce before every fire, the row's
@@ -822,6 +863,7 @@ def strict_plan(  # noqa: C901, PLR0915
         md["acquisition"] = acquisition
         md["native_image_save"] = native_files
         md["devices_dropped"] = dropped
+        md["devices_stale"] = [name for name, _ in stale]
         # The scan-mode bracket names the devices stamped by their
         # systimestamp; any other run takes every stamp from acq_timestamp
         # (a halted scan-mode run's choice undone here).
@@ -893,6 +935,7 @@ def strict_plan(  # noqa: C901, PLR0915
         if tick is not None:
             inner = tick.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
+        inner = warn_after_open(inner, start_warnings)
         if snapshot is not None:
             # The listed devices, dropped ones included: a device left out
             # because it is down is not read as background telemetry either.
