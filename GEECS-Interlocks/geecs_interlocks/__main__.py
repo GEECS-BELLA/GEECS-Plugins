@@ -2,7 +2,7 @@
 
 ::
 
-    geecs-interlocks serve                         # the experiment's interlocks.yaml, real devices
+    geecs-interlocks serve --config main           # the experiment's interlocks/main.yaml, real devices
     geecs-interlocks serve --demo --interlocks examples/demo_interlocks.yaml
     geecs-interlocks serve --fake-devices --interlocks examples/demo_interlocks.yaml
     geecs-interlocks listen 127.0.0.1:5001         # print what Master Control receives
@@ -23,7 +23,12 @@ import threading
 import time
 from pathlib import Path
 
-from geecs_interlocks.config import Settings, interlocks_path, load_interlocks
+from geecs_interlocks.config import (
+    Settings,
+    configuration_names,
+    interlocks_path,
+    load_interlocks,
+)
 from geecs_interlocks.engine import Engine, SourceFactory, geecs_sources
 from geecs_interlocks.wire import parse_status, read_frame
 
@@ -43,10 +48,14 @@ def _parser() -> argparse.ArgumentParser:
     serve = commands.add_parser("serve", help="run the interlock server")
     where = serve.add_mutually_exclusive_group()
     where.add_argument(
-        "--experiment", help="read <experiment>/interlocks.yaml from the configs repo"
+        "--config",
+        help="run the named configuration <experiment>/interlocks/<CONFIG>.yaml",
     )
     where.add_argument(
         "--interlocks", type=Path, help="read this interlocks file instead"
+    )
+    serve.add_argument(
+        "--experiment", help="the experiment (default: config.ini [Experiment] expt)"
     )
     fake = serve.add_mutually_exclusive_group()
     fake.add_argument(
@@ -85,7 +94,13 @@ def _path(args: argparse.Namespace, settings: Settings) -> Path | None:
             "no experiment: pass --experiment or --interlocks, or set "
             "config.ini [Experiment] expt"
         )
-    return interlocks_path(experiment)
+    if args.config is None:
+        names = configuration_names(experiment)
+        raise SystemExit(
+            "which configuration? pass --config NAME (saved: "
+            f"{', '.join(names) or 'none'}) or --interlocks FILE"
+        )
+    return interlocks_path(experiment, args.config)
 
 
 def _sources(

@@ -1,23 +1,32 @@
 """InterlockSet — the experiment's software interlocks, watched and reported.
 
-An interlock watches one or two device variables. While its condition is
-unsafe the interlock server reports it TRIPPED on its status stream, which
-Master Control reads; once the condition has been safe again for
-``settle_s`` seconds it reports OK. The server only reports — what a trip
-stops is Master Control's decision. You would edit this file to watch a
-known hazard: a vacuum gauge rising, a camera saturating, a beam drifting
-off its reference.
+An interlock holds one or more conditions and is unsafe while any of them
+is (a logical OR), so one interlock can group several checks under one
+name — a camera's saturation and its pointing, say. While it is unsafe the
+interlock server reports it TRIPPED on its status stream, which Master
+Control reads; once every condition has been safe again for ``settle_s``
+seconds it reports OK. The server only reports — what a trip stops is
+Master Control's decision. You would edit this file to watch a known
+hazard: a vacuum gauge rising, a camera saturating, a beam drifting off its
+reference, a motion controller signalling that it is moving.
 
 Every interlock fails safe: a device that is disconnected, has not
-answered yet, or sends a value that is not a number counts as unsafe.
+answered yet, has gone silent for ``stale_after_s``, or sends a value that
+is not a number counts as unsafe; so does an external signal before its
+first packet, and a configuration-change condition before it is armed.
+
+An experiment keeps any number of named interlock configurations, one file
+each under ``interlocks/``; the server runs one at a time.
 
 Developer notes
 ---------------
 The condition kinds keep the semantics of the original standalone
-package's ``ThresholdCheck`` and ``AlignmentCheck``, plus a staleness check.
-Its ``CustomCheck`` (an arbitrary Python predicate) is not carried over:
-code does not belong in a config file. The reader is ``geecs_interlocks``
-(GEECS-Interlocks).
+package's ``ThresholdCheck``, ``AlignmentCheck``, ``ConfigurationChangeCheck``
+and ``ExternalStatusCheck``, plus a staleness check; its ``MultiCheck`` is an
+interlock's ``conditions`` list, and its multi-axis alignment one alignment
+condition per axis. Its ``CustomCheck`` (an arbitrary Python predicate) is
+not carried over: code does not belong in a config file. The reader is
+``geecs_interlocks`` (GEECS-Interlocks).
 """
 
 from __future__ import annotations
@@ -28,18 +37,20 @@ from pydantic import Field, model_validator
 
 from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
-#: The experiment's interlocks, at the top of its configs folder.
-INTERLOCKS_FILENAME = "interlocks.yaml"
+#: Where an experiment's interlock configurations live: ``interlocks/<name>.yaml``.
+INTERLOCKS_FOLDER = "interlocks"
 
 #: The comparison operators a threshold condition accepts.
-ThresholdOperator = Literal["<", "<=", ">", ">="]
+ThresholdOperator = Literal["<", "<=", ">", ">=", "==", "!="]
 
 
 class ThresholdCondition(SchemaModel):
     """Unsafe when a variable crosses a limit.
 
     For example ``operator: '>'`` with ``limit: 4094`` trips when a camera's
-    ``MaxCounts`` saturates.
+    ``MaxCounts`` saturates. ``==`` and ``!=`` are for status codes and
+    other whole numbers: ``operator: '!='`` with ``limit: 0`` trips on any
+    nonzero fault code.
     """
 
     kind: Literal["threshold"] = Field(
@@ -62,6 +73,15 @@ class ThresholdCondition(SchemaModel):
             "interlock counts as safe again (0 = resume as soon as it is back)."
         ),
     )
+
+    @model_validator(mode="after")
+    def _no_hysteresis_on_equality(self) -> ThresholdCondition:
+        """Refuse a hysteresis on '==' / '!=', which have no direction to come back in."""
+        if self.operator in ("==", "!=") and self.hysteresis:
+            raise ValueError(
+                f"hysteresis has no meaning with operator {self.operator!r}: leave it 0"
+            )
+        return self
 
 
 class AlignmentCondition(SchemaModel):
@@ -132,14 +152,82 @@ class StaleCondition(SchemaModel):
     )
 
 
+class ExternalCondition(SchemaModel):
+    """Unsafe while an external program says so over UDP.
+
+    For a program outside GEECS — a motion controller on another computer,
+    say — that sends one short text packet to the interlock server whenever
+    its state changes. A packet containing ``warning`` makes the condition
+    unsafe, one containing ``safe`` makes it safe (case does not matter), and
+    any other packet leaves the last state. Unsafe until the first packet.
+    """
+
+    kind: Literal["external"] = Field(
+        description="Condition type. 'external' follows UDP status packets."
+    )
+    port: int = Field(
+        ge=1,
+        le=65535,
+        description=(
+            "UDP port the interlock server listens on for this signal. "
+            "Conditions naming the same port share one signal."
+        ),
+    )
+    source: str = Field(
+        "",
+        description="Optional name of the sending program, shown to operators.",
+    )
+    max_age_s: float | None = Field(
+        None,
+        gt=0,
+        description=(
+            "Seconds without a packet before the signal counts as lost. Leave "
+            "empty when the sender transmits only on a change (silence is normal)."
+        ),
+    )
+
+
+class ConfigChangeCondition(SchemaModel):
+    """Unsafe when device settings change from the values they had when armed.
+
+    The operator arms it from the interlock server's window once the
+    settings are right; until then it is unsafe. Any later change to one of
+    the variables trips it until it is re-armed.
+    """
+
+    kind: Literal["config_change"] = Field(
+        description=(
+            "Condition type. 'config_change' trips when settings move from "
+            "their armed values."
+        )
+    )
+    device: str = Field(description="Device carrying the settings.")
+    variables: list[str] = Field(
+        min_length=1, description="The settings to hold, e.g. ['Exposure', 'Gain']."
+    )
+
+    @model_validator(mode="after")
+    def _unique_variables(self) -> ConfigChangeCondition:
+        """Refuse a variable listed twice."""
+        if len(set(self.variables)) != len(self.variables):
+            raise ValueError(f"a variable is listed twice in {self.variables}")
+        return self
+
+
 InterlockCondition = Annotated[
-    Union[ThresholdCondition, AlignmentCondition, StaleCondition],
+    Union[
+        ThresholdCondition,
+        AlignmentCondition,
+        StaleCondition,
+        ExternalCondition,
+        ConfigChangeCondition,
+    ],
     Field(discriminator="kind"),
 ]
 
 
 class Interlock(SchemaModel):
-    """One interlock: a name and the condition that makes it unsafe."""
+    """One interlock: a name and the conditions that make it unsafe (any one is enough)."""
 
     name: str = Field(
         min_length=1,
@@ -155,14 +243,18 @@ class Interlock(SchemaModel):
             "armed, never counted in the verdict)."
         ),
     )
-    condition: InterlockCondition = Field(
-        description="The condition that makes this interlock unsafe."
+    conditions: list[InterlockCondition] = Field(
+        min_length=1,
+        description=(
+            "The conditions watched; the interlock is unsafe while any one of "
+            "them is. List several to report them under one name."
+        ),
     )
     settle_s: float = Field(
         0.0,
         ge=0,
         description=(
-            "Seconds the condition must stay safe after a trip before the "
+            "Seconds every condition must stay safe after a trip before the "
             "interlock reports OK again."
         ),
     )
@@ -173,15 +265,25 @@ class InterlockSet(VersionedSchemaModel):
 
     Notes
     -----
-    Stored as ``interlocks.yaml`` at the top of the experiment's scanner
-    configs.  The interlock server reads it at start and on a reload from
-    its window; an edit takes effect at the next reload.
+    One named configuration, stored as ``interlocks/<name>.yaml`` in the
+    experiment's scanner configs.  The interlock server reads it at start
+    and on a reload or save from its window; an edit takes effect at the
+    next reload.
     """
 
     tier: ClassVar[Tier] = "operator"
 
     interlocks: list[Interlock] = Field(
         default_factory=list, description="The interlocks, in display order."
+    )
+    stale_after_s: float | None = Field(
+        5.0,
+        gt=0,
+        description=(
+            "Seconds without an update from a device before every interlock "
+            "reading it trips. Leave empty for devices that publish only on "
+            "a change (a disconnect still trips)."
+        ),
     )
 
     @model_validator(mode="after")
@@ -197,11 +299,13 @@ class InterlockSet(VersionedSchemaModel):
 
 __all__ = [
     "AlignmentCondition",
+    "ConfigChangeCondition",
+    "ExternalCondition",
     "Interlock",
     "InterlockCondition",
     "InterlockSet",
     "StaleCondition",
     "ThresholdCondition",
     "ThresholdOperator",
-    "INTERLOCKS_FILENAME",
+    "INTERLOCKS_FOLDER",
 ]

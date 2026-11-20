@@ -89,8 +89,8 @@ class DemoScript:
     def from_interlocks(cls, interlocks: InterlockSet) -> DemoScript:
         """Script a believable session for every condition in *interlocks*."""
         script = cls()
-        for k, interlock in enumerate(interlocks.interlocks):
-            condition = interlock.condition
+        conditions = [c for i in interlocks.interlocks for c in i.conditions]
+        for k, condition in enumerate(conditions):
             period, phase = 40.0 + 13.0 * k, float(k)
             if isinstance(condition, ThresholdCondition):
                 key = (condition.device, condition.variable)

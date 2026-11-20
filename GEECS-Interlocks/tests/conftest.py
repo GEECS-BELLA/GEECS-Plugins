@@ -48,7 +48,7 @@ def threshold(name: str = "vac", **overrides: Any) -> dict[str, Any]:
         "limit": 10.0,
     }
     condition.update(overrides.pop("condition", {}))
-    return {"name": name, "condition": condition, **overrides}
+    return {"name": name, "conditions": [condition], **overrides}
 
 
 def interlock_set(*entries: dict[str, Any]) -> InterlockSet:

@@ -3,7 +3,13 @@
 import math
 
 import pytest
-from geecs_schemas import AlignmentCondition, StaleCondition, ThresholdCondition
+from geecs_schemas import (
+    AlignmentCondition,
+    ConfigChangeCondition,
+    ExternalCondition,
+    StaleCondition,
+    ThresholdCondition,
+)
 
 from geecs_interlocks.conditions import Inputs, describe, evaluate, number, watched
 
@@ -42,6 +48,10 @@ class TestThreshold:
             ("<", 10, False),
             ("<=", 10, True),
             (">", 9.99, False),
+            ("==", 10, True),
+            ("==", 3, False),
+            ("!=", 3, True),
+            ("!=", 10, False),
         ],
     )
     def test_operators(self, op, value, unsafe):
@@ -119,3 +129,13 @@ class TestHelpers:
     def test_describe(self):
         assert describe(thr()) == "G P > 10"
         assert describe(StaleCondition(kind="stale", device="G")) == "G connected"
+
+    def test_new_kinds(self):
+        change = ConfigChangeCondition(
+            kind="config_change", device="W", variables=["Pos", "Speed"]
+        )
+        assert watched(change) == [("W", "Pos"), ("W", "Speed")]
+        assert describe(change) == "W Pos, Speed unchanged"
+        external = ExternalCondition(kind="external", port=5050, source="stage")
+        assert watched(external) == []
+        assert describe(external) == "stage on UDP 5050"

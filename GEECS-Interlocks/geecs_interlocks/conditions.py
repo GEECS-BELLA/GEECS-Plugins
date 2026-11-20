@@ -23,6 +23,8 @@ from typing import Any
 
 from geecs_schemas import (
     AlignmentCondition,
+    ConfigChangeCondition,
+    ExternalCondition,
     InterlockCondition,
     StaleCondition,
     ThresholdCondition,
@@ -33,6 +35,8 @@ _OPERATORS: dict[str, Callable[[float, float], bool]] = {
     "<=": operator.le,
     ">": operator.gt,
     ">=": operator.ge,
+    "==": operator.eq,
+    "!=": operator.ne,
 }
 
 #: The diagnostic of a reading that has not arrived yet (the monitor shows it as "waiting").
@@ -88,6 +92,10 @@ def watched(condition: InterlockCondition) -> list[tuple[str, str | None]]:
             (condition.device, condition.variable),
             (target_device, condition.target_variable),
         ]
+    if isinstance(condition, ConfigChangeCondition):
+        return [(condition.device, v) for v in condition.variables]
+    if isinstance(condition, ExternalCondition):
+        return []  # a UDP signal, not a GEECS device
     return [(condition.device, None)]
 
 
@@ -109,6 +117,10 @@ def describe(condition: InterlockCondition) -> str:
             f"{condition.device} |{condition.variable} − {target}| "
             f"< {condition.tolerance:g}"
         )
+    if isinstance(condition, ConfigChangeCondition):
+        return f"{condition.device} {', '.join(condition.variables)} unchanged"
+    if isinstance(condition, ExternalCondition):
+        return f"{condition.source or 'external signal'} on UDP {condition.port}"
     if condition.max_age_s is None:
         return f"{condition.device} connected"
     return f"{condition.device} updating every ≤ {condition.max_age_s:g} s"
@@ -147,6 +159,8 @@ def evaluate(
         return _alignment(condition, inputs.value, inputs.target, tripped)
     if isinstance(condition, StaleCondition):
         return _stale(condition, inputs.age_s)
+    if isinstance(condition, ExternalCondition | ConfigChangeCondition):
+        return Verdict(True, f"{condition.kind} conditions are not supported yet")
     raise TypeError(f"unknown interlock condition {type(condition)!r}")
 
 

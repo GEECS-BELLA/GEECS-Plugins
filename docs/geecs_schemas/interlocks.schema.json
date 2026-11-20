@@ -63,9 +63,87 @@
       "title": "AlignmentCondition",
       "type": "object"
     },
+    "ConfigChangeCondition": {
+      "additionalProperties": false,
+      "description": "Unsafe when device settings change from the values they had when armed.\n\nThe operator arms it from the interlock server's window once the\nsettings are right; until then it is unsafe. Any later change to one of\nthe variables trips it until it is re-armed.",
+      "properties": {
+        "kind": {
+          "const": "config_change",
+          "description": "Condition type. 'config_change' trips when settings move from their armed values.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "device": {
+          "description": "Device carrying the settings.",
+          "title": "Device",
+          "type": "string"
+        },
+        "variables": {
+          "description": "The settings to hold, e.g. ['Exposure', 'Gain'].",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Variables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "device",
+        "variables"
+      ],
+      "title": "ConfigChangeCondition",
+      "type": "object"
+    },
+    "ExternalCondition": {
+      "additionalProperties": false,
+      "description": "Unsafe while an external program says so over UDP.\n\nFor a program outside GEECS \u2014 a motion controller on another computer,\nsay \u2014 that sends one short text packet to the interlock server whenever\nits state changes. A packet containing ``warning`` makes the condition\nunsafe, one containing ``safe`` makes it safe (case does not matter), and\nany other packet leaves the last state. Unsafe until the first packet.",
+      "properties": {
+        "kind": {
+          "const": "external",
+          "description": "Condition type. 'external' follows UDP status packets.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "port": {
+          "description": "UDP port the interlock server listens on for this signal. Conditions naming the same port share one signal.",
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "source": {
+          "default": "",
+          "description": "Optional name of the sending program, shown to operators.",
+          "title": "Source",
+          "type": "string"
+        },
+        "max_age_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds without a packet before the signal counts as lost. Leave empty when the sender transmits only on a change (silence is normal).",
+          "title": "Max Age S"
+        }
+      },
+      "required": [
+        "kind",
+        "port"
+      ],
+      "title": "ExternalCondition",
+      "type": "object"
+    },
     "Interlock": {
       "additionalProperties": false,
-      "description": "One interlock: a name and the condition that makes it unsafe.",
+      "description": "One interlock: a name and the conditions that make it unsafe (any one is enough).",
       "properties": {
         "name": {
           "description": "Short name shown to operators and on the status stream.",
@@ -85,32 +163,44 @@
           "title": "Enabled",
           "type": "boolean"
         },
-        "condition": {
-          "description": "The condition that makes this interlock unsafe.",
-          "discriminator": {
-            "mapping": {
-              "alignment": "#/$defs/AlignmentCondition",
-              "stale": "#/$defs/StaleCondition",
-              "threshold": "#/$defs/ThresholdCondition"
+        "conditions": {
+          "description": "The conditions watched; the interlock is unsafe while any one of them is. List several to report them under one name.",
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "alignment": "#/$defs/AlignmentCondition",
+                "config_change": "#/$defs/ConfigChangeCondition",
+                "external": "#/$defs/ExternalCondition",
+                "stale": "#/$defs/StaleCondition",
+                "threshold": "#/$defs/ThresholdCondition"
+              },
+              "propertyName": "kind"
             },
-            "propertyName": "kind"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ThresholdCondition"
+              },
+              {
+                "$ref": "#/$defs/AlignmentCondition"
+              },
+              {
+                "$ref": "#/$defs/StaleCondition"
+              },
+              {
+                "$ref": "#/$defs/ExternalCondition"
+              },
+              {
+                "$ref": "#/$defs/ConfigChangeCondition"
+              }
+            ]
           },
-          "oneOf": [
-            {
-              "$ref": "#/$defs/ThresholdCondition"
-            },
-            {
-              "$ref": "#/$defs/AlignmentCondition"
-            },
-            {
-              "$ref": "#/$defs/StaleCondition"
-            }
-          ],
-          "title": "Condition"
+          "minItems": 1,
+          "title": "Conditions",
+          "type": "array"
         },
         "settle_s": {
           "default": 0.0,
-          "description": "Seconds the condition must stay safe after a trip before the interlock reports OK again.",
+          "description": "Seconds every condition must stay safe after a trip before the interlock reports OK again.",
           "minimum": 0,
           "title": "Settle S",
           "type": "number"
@@ -118,7 +208,7 @@
       },
       "required": [
         "name",
-        "condition"
+        "conditions"
       ],
       "title": "Interlock",
       "type": "object"
@@ -162,7 +252,7 @@
     },
     "ThresholdCondition": {
       "additionalProperties": false,
-      "description": "Unsafe when a variable crosses a limit.\n\nFor example ``operator: '>'`` with ``limit: 4094`` trips when a camera's\n``MaxCounts`` saturates.",
+      "description": "Unsafe when a variable crosses a limit.\n\nFor example ``operator: '>'`` with ``limit: 4094`` trips when a camera's\n``MaxCounts`` saturates. ``==`` and ``!=`` are for status codes and\nother whole numbers: ``operator: '!='`` with ``limit: 0`` trips on any\nnonzero fault code.",
       "properties": {
         "kind": {
           "const": "threshold",
@@ -186,7 +276,9 @@
             "<",
             "<=",
             ">",
-            ">="
+            ">=",
+            "==",
+            "!="
           ],
           "title": "Operator",
           "type": "string"
@@ -216,7 +308,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "The experiment's software interlocks, watched by the interlock server.\n\nNotes\n-----\nStored as ``interlocks.yaml`` at the top of the experiment's scanner\nconfigs.  The interlock server reads it at start and on a reload from\nits window; an edit takes effect at the next reload.",
+  "description": "The experiment's software interlocks, watched by the interlock server.\n\nNotes\n-----\nOne named configuration, stored as ``interlocks/<name>.yaml`` in the\nexperiment's scanner configs.  The interlock server reads it at start\nand on a reload or save from its window; an edit takes effect at the\nnext reload.",
   "properties": {
     "schema_version": {
       "default": 1,
@@ -231,6 +323,20 @@
       },
       "title": "Interlocks",
       "type": "array"
+    },
+    "stale_after_s": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 5.0,
+      "description": "Seconds without an update from a device before every interlock reading it trips. Leave empty for devices that publish only on a change (a disconnect still trips).",
+      "title": "Stale After S"
     }
   },
   "tier": "operator",

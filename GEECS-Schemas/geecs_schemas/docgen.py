@@ -148,23 +148,32 @@ description: "HTU standing defaults"
 """,
     "interlocks": """\
 schema_version: 1
-# each interlock reports TRIPPED while unsafe and OK once safe for
-# settle_s; a disconnected or silent device is always unsafe
+# interlocks/<name>.yaml: one named configuration. An interlock is unsafe
+# while any of its conditions is; a disconnected device, or one silent
+# for stale_after_s, is always unsafe
+stale_after_s: 5
 interlocks:
   - name: chamber vacuum
-    condition:
-      kind: threshold
-      device: U_HP_Vacuum
-      variable: Pressure
-      operator: ">"
-      limit: 1.0e-5
-      hysteresis: 2.0e-6
+    conditions:
+      - kind: threshold
+        device: U_HP_Vacuum
+        variable: Pressure
+        operator: ">"
+        limit: 1.0e-5
+        hysteresis: 2.0e-6
     settle_s: 5
-  - name: gauge alive
-    condition:
-      kind: stale
-      device: U_HP_Vacuum
-      max_age_s: 3
+  - name: tape camera
+    description: saturation and pointing, reported as one
+    conditions:
+      - {kind: threshold, device: UC_TapeCam, variable: MaxCounts, operator: ">=", limit: 4095}
+      - {kind: alignment, device: UC_TapeCam, variable: CentroidX, target_variable: TargetX, tolerance: 5}
+      - {kind: alignment, device: UC_TapeCam, variable: CentroidY, target_variable: TargetY, tolerance: 5}
+  - name: stage motion
+    conditions:
+      - {kind: external, port: 5050, source: stage motion controller}
+  - name: windmill settings
+    conditions:
+      - {kind: config_change, device: U_Windmill, variables: [Position, Speed]}
 """,
     "archive_policy": """\
 schema_version: 1

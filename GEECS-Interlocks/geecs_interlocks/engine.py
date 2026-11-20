@@ -33,10 +33,11 @@ def device_variables(interlocks: InterlockSet) -> dict[str, set[str]]:
     for interlock in interlocks.interlocks:
         if not interlock.enabled:
             continue
-        for device, variable in watched(interlock.condition):
-            variables = out.setdefault(device, set())
-            if variable is not None:
-                variables.add(variable)
+        for condition in interlock.conditions:
+            for device, variable in watched(condition):
+                variables = out.setdefault(device, set())
+                if variable is not None:
+                    variables.add(variable)
     return out
 
 

@@ -8,7 +8,13 @@ import yaml
 from conftest import FakeSource, threshold
 from pydantic import ValidationError
 
-from geecs_interlocks.config import LOCAL_HOST, Settings, load_interlocks
+from geecs_interlocks.config import (
+    LOCAL_HOST,
+    Settings,
+    configuration_names,
+    interlocks_path,
+    load_interlocks,
+)
 from geecs_interlocks.engine import Engine, device_variables
 from geecs_interlocks.wire import read_frame
 
@@ -110,3 +116,24 @@ class TestEngine:
         engine.path.write_text("interlocks: [{name: broken}]\n")
         assert engine.reload().startswith("reload refused")
         assert [s.name for s in engine.snapshot().statuses] == ["vac"]
+
+
+class TestNamedConfigurations:
+    @pytest.fixture
+    def repo(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(tmp_path))
+        folder = tmp_path / "Demo" / "interlocks"
+        folder.mkdir(parents=True)
+        return folder
+
+    def test_path_of_a_name(self, repo):
+        assert interlocks_path("Demo", "main") == repo / "main.yaml"
+
+    def test_names_are_the_saved_files(self, repo):
+        for name in ("tape", "main"):
+            write(repo / f"{name}.yaml", threshold())
+        (repo / "notes.txt").write_text("not a configuration")
+        assert configuration_names("Demo") == ["main", "tape"]
+
+    def test_no_folder_no_names(self, repo):
+        assert configuration_names("Other") == []

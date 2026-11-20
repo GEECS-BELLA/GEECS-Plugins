@@ -16,8 +16,9 @@ Every key is optional. Without them both servers listen on ``127.0.0.1``
 only — a laptop running the demo is never reachable from the network until
 its config says so. Command-line flags override the file.
 
-The interlocks are the experiment's ``interlocks.yaml`` in the configs repo
-(``geecs_core.configs_repo``), or a file given on the command line.
+The interlocks are one of the experiment's named configurations,
+``interlocks/<name>.yaml`` in the configs repo (``geecs_core.configs_repo``),
+or a file given on the command line.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import logging
 from pathlib import Path
 
 from geecs_core.configs_repo import read_config_entry, scanner_configs_base
-from geecs_schemas import INTERLOCKS_FILENAME, InterlockSet
+from geecs_schemas import INTERLOCKS_FOLDER, InterlockSet
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
@@ -66,10 +67,26 @@ class Settings(BaseModel):
         return cls.model_validate({"experiment": experiment, **values})
 
 
-def interlocks_path(experiment: str, config_path: Path | None = None) -> Path | None:
-    """The experiment's ``interlocks.yaml`` in the configs repo (``None``: no repo found)."""
+def interlocks_folder(experiment: str, config_path: Path | None = None) -> Path | None:
+    """The experiment's ``interlocks/`` folder in the configs repo (``None``: no repo found)."""
     base = scanner_configs_base(config_path)
-    return None if base is None else base / experiment / INTERLOCKS_FILENAME
+    return None if base is None else base / experiment / INTERLOCKS_FOLDER
+
+
+def interlocks_path(
+    experiment: str, name: str, config_path: Path | None = None
+) -> Path | None:
+    """The named configuration ``interlocks/<name>.yaml`` (``None``: no repo found)."""
+    folder = interlocks_folder(experiment, config_path)
+    return None if folder is None else folder / f"{name}.yaml"
+
+
+def configuration_names(experiment: str, config_path: Path | None = None) -> list[str]:
+    """The experiment's saved configurations, by name (empty: none, or no repo)."""
+    folder = interlocks_folder(experiment, config_path)
+    if folder is None or not folder.is_dir():
+        return []
+    return sorted(p.stem for p in folder.glob("*.yaml"))
 
 
 def load_interlocks(path: Path | None) -> tuple[InterlockSet, str]:
@@ -98,6 +115,8 @@ __all__ = [
     "LOCAL_HOST",
     "SECTION",
     "Settings",
+    "configuration_names",
+    "interlocks_folder",
     "interlocks_path",
     "load_interlocks",
 ]

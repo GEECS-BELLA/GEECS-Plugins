@@ -396,7 +396,7 @@ description: "HTU standing defaults"
 
 ## `interlocks`
 
-Tier: `operator` · File: `scanner_configs/experiments/<experiment>/interlocks.yaml`
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/interlocks/<name>.yaml`
 
 ### InterlockSet
 
@@ -406,41 +406,51 @@ The experiment's software interlocks, watched by the interlock server.
 |---|---|---|---|---|
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `interlocks` | `list[Interlock]` | no | empty | The interlocks, in display order. |
+| `stale_after_s` | `float (optional)` | no | 5.0 | Seconds without an update from a device before every interlock reading it trips. Leave empty for devices that publish only on a change (a disconnect still trips). |
 
 Example:
 
 ```yaml
 schema_version: 1
-# each interlock reports TRIPPED while unsafe and OK once safe for
-# settle_s; a disconnected or silent device is always unsafe
+# interlocks/<name>.yaml: one named configuration. An interlock is unsafe
+# while any of its conditions is; a disconnected device, or one silent
+# for stale_after_s, is always unsafe
+stale_after_s: 5
 interlocks:
   - name: chamber vacuum
-    condition:
-      kind: threshold
-      device: U_HP_Vacuum
-      variable: Pressure
-      operator: ">"
-      limit: 1.0e-5
-      hysteresis: 2.0e-6
+    conditions:
+      - kind: threshold
+        device: U_HP_Vacuum
+        variable: Pressure
+        operator: ">"
+        limit: 1.0e-5
+        hysteresis: 2.0e-6
     settle_s: 5
-  - name: gauge alive
-    condition:
-      kind: stale
-      device: U_HP_Vacuum
-      max_age_s: 3
+  - name: tape camera
+    description: saturation and pointing, reported as one
+    conditions:
+      - {kind: threshold, device: UC_TapeCam, variable: MaxCounts, operator: ">=", limit: 4095}
+      - {kind: alignment, device: UC_TapeCam, variable: CentroidX, target_variable: TargetX, tolerance: 5}
+      - {kind: alignment, device: UC_TapeCam, variable: CentroidY, target_variable: TargetY, tolerance: 5}
+  - name: stage motion
+    conditions:
+      - {kind: external, port: 5050, source: stage motion controller}
+  - name: windmill settings
+    conditions:
+      - {kind: config_change, device: U_Windmill, variables: [Position, Speed]}
 ```
 
 ### Interlock
 
-One interlock: a name and the condition that makes it unsafe.
+One interlock: a name and the conditions that make it unsafe (any one is enough).
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `name` | `str` | yes | — | Short name shown to operators and on the status stream. |
 | `description` | `str` | no | '' | Optional note on what this interlock protects. |
 | `enabled` | `bool` | no | True | Set false to keep the entry without arming it (shown as not armed, never counted in the verdict). |
-| `condition` | `ThresholdCondition \| AlignmentCondition \| StaleCondition` | yes | — | The condition that makes this interlock unsafe. |
-| `settle_s` | `float` | no | 0.0 | Seconds the condition must stay safe after a trip before the interlock reports OK again. |
+| `conditions` | `list[ThresholdCondition \| AlignmentCondition \| StaleCondition \| ExternalCondition \| ConfigChangeCondition]` | yes | — | The conditions watched; the interlock is unsafe while any one of them is. List several to report them under one name. |
+| `settle_s` | `float` | no | 0.0 | Seconds every condition must stay safe after a trip before the interlock reports OK again. |
 
 ### ThresholdCondition
 
@@ -451,7 +461,7 @@ Unsafe when a variable crosses a limit.
 | `kind` | `'threshold'` | yes | — | Condition type. 'threshold' compares one variable to a limit. |
 | `device` | `str` | yes | — | Device to watch, e.g. 'U_HP_Vacuum'. |
 | `variable` | `str` | yes | — | Variable on the device, e.g. 'Pressure'. |
-| `operator` | `'<' \| '<=' \| '>' \| '>='` | yes | — | The reading is UNSAFE when 'value <operator> limit' holds, e.g. '>' trips above the limit. |
+| `operator` | `'<' \| '<=' \| '>' \| '>=' \| '==' \| '!='` | yes | — | The reading is UNSAFE when 'value <operator> limit' holds, e.g. '>' trips above the limit. |
 | `limit` | `float` | yes | — | The limit the reading is compared against. |
 | `hysteresis` | `float` | no | 0.0 | How far back past the limit the reading must come before the interlock counts as safe again (0 = resume as soon as it is back). |
 
@@ -478,6 +488,27 @@ Unsafe when a device stops publishing.
 | `kind` | `'stale'` | yes | — | Condition type. 'stale' trips when a device stops publishing. |
 | `device` | `str` | yes | — | Device to watch. |
 | `max_age_s` | `float (optional)` | no | None | Seconds without a new update before the device counts as stale. Leave empty to trip only on a disconnect. |
+
+### ExternalCondition
+
+Unsafe while an external program says so over UDP.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'external'` | yes | — | Condition type. 'external' follows UDP status packets. |
+| `port` | `int` | yes | — | UDP port the interlock server listens on for this signal. Conditions naming the same port share one signal. |
+| `source` | `str` | no | '' | Optional name of the sending program, shown to operators. |
+| `max_age_s` | `float (optional)` | no | None | Seconds without a packet before the signal counts as lost. Leave empty when the sender transmits only on a change (silence is normal). |
+
+### ConfigChangeCondition
+
+Unsafe when device settings change from the values they had when armed.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'config_change'` | yes | — | Condition type. 'config_change' trips when settings move from their armed values. |
+| `device` | `str` | yes | — | Device carrying the settings. |
+| `variables` | `list[str]` | yes | — | The settings to hold, e.g. ['Exposure', 'Gain']. |
 
 ## `derived_channels`
 

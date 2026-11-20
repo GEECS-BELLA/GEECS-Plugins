@@ -99,7 +99,7 @@ class TestDevices:
             source,
             {
                 "name": "alive",
-                "condition": {"kind": "stale", "device": "Gauge", "max_age_s": 2},
+                "conditions": [{"kind": "stale", "device": "Gauge", "max_age_s": 2}],
             },
         )
         source.push("Gauge", acq_timestamp=1)
@@ -126,3 +126,64 @@ class TestHistory:
         monitor.start()
         monitor.stop()
         assert source.started and source.stopped
+
+
+def group(*conditions, name="cam", **overrides):
+    return {"name": name, "conditions": list(conditions), **overrides}
+
+
+SAT = {
+    "kind": "threshold",
+    "device": "Cam",
+    "variable": "Max",
+    "operator": ">=",
+    "limit": 4000,
+}
+DRIFT = {
+    "kind": "alignment",
+    "device": "Cam",
+    "variable": "X",
+    "target_variable": "X0",
+    "tolerance": 5,
+}
+
+
+class TestGroups:
+    def test_safe_only_when_every_condition_is(self, source):
+        monitor = make(source, group(SAT, DRIFT))
+        source.push("Cam", Max=100, X=1, X0=0)
+        assert states(monitor.step()) == {"cam": "ok"}
+
+    def test_any_unsafe_condition_trips_and_is_named(self, source):
+        monitor = make(source, group(SAT, DRIFT))
+        source.push("Cam", Max=100, X=9, X0=0)
+        snapshot = monitor.step()
+        assert states(snapshot) == {"cam": "tripped"}
+        assert snapshot.statuses[0].diagnostic.startswith("X=9")
+
+    def test_the_reason_lists_every_failing_condition(self, source):
+        monitor = make(source, group(SAT, DRIFT))
+        source.push("Cam", Max=4095, X=9, X0=0)
+        reason = monitor.step().statuses[0].diagnostic
+        assert "Max=4095" in reason and "X=9" in reason and "; " in reason
+
+    def test_a_trip_beside_a_silent_variable_is_a_trip(self, source):
+        monitor = make(source, group(SAT, DRIFT))
+        source.push("Cam", Max=4095)  # X never arrives
+        monitor.step()
+        assert states(monitor.step()) == {"cam": "tripped"}
+
+    def test_waiting_while_every_unsafe_one_is_only_waiting(self, source):
+        monitor = make(source, group(SAT, DRIFT))
+        source.push("Cam", Max=100)  # X never arrives
+        assert states(monitor.step()) == {"cam": "waiting"}
+
+    def test_a_group_shows_every_condition(self, source):
+        status = make(source, group(SAT, DRIFT)).snapshot().statuses[0]
+        assert status.condition.count("; ") == 1
+
+    def test_unimplemented_kinds_fail_safe(self, source):
+        monitor = make(source, group({"kind": "external", "port": 5050}, name="ext"))
+        snapshot = monitor.step()
+        assert states(snapshot) == {"ext": "tripped"}
+        assert not snapshot.safe

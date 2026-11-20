@@ -7,6 +7,8 @@ from geecs_schemas import (
     KIND_STORAGE,
     SCHEMA_REGISTRY,
     AlignmentCondition,
+    ConfigChangeCondition,
+    ExternalCondition,
     InterlockSet,
     StaleCondition,
     ThresholdCondition,
@@ -19,37 +21,48 @@ def make_set():
             "interlocks": [
                 {
                     "name": "vacuum",
-                    "condition": {
-                        "kind": "threshold",
-                        "device": "U_HP_Vacuum",
-                        "variable": "Pressure",
-                        "operator": ">",
-                        "limit": 1e-5,
-                        "hysteresis": 2e-6,
-                    },
+                    "conditions": [
+                        {
+                            "kind": "threshold",
+                            "device": "U_HP_Vacuum",
+                            "variable": "Pressure",
+                            "operator": ">",
+                            "limit": 1e-5,
+                            "hysteresis": 2e-6,
+                        }
+                    ],
                     "settle_s": 5,
                 },
                 {
-                    "name": "pointing",
-                    "condition": {
-                        "kind": "alignment",
-                        "device": "CAM-PL1-Pointing",
-                        "variable": "CentroidX",
-                        "target_variable": "TargetX",
-                        "tolerance": 10,
-                    },
-                },
-                {
-                    "name": "gauge alive",
-                    "condition": {
-                        "kind": "stale",
-                        "device": "U_HP_Vacuum",
-                        "max_age_s": 3,
-                    },
+                    "name": "tape camera",
+                    "conditions": [
+                        {
+                            "kind": "alignment",
+                            "device": "CAM-PL1-Pointing",
+                            "variable": "CentroidX",
+                            "target_variable": "TargetX",
+                            "tolerance": 10,
+                        },
+                        {
+                            "kind": "stale",
+                            "device": "U_HP_Vacuum",
+                            "max_age_s": 3,
+                        },
+                        {"kind": "external", "port": 5050, "source": "stage"},
+                        {
+                            "kind": "config_change",
+                            "device": "U_Windmill",
+                            "variables": ["Position", "Speed"],
+                        },
+                    ],
                 },
             ]
         }
     )
+
+
+def first_condition(data):
+    return data["interlocks"][0]["conditions"][0]
 
 
 class TestInterlockSet:
@@ -59,19 +72,38 @@ class TestInterlockSet:
         assert again == interlocks
 
     def test_discriminator_picks_each_kind(self):
-        kinds = [i.condition for i in make_set().interlocks]
-        assert isinstance(kinds[0], ThresholdCondition)
-        assert isinstance(kinds[1], AlignmentCondition)
-        assert isinstance(kinds[2], StaleCondition)
+        sets = make_set().interlocks
+        assert isinstance(sets[0].conditions[0], ThresholdCondition)
+        kinds = [type(c) for c in sets[1].conditions]
+        assert kinds == [
+            AlignmentCondition,
+            StaleCondition,
+            ExternalCondition,
+            ConfigChangeCondition,
+        ]
 
     def test_empty_document(self):
-        assert InterlockSet.model_validate({}).interlocks == []
+        document = InterlockSet.model_validate({})
+        assert document.interlocks == []
+        assert document.stale_after_s == 5.0
+
+    def test_staleness_can_be_turned_off(self):
+        assert (
+            InterlockSet.model_validate({"stale_after_s": None}).stale_after_s is None
+        )
 
     def test_defaults(self):
         entry = make_set().interlocks[1]
         assert entry.enabled is True
         assert entry.settle_s == 0
-        assert entry.condition.target_device is None
+        assert entry.conditions[0].target_device is None
+        assert entry.conditions[2].max_age_s is None
+
+    @pytest.mark.parametrize("op", ["==", "!="])
+    def test_equality_operators(self, op):
+        data = make_set().model_dump(mode="json")
+        first_condition(data).update(operator=op, hysteresis=0)
+        assert InterlockSet.model_validate(data)
 
     def test_registered(self):
         assert SCHEMA_REGISTRY["interlocks"] is InterlockSet
@@ -79,9 +111,9 @@ class TestInterlockSet:
     def test_operator_tier(self):
         assert InterlockSet.model_json_schema()["tier"] == "operator"
 
-    def test_stored_at_the_experiment_top(self):
+    def test_one_file_per_named_configuration(self):
         storage = KIND_STORAGE["interlocks"]
-        assert storage.path_pattern().endswith("<experiment>/interlocks.yaml")
+        assert storage.path_pattern().endswith("<experiment>/interlocks/<name>.yaml")
 
 
 class TestRefusals:
@@ -91,15 +123,35 @@ class TestRefusals:
         with pytest.raises(ValidationError, match="duplicate interlock name"):
             InterlockSet.model_validate(data)
 
+    def test_no_conditions(self):
+        data = make_set().model_dump(mode="json")
+        data["interlocks"][0]["conditions"] = []
+        with pytest.raises(ValidationError):
+            InterlockSet.model_validate(data)
+
+    def test_single_condition_key_is_gone(self):
+        data = make_set().model_dump(mode="json")
+        entry = data["interlocks"][0]
+        entry["condition"] = entry.pop("conditions")[0]
+        with pytest.raises(ValidationError):
+            InterlockSet.model_validate(data)
+
     def test_unknown_operator(self):
         data = make_set().model_dump(mode="json")
-        data["interlocks"][0]["condition"]["operator"] = "=="
+        first_condition(data)["operator"] = "~="
         with pytest.raises(ValidationError):
+            InterlockSet.model_validate(data)
+
+    @pytest.mark.parametrize("op", ["==", "!="])
+    def test_no_hysteresis_on_equality(self, op):
+        data = make_set().model_dump(mode="json")
+        first_condition(data)["operator"] = op
+        with pytest.raises(ValidationError, match="no meaning"):
             InterlockSet.model_validate(data)
 
     def test_unknown_kind(self):
         data = make_set().model_dump(mode="json")
-        data["interlocks"][0]["condition"]["kind"] = "custom"
+        first_condition(data)["kind"] = "custom"
         with pytest.raises(ValidationError):
             InterlockSet.model_validate(data)
 
@@ -118,8 +170,22 @@ class TestRefusals:
 
     def test_hysteresis_must_be_inside_tolerance(self):
         data = make_set().model_dump(mode="json")
-        data["interlocks"][1]["condition"]["hysteresis"] = 10
+        data["interlocks"][1]["conditions"][0]["hysteresis"] = 10
         with pytest.raises(ValidationError, match="never resume"):
+            InterlockSet.model_validate(data)
+
+    @pytest.mark.parametrize("port", [0, 70000])
+    def test_external_port_range(self, port):
+        data = make_set().model_dump(mode="json")
+        data["interlocks"][1]["conditions"][2]["port"] = port
+        with pytest.raises(ValidationError):
+            InterlockSet.model_validate(data)
+
+    @pytest.mark.parametrize("variables", [[], ["Speed", "Speed"]])
+    def test_config_change_variables(self, variables):
+        data = make_set().model_dump(mode="json")
+        data["interlocks"][1]["conditions"][3]["variables"] = variables
+        with pytest.raises(ValidationError):
             InterlockSet.model_validate(data)
 
     @pytest.mark.parametrize("field,value", [("settle_s", -1), ("name", "")])
@@ -128,3 +194,7 @@ class TestRefusals:
         data["interlocks"][0][field] = value
         with pytest.raises(ValidationError):
             InterlockSet.model_validate(data)
+
+    def test_bad_staleness(self):
+        with pytest.raises(ValidationError):
+            InterlockSet.model_validate({"stale_after_s": 0})

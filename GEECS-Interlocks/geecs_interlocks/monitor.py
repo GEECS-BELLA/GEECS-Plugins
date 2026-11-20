@@ -37,12 +37,19 @@ from typing import Literal
 from geecs_schemas import (
     AlignmentCondition,
     Interlock,
+    InterlockCondition,
     InterlockSet,
     StaleCondition,
     ThresholdCondition,
 )
 
-from geecs_interlocks.conditions import Inputs, Verdict, describe, evaluate, number
+from geecs_interlocks.conditions import (
+    Inputs,
+    Verdict,
+    describe,
+    evaluate,
+    number,
+)
 from geecs_interlocks.sources import Source
 
 logger = logging.getLogger(__name__)
@@ -149,17 +156,32 @@ class _Tracker:
 
 
 def _measured(
-    interlock: Interlock, inputs: Inputs
+    condition: InterlockCondition, inputs: Inputs
 ) -> tuple[float | None, float | None]:
-    """The number the condition compares, and its limit (for the trend)."""
-    condition = interlock.condition
+    """The number *condition* compares, and its limit (for the trend)."""
     if isinstance(condition, ThresholdCondition):
         return number(inputs.value), condition.limit
     if isinstance(condition, AlignmentCondition):
         value, target = number(inputs.value), number(inputs.target)
         distance = None if value is None or target is None else abs(value - target)
         return distance, condition.tolerance
-    return inputs.age_s, condition.max_age_s
+    if isinstance(condition, StaleCondition):
+        return inputs.age_s, condition.max_age_s
+    return None, None
+
+
+def _combine(verdicts: list[Verdict]) -> Verdict:
+    """One verdict over a group: unsafe if any is, the reason naming every unsafe one.
+
+    The group only counts as ``waiting`` when every unsafe condition is
+    merely waiting — a real trip next to a silent device is a trip.
+    """
+    unsafe = [v for v in verdicts if v.unsafe]
+    if not unsafe:
+        return Verdict(False)
+    return Verdict(
+        True, "; ".join(v.diagnostic for v in unsafe), all(v.waiting for v in unsafe)
+    )
 
 
 class Monitor:
@@ -281,16 +303,18 @@ class Monitor:
         self, tracker: _Tracker, now_wall: float, now: float, events: list[Event]
     ) -> InterlockStatus:
         interlock = tracker.interlock
-        line = describe(interlock.condition)
+        line = "; ".join(describe(c) for c in interlock.conditions)
         if tracker.state == "off":
             return InterlockStatus(
                 interlock.name, interlock.description, line, "off", since=tracker.since
             )
-        inputs = self._inputs(interlock, now)
-        verdict = evaluate(
-            interlock.condition,
-            inputs,
-            tripped=tracker.state in ("tripped", "settling"),
+        tripped = tracker.state in ("tripped", "settling")
+        inputs = [self._inputs(c, now) for c in interlock.conditions]
+        verdict = _combine(
+            [
+                evaluate(c, i, tripped=tripped)
+                for c, i in zip(interlock.conditions, inputs, strict=True)
+            ]
         )
         new_state, diagnostic = self._next_state(tracker, verdict, interlock, now)
         if new_state != tracker.state:
@@ -298,7 +322,12 @@ class Monitor:
                 Event(now_wall, interlock.name, tracker.state, new_state, diagnostic)
             )
             tracker.state, tracker.since = new_state, now_wall
-        value, limit = _measured(interlock, inputs)
+        # A trend needs one number: a group's lives on its rows (per condition).
+        value, limit = (
+            _measured(interlock.conditions[0], inputs[0])
+            if len(interlock.conditions) == 1
+            else (None, None)
+        )
         if value is not None:
             with self._lock:
                 tracker.trend.append((now_wall, value))
@@ -335,8 +364,11 @@ class Monitor:
             return "ok", ""
         return "settling", f"safe again; OK in {left:.1f} s"
 
-    def _inputs(self, interlock: Interlock, now: float) -> Inputs:
-        condition = interlock.condition
+    def _inputs(self, condition: InterlockCondition, now: float) -> Inputs:
+        if not isinstance(
+            condition, ThresholdCondition | AlignmentCondition | StaleCondition
+        ):
+            return Inputs()
         if isinstance(condition, StaleCondition):
             reading = self._source.reading(condition.device)
             age = None if reading.updated is None else now - reading.updated

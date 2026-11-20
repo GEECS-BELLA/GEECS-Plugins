@@ -90,8 +90,10 @@ from geecs_schemas.experiment_defaults import (
     ExperimentDefaults,
 )
 from geecs_schemas.interlocks import (
-    INTERLOCKS_FILENAME,
+    INTERLOCKS_FOLDER,
     AlignmentCondition,
+    ConfigChangeCondition,
+    ExternalCondition,
     Interlock,
     InterlockCondition,
     InterlockSet,
@@ -295,12 +297,14 @@ __all__ = [
     "EXPERIMENT_DEFAULTS_FILENAME",
     # interlocks
     "AlignmentCondition",
+    "ConfigChangeCondition",
+    "ExternalCondition",
     "Interlock",
     "InterlockCondition",
     "InterlockSet",
     "StaleCondition",
     "ThresholdCondition",
-    "INTERLOCKS_FILENAME",
+    "INTERLOCKS_FOLDER",
     # analysis
     "AnalysisGroup",
     "AnalysisRecipe",
