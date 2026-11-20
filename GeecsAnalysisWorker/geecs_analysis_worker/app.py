@@ -23,6 +23,7 @@ here or in the command starts one.  Errors: an unknown group or a day with no sc
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Optional
@@ -32,6 +33,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from scan_analysis.worker.jobs import JobSpec, WatchSpec, Worker
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["STOP_SECONDS", "JobRequest", "WatchRequest", "create_worker_app"]
 
@@ -94,6 +97,11 @@ def create_worker_app(worker: Worker, *, stop_seconds: float = STOP_SECONDS) -> 
         try:
             yield
         finally:
+            if any(j.state == "running" for j in worker.jobs()):
+                # a quiet terminal for up to stop_seconds otherwise
+                logger.info(
+                    "stopping: waiting up to %.0f s for the running task", stop_seconds
+                )
             worker.stop(timeout=stop_seconds)
 
     app = FastAPI(

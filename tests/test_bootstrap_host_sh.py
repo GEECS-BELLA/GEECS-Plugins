@@ -654,5 +654,6 @@ def test_a_site_naming_the_analysis_workers_port_gets_its_clone_env_and_unit(
     assert r.returncode == 0, r.stderr
     out = r.stdout
     assert "analysis-worker-checkout" in out
+    assert "analysis-worker-checkout/GeecsAnalysisWorker" in out  # the env step
     assert "GeecsAnalysisWorker/deploy/geecs-analysis-worker.service" in out
     assert "enable --now geecs-analysis-worker" in out

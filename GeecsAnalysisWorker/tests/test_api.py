@@ -233,8 +233,10 @@ class TestShutdown:
             time.sleep(0.02)
         raise AssertionError("the job did not start")
 
-    def test_a_stop_waits_for_the_running_task(self, tmp_path):
+    def test_a_stop_waits_for_the_running_task(self, tmp_path, caplog):
         import threading
+
+        caplog.set_level("INFO", logger="geecs_analysis_worker.app")
 
         gate, analyzer, worker = self.gated(tmp_path)
         with TestClient(create_worker_app(worker, stop_seconds=10.0)) as client:
@@ -244,6 +246,7 @@ class TestShutdown:
         assert 1.4 < time.monotonic() - began < 6.0
         assert analyzer.ran == [1]
         assert not worker._thread.is_alive()
+        assert "waiting up to 10 s for the running task" in caplog.text
 
     def test_a_stop_gives_up_on_a_task_longer_than_its_wait(self, tmp_path):
         gate, analyzer, worker = self.gated(tmp_path)
