@@ -156,7 +156,13 @@ def run_submit_preflight(
         if device not in devices:
             devices.append(device)
     if devices:
-        _liveness_fail_open(report, devices, experiment, needed={*item.needed, *box})
+        _liveness_fail_open(
+            report,
+            devices,
+            experiment,
+            needed={*item.needed, *box},
+            listed=item.devices,
+        )
 
     return report
 
@@ -190,10 +196,10 @@ def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) 
     return report
 
 
-def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None) -> None:  # fmt: skip
+def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None, listed: Collection[str] = ()) -> None:  # fmt: skip
     """:func:`_check_liveness`, recorded ``skipped`` (never raised) when the probe itself fails."""
     try:
-        _check_liveness(report, devices, experiment, needed=needed)
+        _check_liveness(report, devices, experiment, needed=needed, listed=listed)
     except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning("liveness preflight failed: %s", exc)
         report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
@@ -412,18 +418,22 @@ def _check_liveness(
     experiment: str,
     *,
     needed: Collection[str] | None = None,
+    listed: Collection[str] = (),
 ) -> None:
-    """Read each device's gateway ``CONNECTED`` PV; question the down ones.
+    """Read each device's gateway ``CONNECTED`` PV; question a down device the run needs.
 
     The probe (concurrent batch read, fail-open, the DBR_ENUM
     ``datatype=str`` subtlety) is the shared
     :func:`geecs_bluesky.devices.ca.liveness.probe_disconnected` — the
     same one the strict refire gate's verdict rests on, so the two sides
-    cannot drift.  Only the disposition differs: here a down device
-    becomes an operator question, worded as the worker's rule
-    (``registry.drop_down_devices``): a *needed* device down refuses the
-    run, any other is left out of it.  ``None`` treats every device as
-    needed (a trigger profile's own dry run).
+    cannot drift.  Only the disposition differs, worded as the worker's
+    rule (``registry.drop_down_devices``): a *needed* device down refuses
+    the run, so it is an operator question; any other is left out of it
+    by the worker, so it is a ``passed`` note naming it, never a question
+    (named in the question too when one is asked).  ``None`` treats every
+    device as needed (a trigger profile's own dry run).  Every *listed*
+    device down is a question too: the worker then has nothing to record
+    and refuses the run.
     """
     from geecs_bluesky.devices.ca.liveness import probe_disconnected
 
@@ -434,6 +444,16 @@ def _check_liveness(
     must = set(devices) if needed is None else set(needed)
     refusing = sorted(d for d in down if d in must)
     left_out = sorted(d for d in down if d not in must)
+    everything = bool(listed) and set(listed) <= set(down)
+    if not refusing and not everything:
+        report.outcomes.append(
+            (
+                "gateway_liveness",
+                "passed",
+                f"left out, disconnected and not required: {', '.join(left_out)}",
+            )
+        )
+        return
     parts: list[str] = []
     if refusing:
         parts.append(
@@ -442,7 +462,12 @@ def _check_liveness(
             "axis, or the trigger profile's), so the worker refuses the run "
             "before its first move while any of them is down."
         )
-    if left_out:
+    if everything and not refusing:
+        parts.append(
+            f"Every device the scan lists is Disconnected: {', '.join(left_out)}. "
+            "With nothing left to record, the worker refuses the run."
+        )
+    elif left_out:
         parts.append(
             f"Not required and Disconnected: {', '.join(left_out)}. The worker "
             "leaves them out of this scan (no columns); the next scan that "
