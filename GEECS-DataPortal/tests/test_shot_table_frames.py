@@ -271,3 +271,26 @@ def test_a_strict_run_s_derived_stack_follows_its_device_s_column(folder):
     assert _frame_shown(client, 1, _DERIVED) == 0
     assert "missed this shot" in _frame_shown(client, 2, _DERIVED)
     assert _frame_shown(client, 3, _DERIVED) == 1
+
+
+def test_a_derived_stack_takes_the_longest_parent_across_records_and_columns(folder):
+    """``U`` has records and missed shot 2; ``U-Cam``, a column, captured it."""
+    import h5py
+
+    derived = "U-Cam-ImageInterp"
+    (folder / derived).mkdir()
+    frames = np.zeros((3, 6, 6), dtype=np.uint16)
+    for index in range(3):
+        frames[index, 0, index] = 1000  # identity marker: column = frame index
+    with h5py.File(folder / derived / f"{derived}.h5", "w") as handle:
+        handle.attrs["finalized"] = True
+        handle.create_dataset(FRAMES_DATASET, data=frames, chunks=(1, 6, 6))
+        handle.create_dataset(
+            TIMESTAMPS_DATASET, data=np.array(_CLOCK) - LABVIEW_EPOCH_OFFSET
+        )
+    rows = pd.DataFrame(
+        {"u_clock-acq_timestamp": _CLOCK, "u_cam-acq_timestamp": _CLOCK}
+    )
+    streams = {"primary": {"internal": rows}, "u_stream": camera("u", _RECORDS)}
+    client = TestClient(_app(folder, {"shot_clock": "U_Clock"}, streams))
+    assert [_frame_shown(client, s, derived) for s in (1, 2, 3)] == [0, 1, 2]

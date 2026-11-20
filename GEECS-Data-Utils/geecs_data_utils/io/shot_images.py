@@ -245,7 +245,7 @@ def stack_parent_device(
     ----------
     scan_folder : Path or None
         The scan's existing folder (read-only: one stack probe, and only
-        for a folder whose prefix names a device with a column).
+        for a folder whose prefix names a known device).
     device : str
         The device folder name.
     known : callable

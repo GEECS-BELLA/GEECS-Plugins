@@ -19,7 +19,7 @@ from geecs_data_utils.data.sfile import (
     sfile_path_for_scan,
 )
 from geecs_data_utils.scan_frame import scan_frame
-from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+from geecs_data_utils.tiled_schema import has_acq_timestamp
 from geecs_data_utils.tiled_catalog import (
     RunSummary,
     fmt_time_of_day,
@@ -125,8 +125,9 @@ def _acq_timestamp(
 
     With the scan *folder*, a derived folder's capture stack
     (``<device>-<suffix>``, no record or column of its own) answers with
-    the device it is named after: that device's record when the shot table
-    joined it, else its column (``shot_images.stack_parent_device``).
+    the device it is named after: the longest prefix among the devices
+    with a record or a column, then that device's record when the shot
+    table joined it, else its column (``shot_images.stack_parent_device``).
     """
     frame = detail.data
     ordinal_ok = getattr(detail, "rows_are_frames", True)
@@ -136,13 +137,18 @@ def _acq_timestamp(
     if shots is not None:
         if shots.covers(device):
             return (shots.stamp_for(device, shot), True)
-        columns = [str(c) for c in frame.columns]
-        if device_acq_timestamp_column(columns, device) is None:
-            # A record wins over a sampled column for a derived stack as it
-            # does for its device: ask the shot table for the parent first.
-            parent = shot_images.stack_parent_device(folder, device, shots.covers)
-            if parent is not None:
+        has_column = has_acq_timestamp([str(c) for c in frame.columns])
+        if not has_column(device):
+            # One parent, the longest prefix among the devices with a record
+            # or a column; then a record wins over a sampled column for it,
+            # as it does for the device itself.
+            parent = shot_images.stack_parent_device(
+                folder, device, lambda name: shots.covers(name) or has_column(name)
+            )
+            if parent is not None and shots.covers(parent):
                 return (shots.stamp_for(parent, shot), True)
+            if parent is not None:
+                device = parent
     value, present = shot_images.row_acq_timestamp(frame, device, shot, folder)
     return (value, present or not ordinal_ok)
 
