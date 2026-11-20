@@ -245,5 +245,9 @@ def scan_set(
         first_run = first_run or run
         parts.append(scan_part(run, scans.load_frame(run), day, number))
     if x is None:
-        x = scans.default_x(first_run, scans.columns(parts[0].frame)) if parts else ""
+        x = (
+            analysis.default_x(first_run.start_doc, scans.columns(parts[0].frame))
+            if parts
+            else ""
+        )
     return images.ScanSet.merged(tuple(parts), x or None, tolerance)

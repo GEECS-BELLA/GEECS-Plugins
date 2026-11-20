@@ -26,6 +26,7 @@ from geecs_data_utils.data.scan_merge import SCAN_BIN_COLUMN
 from geecs_data_utils.io.display_png import colour_bar_png, safe_cmap, to_display_png
 from pydantic import BaseModel
 
+from geecs_portal import analysis
 from geecs_portal.plotter import images, multi, scans
 from geecs_portal.plotter.routes import Context
 from geecs_portal.plotter.routes.api import NO_CACHE
@@ -243,7 +244,7 @@ def parse_prep(hits: str, centre: Optional[float]) -> ImagePrep:
 
 def strip_axis(run, frame, alias: bool = True) -> tuple[str, str]:
     """The strip's X: the scan variable's column and its name as shown."""
-    x = scans.default_x(run, scans.columns(frame))
+    x = analysis.default_x(run.start_doc, scans.columns(frame))
     return x, scans.display_name(x, alias) if x else ""
 
 
