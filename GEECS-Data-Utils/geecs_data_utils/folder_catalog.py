@@ -52,6 +52,7 @@ from geecs_data_utils.scan_paths import (
     ScanPaths,
     current_paths_config,
     daily_scan_folder,
+    experiment_dir_present,
 )
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
@@ -314,13 +315,16 @@ class FolderScanCatalog:
         ------
         OSError
             The data root itself is unreachable (an unmounted share, or none
-            configured): that is an outage, never an empty day.
+            configured): that is an outage, never an empty day. For the
+            ``data_root_experiment`` an empty root is the unmounted share.
         """
         root = self._data_root()
         folder = daily_scan_folder(experiment, base_path=root, day=day)
         if folder is not None and folder.is_dir():
             return folder
-        if root is None or not root.is_dir():
+        # The data_root_experiment's folder is the root itself, which may be
+        # a bare mount point that exists while the share is down.
+        if root is None or not experiment_dir_present(root, experiment):
             raise OSError(
                 f"the data root {str(root) if root else '(none in config.ini [Paths])'} "
                 "is unreachable: is the data share mounted?"

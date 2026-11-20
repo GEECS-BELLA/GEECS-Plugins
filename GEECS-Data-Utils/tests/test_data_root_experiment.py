@@ -161,6 +161,14 @@ class TestFolderCatalog:
         detail = catalog.load_run(runs[0].uid)
         assert detail.summary.scan_number == 1
 
+    def test_a_bare_mount_point_is_an_outage_not_an_empty_day(self, mapped):
+        """The root experiment's folder is the data root: empty, the share is down."""
+        catalog = FolderScanCatalog()
+        with pytest.raises(OSError, match="unreachable"):
+            catalog.list_runs("Flat", date(*DAY))
+        (mapped.base_path / "Y2020").mkdir()  # the share is back; the day has no scans
+        assert catalog.list_runs("Flat", date(*DAY)) == []
+
 
 class TestExperimentDirPresent:
     """The "share is mounted" sentinel: the root experiment's folder is the data root."""
