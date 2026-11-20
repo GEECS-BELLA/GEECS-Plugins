@@ -135,10 +135,20 @@ def test_close_posts_are_joined_and_a_quiet_stretch_is_held_never_ramped() -> No
 
     # 10 s window: posts 1 s apart are joined; 5 s of quiet is held at the old value until the next post
     assert drawn([[1000, 1], [2000, 2], [7000, 3], [8000, 4]], 0, 10000) == ([1000, 2000, 7000, 7000, 8000], [1, 2, 2, 3, 4])  # fmt: skip
-    # exactly 2 s apart is still joined
-    assert drawn([[1000, 1], [3000, 2]], 0, 10000) == ([1000, 3000], [1, 2])
+    # a record scanned every 2 s is joined whichever way its stamps jitter; exactly 2.5 s is still joined
+    assert drawn([[1000, 1], [2998, 2], [5001, 3], [7501, 4]], 0, 10000) == ([1000, 2998, 5001, 7501], [1, 2, 3, 4])  # fmt: skip
     # 1 h window: quiet is a hundredth of it (36 s), so 30 s apart is joined and 40 s is held
-    assert drawn([[0, 1], [30000, 2], [70000, 3]], 0, 3600000) == ([0, 30000, 70000, 70000], [1, 2, 2, 3])  # fmt: skip
+    assert drawn([[1000, 1], [31000, 2], [71000, 3]], 0, 3600000) == ([1000, 31000, 71000, 71000], [1, 2, 2, 3])  # fmt: skip
+    # the value the window opened with is held however near its edge the next post is: a step sliding out stays a step
+    assert drawn([[-3600000, 0], [1000, 5]], 0, 10000) == ([0, 1000, 1000], [0, 0, 5])
+    assert drawn([[0, 0], [100, 5]], 0, 10000) == ([0, 100, 100], [0, 0, 5])
+    # a value carried to now past the quiet time is one flat segment, no point added
+    (held,) = call_all("trend_rules.js", [("traces", [[{"label": "a", "points": [[1000, 5]], "hold": True}], 0, 10000, 1000])])[0]  # fmt: skip
+    assert (held["x"], held["y"]) == ([1000, 10000], [5, 5])
+    # a plot narrower than 100 columns: quiet is one column, so steady posts thinned to a column's ends stay joined
+    steady = [[t * 1000, t % 7] for t in range(1, 3600)]
+    (thin,) = call_all("trend_rules.js", [("traces", [[{"label": "a", "points": steady, "hold": False}], 0, 3600000, 60])])[0]  # fmt: skip
+    assert len(thin["x"]) == len(set(thin["x"])) > 60
     # a gap is no quiet stretch: nothing is held into it or out of it
     assert drawn([[1000, 1], [2000, None], [9000, 2]], 0, 10000) == (
         [1000, 2000, 9000],

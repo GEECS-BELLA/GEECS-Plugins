@@ -2,7 +2,7 @@
 // milliseconds since the epoch). trend.js hands what these say to Plotly through the theme's template
 // (plot.js); tests/test_trend_rules_js.py runs each rule under node. A point is [t, value], the value null
 // for a gap: a role Hare gives no frame for, a disconnected or INVALID record, a value that is no finite
-// number. Nothing here judges the device, averages or fills a value: a line is the values the page was
+// number. Nothing here judges the device, averages or invents a value: a line is the values the page was
 // sent (its past as Vole kept it, thinned there to real samples when busy), joined when close in time and
 // held across a quiet stretch (a monitored record posts on change), thinned to the plot's width.
 // window.GeecsTrendRules in the page, module.exports under node.
@@ -12,8 +12,9 @@
   // hour; at a loop's 1 Hz, more than the longest window. Past it the oldest go and the page reads the
   // history again (trim, hole).
   const CAP = 20000;
-  // Two posts further apart than this are never joined by a straight line (traces).
-  const QUIET_MS = 2000;
+  // Two posts further apart than this are never joined by a straight line (traces). Clear of the standard
+  // scan periods, so a record scanned every 2 s is not joined and held by turns as its stamps jitter.
+  const QUIET_MS = 2500;
 
   const finite = (v) => typeof v === "number" && Number.isFinite(v);
 
@@ -117,18 +118,21 @@
 
   // The Plotly traces of one trend: one per role, in the panel's order (so line i keeps the theme's
   // --trace-(i+1)), named by the role's label, a gap never bridged. Two posts close in time are joined by a
-  // straight line (a record that posts steadily reads as a curve); two further apart than `quiet` (2 s, or a
-  // hundredth of the window when that is longer) are not: the earlier value is held until the later one (a
-  // record posts on change, so a line across a quiet stretch would draw a ramp nobody measured).
+  // straight line (a record that posts steadily reads as a curve); two further apart than `quiet` (2.5 s, or
+  // a hundredth of the window or one plot column when that is longer, so thinning never makes a stretch
+  // quiet) are not: the earlier value is held until the later one (a record posts on change, so a line
+  // across a quiet stretch would draw a ramp nobody measured). The value the window opened with (the point
+  // at `fromMs`) is always held: when it was posted is not known here.
   // A line with nothing to draw is one null point (Plotly lists a trace with a point in the legend).
   // `lines`: [{label, points, hold}]; x is left in milliseconds for the page to stamp.
   function traces(lines, fromMs, toMs, columns) {
-    const quiet = Math.max(QUIET_MS, (toMs - fromMs) / 100);
+    const quiet = Math.max(QUIET_MS, (toMs - fromMs) / 100, (toMs - fromMs) / (columns || 1));
     return lines.map((l) => {
       const s = series(l.points, fromMs, toMs, l.hold, columns);
       const x = [], y = [];
       s.x.forEach((t, i) => {
-        if (i && s.y[i] !== null && s.y[i - 1] !== null && t - s.x[i - 1] > quiet) { x.push(t); y.push(s.y[i - 1]); }
+        const was = i ? s.y[i - 1] : null;
+        if (was !== null && s.y[i] !== null && s.y[i] !== was && (s.x[i - 1] <= fromMs || t - s.x[i - 1] > quiet)) { x.push(t); y.push(was); }
         x.push(t); y.push(s.y[i]);
       });
       return { type: "scatter", mode: "lines", name: l.label, x: s.drawn ? x : [null], y: s.drawn ? y : [null], connectgaps: false, line: { width: 1.25, shape: "linear" } };

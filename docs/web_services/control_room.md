@@ -407,7 +407,7 @@ registry or the database, never a new page.
   later read fails, the earlier past stays drawn and the line says so. A
   busy value's past is thinned to a few thousand of its real readings.
   Readings that arrive close together are joined by a straight line; a
-  value that did not change for a while (2 s, or a hundredth of the
+  value that did not change for a while (2.5 s, or a hundredth of the
   window if that is longer) is drawn flat until its next reading, then
   steps, since nothing was measured in between. A break in a line means
   the value was not known then (the device was not answering, or the
