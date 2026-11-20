@@ -51,7 +51,7 @@ global.fetch = (url, init) => {
   const method = (init && init.method) || "GET", body = init && init.body ? JSON.parse(init.body) : undefined;
   sent.push([method, url, body]);
   if (url.endsWith("/api/kinds")) return Promise.resolve({ status: 200, text: () => Promise.resolve(JSON.stringify(kinds)) });
-  if (url.indexOf("/api/dry-run/") >= 0) return new Promise((resolve) => held.push({ body, resolve: () => resolve({ status: 200, text: () => Promise.resolve(JSON.stringify({ kind: "setup", by: "scanner", ran: true, detail: "fine for " + body.document.description })) }) }));
+  if (url.indexOf("/api/dry-run/") >= 0) return new Promise((resolve) => held.push({ body, resolve: () => resolve({ status: 200, text: () => Promise.resolve(JSON.stringify({ kind: "setup", by: "scanner", ran: true, output: "a plan", detail: "fine for " + body.document.description })) }) }));
   if (method === "PUT") return Promise.resolve({ status: 428, text: () => Promise.resolve(JSON.stringify({ detail: "the legacy dialect" })) });
   const [status, out] = C.answers[method + " " + url] || [404, { detail: "unknown" }];
   return Promise.resolve({ status, text: () => Promise.resolve(JSON.stringify(out)) });

@@ -22,7 +22,7 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_control_room import device_pages, home, images, screens, traces
+from geecs_control_room import device_pages, home, images, screens, traces, trends
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
 
@@ -34,9 +34,11 @@ def create_app(
     module: ModuleClient | None = None,
     scanner: httpx.AsyncClient | None = None,
     camera: images.Images | None = None,
+    vole: trends.VoleClient | None = None,
 ) -> FastAPI:
-    """Build the app; ``module`` and ``scanner`` default to clients of the settings' URLs, ``camera`` to CA and HTTP."""
+    """Build the app; ``module``, ``vole`` and ``scanner`` default to clients of the settings' URLs, ``camera`` to CA and HTTP."""
     module = module or ModuleClient(settings.canopy_url, settings.read_key)
+    vole = vole or trends.VoleClient(settings.canopy_url, settings.read_key)
     fetch = None
     if camera is None:
         fetch = images.HttpFetch()
@@ -48,6 +50,7 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         await module.aclose()
+        await vole.aclose()
         if scanner is not None:
             await scanner.aclose()
         if fetch is not None:
@@ -74,6 +77,7 @@ def create_app(
     app.include_router(home.preset_router(settings))
     app.include_router(images.router(camera))
     app.include_router(traces.router(traces.Traces(camera)))
+    app.include_router(trends.router(vole))
     app.include_router(device_pages.router(settings))
 
     @app.get("/healthz")

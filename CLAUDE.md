@@ -399,6 +399,8 @@ actively developed analysis packages. `LogMaker4GoogleDocs` is a standalone lega
 
 `base_path` is typically a network drive (Windows: `Z:/data`, Linux/Mac: mounted
 equivalent). Resolved by `GeecsPathsConfig` from `~/.config/geecs_python_api/config.ini`.
+The one exception: `[Paths] data_root_experiment = <name>` puts that experiment's
+`Y{YYYY}` folders directly in `base_path`, with no `{experiment}/` segment.
 
 ## Deleted legacy packages
 

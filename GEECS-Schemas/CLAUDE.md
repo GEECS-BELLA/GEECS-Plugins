@@ -92,7 +92,10 @@ layout in GEECS-Analysis; add a step or measure in GEECS-Analysis alone.
 `epics/` holds the native-device registry (`NativeDevices`, in
 `__init__.py`) and the web estate's device data. `epics/family.py`: `FamilyFile`, one per IOC record template, its
 records by role (`REGISTRY_KIND_FAMILIES`: a registry kind's default
-family, for the bridge and the archiver alike); the files are **package data**,
+family, for the bridge and the archiver alike) and its `panel` (how a
+device page lays the roles out: the rail's groups, the readings, the
+button, tweak and `show_while` hints, and `trends`, the time plots of
+monitored numeric roles the Control Room's settables page draws); the files are **package data**,
 `epics/families/<template>.json`, read by `load_families()` — JSON so the
 runtime stays free of PyYAML. `epics/panel_devices.py`: `PanelDevices`,
 the configs repo's `<experiment>/panel_devices.yaml` (per-device family,
