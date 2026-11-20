@@ -95,6 +95,8 @@ class PortalState:
     default_experiment: str = ""
     processing_config_dir: Optional[Path] = None
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None
+    #: The logbook as the browser reaches it: every link the page or a
+    #: reply hands out (``--logbook-browser-url``, else ``--logbook-url``).
     logbook_base: str = ""
     #: Sending needs an address the PORTAL can reach, not one the browser
     #: can: the call is server-to-server (``geecs_portal.logbook_send``),
@@ -109,7 +111,8 @@ class PortalState:
     #: Whether GEECSplotter's page is mounted at ``/plot`` (then it is the
     #: Plot tab; without it the scan page has none).
     plot_page: bool = False
-    config_editor_enabled: bool = False  # set when the editor router mounts
+    #: The configurator as the browser reaches it: the run page's embedded editor ("" = none).
+    configurator_url: str = ""
     #: The analysis worker the day page's batch panel talks to
     #: (``--analysis-worker-url``; ``None`` = no panel).
     worker: Optional[WorkerLink] = None
@@ -142,12 +145,18 @@ class PortalState:
             return ""
         if summary.experiment != self.default_experiment:
             return ""
-        base = (
-            root_of(request) + self.logbook_base
-            if self.logbook_base.startswith("/")
-            else self.logbook_base
-        )
+        base = self.logbook_browser_base(request)
         return f"{base}/day/{run_day.isoformat()}#Scan{summary.scan_number:03d}"
+
+    def logbook_browser_base(self, request: Request) -> str:
+        """The logbook's base URL as this request's browser reaches it.
+
+        A path-shaped base (``/log``) is same-origin and takes this app's
+        own prefix; an absolute one is used verbatim.
+        """
+        if self.logbook_base.startswith("/"):
+            return root_of(request) + self.logbook_base
+        return self.logbook_base
 
     def logbook_send_allowed(self, detail) -> bool:
         """Whether a send to the logbook is possible for this run at all.
@@ -202,8 +211,10 @@ class PortalState:
                 "(start it with --processing-configs)",
             )
         try:
-            # Check the optional runtime even when the router is cached.
-            importlib.import_module("geecs_analysis.engine.compiled")
+            # Check the optional runtime even when the router is cached:
+            # ScanAnalysis is what the extra adds (the analysis core
+            # itself is always installed).
+            importlib.import_module("scan_analysis.core_preview")
             ephemeral = importlib.import_module("geecs_portal.processing")
         except ImportError as exc:
             raise HTTPException(

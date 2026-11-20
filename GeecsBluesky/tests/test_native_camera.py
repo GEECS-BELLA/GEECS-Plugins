@@ -5,10 +5,12 @@ layout; a software trigger gives one frame per press and none while
 armed and idle).  Pinned here: the camera is stopped and put in trigger
 mode *before* the HDF capture starts and armed once per run, the software
 source presses ``TriggerSoftware`` per shot and Line1 does not, a missed
-frame is the GEECS timeout and fails the step instead of refiring, the
+frame is the GEECS timeout, the
 writer keeps the IOC's layout with SWMR off, the row stamp is the frame's
 EPICS timestamp in the LabVIEW epoch through the reader's own conversion,
-``unstage`` restores the camera, and fly prepares are refused.
+``unstage`` restores the camera, a bounded fly prepare (a counted batch)
+is refused, and an unbounded prepare streams the frames the writer wrote,
+armed and guarded as a strict run is.
 """
 
 from __future__ import annotations
@@ -38,7 +40,7 @@ from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp
 from geecs_bluesky.devices.detector import (
     STRICT_TRIGGER_INFO,
     UNBOUNDED_TRIGGER_INFO,
-    gated_trigger_info,
+    FlyTriggerInfo,
 )
 from geecs_bluesky.devices import native
 from geecs_bluesky.devices.native import (
@@ -56,6 +58,10 @@ from geecs_bluesky.plans.registry import liveness_gate
 from tests.ca_mock_helpers import connect_mock
 
 LAYOUT = "/epics/ioc/config/hdf5_layout.xml"
+#: The two prepares that arm the camera: a strict shot and the stream path.
+BOTH_PATHS = pytest.mark.parametrize(
+    "info", [STRICT_TRIGGER_INFO, UNBOUNDED_TRIGGER_INFO], ids=["strict", "stream"]
+)
 #: A real bench frame's EPICS timestamp (ADCore 3.14, 2026-10-22).
 SEC, NSEC = 1161484182, 872442764
 
@@ -192,7 +198,7 @@ def test_software_shot_presses_once_and_stamps_the_row(
     assert len(presses) == 3
     expected = float(epics_timestamp_to_unix(SEC, NSEC)) + LABVIEW_EPOCH_OFFSET
     assert readings[0]["adtest_cam1-acq_timestamp"]["value"] == expected
-    datums = [doc for name, doc in docs if name == "stream_datum"]
+    datums = _frame_datums(docs)
     # One frame per shot, contiguous from frame 0 (what Tiled's consolidator reads).
     assert sum(d["indices"]["stop"] - d["indices"]["start"] for d in datums) == 3
     assert datums[0]["indices"]["start"] == 0
@@ -273,8 +279,9 @@ def test_a_source_among_the_cameras_choices_is_set(
     assert _run(RE, lambda: cam.driver.trigger_source.get_value()) == source.value
 
 
+@BOTH_PATHS
 def test_a_line_the_camera_lacks_is_refused_before_the_camera_is_touched(
-    RE: RunEngine, tmp_path: Path
+    RE: RunEngine, tmp_path: Path, info
 ) -> None:
     """``line0`` on a Basler: a named refusal at the first prepare, no put, no capture."""
     cam, log = _camera(RE, tmp_path, source=NativeTriggerSource.LINE0)
@@ -286,16 +293,14 @@ def test_a_line_the_camera_lacks_is_refused_before_the_camera_is_touched(
         r"TriggerSource choices \(Software, Line1, Line3, Line4, Action1\)"
         r".*native_devices\.yaml",
     ):
-        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+        _run(RE, lambda: cam.prepare(info))
     # No driver put and no capture started (stage's capture=False is the stock disarm).
     assert log == ["capture=False"]
     assert _run(RE, lambda: cam.driver.acquire.get_value()) is True  # still live view
 
 
-def test_a_missed_frame_is_the_geecs_timeout_and_fails_the_step(
-    RE: RunEngine, tmp_path: Path
-) -> None:
-    """No frame: GeecsTriggerTimeoutError, an empty stamp, and no refire (discard raises)."""
+def test_a_missed_frame_is_the_geecs_timeout(RE: RunEngine, tmp_path: Path) -> None:
+    """No frame: GeecsTriggerTimeoutError carrying the writer's reason, and an empty stamp."""
     cam, _ = _camera(RE, tmp_path)  # software source, but no frame ever lands
     set_mock_value(cam.hdf.write_message, "Error opening file")
     _run(RE, lambda: cam.stage())
@@ -305,21 +310,6 @@ def test_a_missed_frame_is_the_geecs_timeout_and_fails_the_step(
     assert cam.missed_shot
     reading = _run(RE, lambda: cam.read())
     assert math.isnan(reading["adtest_cam1-acq_timestamp"]["value"])
-    with pytest.raises(GeecsTriggerTimeoutError, match="cannot refire"):
-        _run(RE, lambda: cam.discard_uncollected())
-
-
-def test_a_frame_that_arrived_survives_another_devices_miss(
-    RE: RunEngine, tmp_path: Path
-) -> None:
-    """Strict calls discard on every plugin-backed device when any device missed."""
-    cam, _ = _camera(RE, tmp_path)
-    _frames_on_software_trigger(cam)
-    _run(RE, lambda: cam.stage())
-    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
-    _run(RE, lambda: cam.trigger())
-    _run(RE, lambda: cam.discard_uncollected())  # no-op: its own frame stays
-    assert not cam.missed_shot
 
 
 def test_unstage_restores_the_camera_and_closes_the_file(
@@ -343,20 +333,248 @@ def test_unstage_restores_the_camera_and_closes_the_file(
     assert f"trigger_mode={OnOff.ON}" in log
 
 
-@pytest.mark.parametrize(
-    "info",
-    [UNBOUNDED_TRIGGER_INFO, gated_trigger_info(5)],
-    ids=["non-essential", "gated"],
-)
-def test_fly_prepares_are_refused(RE: RunEngine, tmp_path: Path, info) -> None:
+def test_a_camera_resting_in_trigger_mode_runs_quietly_and_is_returned_armed(
+    RE: RunEngine, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An IOC that arms its trigger at boot is the usual case: no warning, and unstage leaves it armed."""
+    cam, log = _camera(RE, tmp_path)
+    set_mock_value(cam.driver.trigger_mode, OnOff.ON)
+    _frames_on_software_trigger(cam)
+    with caplog.at_level("WARNING", logger="geecs_bluesky.devices.native"):
+        _run(RE, lambda: cam.stage())
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+        _run(RE, lambda: cam.trigger())
+        _run(RE, lambda: cam.unstage())
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+    assert log.index("acquire=False") < log.index("capture=True")  # stopped first
+    assert _run(RE, lambda: cam.driver.trigger_mode.get_value()) == OnOff.ON
+
+
+def test_a_lock_left_by_another_worker_is_taken_over_with_a_warning(
+    RE: RunEngine, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A killed worker leaves RUN:Lock set; the next worker's run names the old owner."""
+    cam, _ = _camera(RE, tmp_path)
+    set_mock_value(cam.run_lock.lock, True)
+    set_mock_value(cam.run_lock.owner, "oldhost:4242 @09:15")
+    _frames_on_software_trigger(cam)
+    with caplog.at_level("WARNING", logger="geecs_bluesky.devices.native"):
+        _run(RE, lambda: cam.stage())
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "oldhost:4242" in warnings[0]
+    assert _run(RE, lambda: cam.run_lock.owner.get_value()) != "oldhost:4242 @09:15"
+
+
+def test_a_lock_kept_by_this_workers_failed_restore_is_not_a_warning(
+    RE: RunEngine, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The same session's own lock (a failed restore kept it) is not another worker's leftover."""
+    cam, _ = _camera(RE, tmp_path)
+    _frames_on_software_trigger(cam)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    cam._session.programmed = False  # a new run, the lock still this session's
+    with caplog.at_level("WARNING", logger="geecs_bluesky.devices.native"):
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+@pytest.mark.parametrize("quota", [1, 5])
+def test_a_bounded_fly_prepare_is_refused(
+    RE: RunEngine, tmp_path: Path, quota: int
+) -> None:
+    """A bounded batch (even of one shot) is refused; a kickoff needs an unbounded prepare."""
+    from ophyd_async.core import DetectorTrigger
+
+    bounded = FlyTriggerInfo(
+        trigger=DetectorTrigger.EXTERNAL_EDGE, number_of_events=quota
+    )
     cam, log = _camera(RE, tmp_path)
     _run(RE, lambda: cam.stage())
     log.clear()  # stage itself stops the writer (capture=False)
-    with pytest.raises(GeecsConfigurationError, match="strict scans only"):
-        _run(RE, lambda: cam.prepare(info))
+    with pytest.raises(GeecsConfigurationError, match="no counted batch"):
+        _run(RE, lambda: cam.prepare(bounded))
     assert log == []  # refused before anything touched the camera
-    with pytest.raises(GeecsConfigurationError):
+    with pytest.raises(GeecsConfigurationError, match="unbounded prepare"):
         _run(RE, lambda: cam.kickoff())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    with pytest.raises(GeecsConfigurationError, match="unbounded prepare"):
+        _run(RE, lambda: cam.kickoff())
+
+
+def _skipping_frame(cam: NativeCamera, skip: int) -> list[int]:
+    """Each press writes one frame, except press number *skip* (1-based): the camera drops it."""
+    presses: list[int] = []
+
+    def press(*_, **__):
+        presses.append(1)
+        written = len(presses) - (len(presses) >= skip)
+        set_mock_value(cam.hdf.num_captured, written)
+
+    get_mock_execute(cam.driver.trigger_software).side_effect = press
+    return presses
+
+
+def test_a_stream_collects_the_frames_written_and_none_skipped(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """Unbounded prepare, kickoff, five presses with the third frame dropped: four datums' worth, from 0."""
+    cam, log = _camera(RE, tmp_path)
+    presses = _skipping_frame(cam, skip=3)
+    _run(RE, lambda: cam.stage())
+
+    async def run():
+        await cam.prepare(UNBOUNDED_TRIGGER_INFO)
+        await cam.kickoff()
+        docs = []
+        for shot in range(5):
+            await cam.press()
+            if shot == 1:  # a mid-run collect: the frames so far
+                docs += [doc async for doc in cam.collect_asset_docs()]
+        await cam.complete()
+        keys = await cam.describe_collect()
+        docs += [doc async for doc in cam.collect_asset_docs()]
+        return keys, docs
+
+    keys, docs = _run(RE, run)
+    assert len(presses) == 5  # one press each, nothing pending fired again
+    # Datum-only, no event column: the frames, then the writer's built-in
+    # per-frame attributes under their bare names, so a reader of the run
+    # in Tiled has the EPICS stamp pair to time the frames by.
+    builtins = [name for name, _ in native.BUILTIN_ATTRIBUTES]
+    assert list(keys) == ["adtest_cam1", *builtins]
+    resources = [doc for name, doc in docs if name == "stream_resource"]
+    assert {r["data_key"]: r["parameters"]["dataset"] for r in resources} == {
+        "adtest_cam1": "/entry/data/data",
+        **{name: f"/entry/instrument/NDAttributes/{name}" for name in builtins},
+    }
+    assert {r["uri"] for r in resources} == {resources[0]["uri"]}  # one file
+    datums = [doc for name, doc in docs if name == "stream_datum"]
+    by_resource: dict[str, list] = {}
+    for d in datums:
+        by_resource.setdefault(d["stream_resource"], []).append(d["indices"])
+    assert len(by_resource) == len(resources)
+    for indices in by_resource.values():  # every dataset: the same frames
+        assert indices == [{"start": 0, "stop": 2}, {"start": 2, "stop": 4}]
+    with pytest.raises(GeecsConfigurationError, match="never triggered"):
+        _run(RE, lambda: cam.trigger())
+    assert len(presses) == 5
+    _run(RE, lambda: cam.unstage())
+    assert _run(RE, lambda: cam.driver.trigger_mode.get_value()) == OnOff.OFF
+    assert _run(RE, lambda: cam.driver.acquire.get_value()) is True  # live view back
+    assert not _locked(RE, cam)
+
+
+def test_an_attribute_the_layout_already_lists_is_declared_once(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """An inline XML naming a built-in: one resource per key, never two concatenated."""
+    cam, _ = _camera(RE, tmp_path, source=NativeTriggerSource.LINE1)
+    set_mock_value(
+        cam.driver.nd_attributes_file,
+        '<Attributes><Attribute name="NDArrayUniqueId" type="PARAM" '
+        'source="ARRAY_COUNTER" datatype="INT"/></Attributes>',
+    )
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    set_mock_value(cam.hdf.num_captured, 1)
+    _run(RE, lambda: cam.kickoff())
+    _run(RE, lambda: cam.complete())
+    docs = _run(RE, lambda: _collect(cam))
+    keys = [d["data_key"] for n, d in docs if n == "stream_resource"]
+    assert sorted(keys) == sorted(
+        ["adtest_cam1", *(name for name, _ in native.BUILTIN_ATTRIBUTES)]
+    )
+
+
+def test_a_frame_before_the_kickoff_stays_in_the_stream(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """An edge between the prepare and the kickoff: no stock "only prepared up to" refusal."""
+    cam, _ = _camera(RE, tmp_path, source=NativeTriggerSource.LINE1)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    set_mock_value(cam.hdf.num_captured, 1)
+    _run(RE, lambda: cam.kickoff())
+    _run(RE, lambda: cam.complete())
+    docs = _run(RE, lambda: _collect(cam))
+    assert [d["indices"] for d in _frame_datums(docs)] == [{"start": 0, "stop": 1}]
+
+
+def test_a_frame_during_the_kickoff_does_not_fail_it(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Edges arriving while the kickoff reads the count: every read sees one more frame."""
+    cam, _ = _camera(RE, tmp_path, source=NativeTriggerSource.LINE1)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    sig, reads = cam.hdf.num_captured, []
+    stock_get = sig.get_value
+
+    async def advancing(*args, **kwargs):
+        reads.append(1)
+        set_mock_value(sig, len(reads))
+        return await stock_get(*args, **kwargs)
+
+    monkeypatch.setattr(sig, "get_value", advancing)
+    _run(RE, lambda: cam.kickoff())
+    assert reads  # the kickoff read a count that moved under it
+
+
+async def _collect(cam: NativeCamera) -> list:
+    return [doc async for doc in cam.collect_asset_docs()]
+
+
+def _frame_datums(docs: list, key: str = "adtest_cam1") -> list[dict]:
+    """The stream datums of the frames dataset (*key*), not of its attribute datasets."""
+    frames = {
+        doc["uid"]
+        for name, doc in docs
+        if name == "stream_resource" and doc["data_key"] == key
+    }
+    return [
+        doc
+        for name, doc in docs
+        if name == "stream_datum" and doc["stream_resource"] in frames
+    ]
+
+
+def test_a_press_outside_trigger_presses_once(RE: RunEngine, tmp_path: Path) -> None:
+    cam, _ = _camera(RE, tmp_path)
+    presses = _frames_on_software_trigger(cam)
+    _run(RE, lambda: cam.stage())
+    with pytest.raises(GeecsConfigurationError, match="needs an unbounded prepare"):
+        _run(RE, lambda: cam.press())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    with pytest.raises(GeecsConfigurationError, match="presses inside trigger"):
+        _run(RE, lambda: cam.press())  # a frame outside any row
+    assert presses == []
+    _run(RE, lambda: cam.unstage())
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert presses == []  # arming presses nothing
+    _run(RE, lambda: cam.press())
+    assert presses == [1]
+    _run(RE, lambda: cam.unstage())
+    with pytest.raises(GeecsConfigurationError, match="would be lost"):
+        _run(RE, lambda: cam.press())  # onto the restored live view
+    assert presses == [1]
+
+
+@pytest.mark.parametrize(
+    "source", [NativeTriggerSource.LINE0, NativeTriggerSource.LINE1]
+)
+def test_a_hardware_source_camera_is_never_pressed(
+    RE: RunEngine, tmp_path: Path, source: NativeTriggerSource
+) -> None:
+    cam, _ = _camera(RE, tmp_path, source=source)
+    presses = _frames_on_software_trigger(cam)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    with pytest.raises(GeecsConfigurationError, match="only a Software-source"):
+        _run(RE, lambda: cam.press())
+    assert presses == []
 
 
 def test_liveness_reads_the_asyn_connection(RE: RunEngine, tmp_path: Path) -> None:
@@ -421,60 +639,6 @@ def test_column_header_is_the_device_stamp(RE: RunEngine, tmp_path: Path) -> Non
     }
 
 
-def test_a_pause_mid_shot_never_replays_the_shot(RE: RunEngine, tmp_path: Path) -> None:
-    """The strict shot's rewind rule, on the real RunEngine (``plans/strict.py``).
-
-    An immediate pause lands after the frame was written but before the row
-    is saved.  A rewindable shot would replay trigger + fire on resume and
-    the append-only writer would hold two frames for one row; the native
-    camera is not rewindable, so the resume continues and one frame stays.
-    """
-    import bluesky.plan_stubs as bps
-    from bluesky.preprocessors import rewindable_wrapper, run_wrapper, stage_wrapper
-    from bluesky.utils import all_safe_rewind
-
-    cam, _ = _camera(RE, tmp_path)
-    presses = _frames_on_software_trigger(cam)
-    paused = []
-
-    def press_then_pause(*_, **__):
-        presses.append(1)
-        set_mock_value(cam.hdf.num_captured, len(presses))
-        if not paused:
-            paused.append(1)
-            # From another thread, as an operator's pause arrives (the RE's
-            # own loop thread would deadlock on it).
-            import threading
-
-            threading.Thread(target=RE.request_pause, kwargs={"defer": False}).start()
-
-    get_mock_execute(cam.driver.trigger_software).side_effect = press_then_pause
-    assert all_safe_rewind([cam]) is False
-
-    def shot():
-        yield from bps.prepare(cam, STRICT_TRIGGER_INFO, wait=True)
-        yield from bps.checkpoint()
-        yield from rewindable_wrapper(
-            bps.trigger_and_read([cam]), all_safe_rewind([cam])
-        )
-
-    from bluesky.utils import RunEngineInterrupted
-
-    docs: list[tuple[str, dict]] = []
-    with pytest.raises(RunEngineInterrupted):
-        RE(
-            stage_wrapper(run_wrapper(shot()), [cam]),
-            lambda name, doc: docs.append((name, doc)),
-        )
-    assert RE.state == "paused" and paused
-    RE.resume()
-    assert len(presses) == 1  # the shot was not fired again
-    events = [doc for name, doc in docs if name == "event"]
-    datums = [doc for name, doc in docs if name == "stream_datum"]
-    assert len(events) == 1
-    assert sum(d["indices"]["stop"] - d["indices"]["start"] for d in datums) == 1
-
-
 def test_the_path_provider_hands_a_linux_ioc_a_posix_path(tmp_path: Path) -> None:
     """Same provider and scan-folder rules as the gateway's plugin; POSIX for the IOC."""
     from geecs_bluesky.data_paths import native_ioc_save_path
@@ -513,8 +677,9 @@ def test_native_ioc_save_path_is_the_identity_unless_configured(monkeypatch) -> 
         data_paths.native_ioc_save_path("/elsewhere/x")
 
 
+@BOTH_PATHS
 def test_a_refused_trigger_setup_fails_the_prepare(
-    RE: RunEngine, tmp_path: Path
+    RE: RunEngine, tmp_path: Path, info
 ) -> None:
     """A refused GenICam write completes its put: the readback check catches it."""
     cam, _ = _camera(RE, tmp_path)
@@ -522,7 +687,7 @@ def test_a_refused_trigger_setup_fails_the_prepare(
     callback_on_mock_put(cam.driver.trigger_mode, lambda value, **_: OnOff.OFF)
     _run(RE, lambda: cam.stage())
     with pytest.raises(GeecsConfigurationError, match="refused its trigger setup"):
-        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+        _run(RE, lambda: cam.prepare(info))
     assert (
         _run(RE, lambda: cam.hdf.capture.get_value()) is not True
     )  # no capture opened
@@ -569,7 +734,7 @@ def test_live_view_restarts_only_after_the_stack_is_closed(
     _run(RE, unstage_while_capture_open)
 
 
-# ---- the run lock (geecs-epics run_lock.db + access.acf; device_panels.md §6) ----
+# ---- the run lock (geecs-epics run_lock.db + access.acf) ----
 
 
 def _lock_log(cam: NativeCamera, log: list[str]) -> None:
@@ -583,14 +748,15 @@ def _locked(RE: RunEngine, cam: NativeCamera) -> bool:
     return _run(RE, lambda: cam.run_lock.lock.get_value())
 
 
+@BOTH_PATHS
 def test_the_lock_is_taken_before_the_camera_is_touched(
-    RE: RunEngine, tmp_path: Path
+    RE: RunEngine, tmp_path: Path, info
 ) -> None:
     """Ownership starts before the snapshot and the stop: nothing can slip in between."""
     cam, log = _camera(RE, tmp_path)
     _lock_log(cam, log)
     _run(RE, lambda: cam.stage())
-    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    _run(RE, lambda: cam.prepare(info))
     assert log.index("lock=True") < log.index("acquire=False")
     assert log.index("lock=True") < log.index("capture=True")
     assert _locked(RE, cam)
@@ -599,7 +765,7 @@ def test_the_lock_is_taken_before_the_camera_is_touched(
     assert f":{os.getpid()} @" in owner and len(owner) <= 39
     # Strict prepares every shot: the lock is not written again.
     before = len(log)
-    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    _run(RE, lambda: cam.prepare(info))
     assert not [e for e in log[before:] if e.startswith(("lock", "owner"))]
 
 
@@ -736,3 +902,93 @@ def test_an_unstage_during_a_prepare_waits_for_it(
     assert (
         _run(RE, lambda: cam.hdf.capture.get_value()) is False
     )  # no capture left open
+
+
+def _with_delay(RE: RunEngine, cam: NativeCamera, delay_us: float) -> None:
+    """Set the camera's private trigger-delay record (mock-connected with the camera)."""
+    set_mock_value(cam._trigger_delay, delay_us)
+
+
+def test_the_stamps_are_timed_from_the_trigger_each_run(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """The live exposure and trigger delay (µs) join the stored offset at each run's first prepare.
+
+    The frame's EPICS stamp is taken when the finished frame reaches the
+    driver; every reader subtracts ``drain_offset``.  Never accumulated
+    across runs: each run starts from the stored offset.
+    """
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.01)
+    set_mock_value(cam.driver.acquire_time, 0.9)
+    _with_delay(RE, cam, 400.0)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))  # strict prepares every shot
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.01 + 0.9004)
+    _run(RE, lambda: cam.unstage())
+
+    set_mock_value(cam.driver.acquire_time, 0.001)  # changed between runs
+    set_mock_value(cam._trigger_delay, 0.0)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.011)
+    _run(RE, lambda: cam.unstage())
+
+
+def test_a_camera_without_the_delay_record_connects_and_takes_no_delay(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """``TriggerDelay_RBV`` is geecs-epics' add-on record: a camera without it still runs."""
+    monkeypatch.setattr(native, "STAMP_LAG_READ_S", 0.2)
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.02)
+    cam._delay_connected = False  # as on a real camera: connected at the first prepare
+    set_mock_value(cam.driver.acquire_time, 0.5)
+
+    async def unreachable(*_, **__):
+        raise TimeoutError("TriggerDelay_RBV not found")
+
+    monkeypatch.setattr(cam._trigger_delay, "connect", unreachable)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.52)
+    assert any("no trigger delay readable" in m for m in caplog.messages)
+    _run(RE, lambda: cam.unstage())
+
+
+@pytest.mark.parametrize(
+    "exposure, delay", [(math.nan, 0.0), (0.1, -5e5)], ids=["nan", "negative"]
+)
+def test_an_unusable_exposure_corrects_nothing_and_says_so(
+    RE: RunEngine, tmp_path: Path, caplog, exposure, delay
+) -> None:
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.02)
+    set_mock_value(cam.driver.acquire_time, exposure)
+    _with_delay(RE, cam, delay)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.02)
+    assert any("not corrected this run" in m for m in caplog.messages)
+    _run(RE, lambda: cam.unstage())
+
+
+def test_the_stamp_settings_are_read_under_the_run_lock(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No other client can change the exposure between the read and the run's end."""
+    cam, _ = _camera(RE, tmp_path)
+    seen: list[bool] = []
+    plain = cam.driver.acquire_time.get_value
+
+    async def read(*args, **kwargs):
+        seen.append(bool(await cam.run_lock.lock.get_value()))
+        return await plain(*args, **kwargs)
+
+    monkeypatch.setattr(cam.driver.acquire_time, "get_value", read)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert seen == [True]
+    _run(RE, lambda: cam.unstage())

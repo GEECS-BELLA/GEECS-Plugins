@@ -1,0 +1,112 @@
+{#
+  A device page (GeecsControlRoom/CLAUDE.md § "The device pages"): the trail after the brand (home ›
+  kind's picker › device, each a link but the page itself), the picker at /device/<kind>, and
+  the device at /device/<kind>/<name> — the header (name, family, kind, the
+  module's state as a chip, heartbeat, the operator's name), the switcher (the
+  picker's select, so an operator changes device in place), the kind's
+  component, and the role table from the device's roles as the module's device
+  route serves them (resolved there), level and units from the family: the
+  operator roles open, the expert roles in a disclosure, one table per axis,
+  folded under the component. Each row carries its role and axis; device.js
+  fills the PV and verdict from the module's device route and the value from
+  Hare. A device the page cannot draw is a kit pane saying why.
+  The component is the **settables page** unless a kind's template fills
+  `kind_component` (the camera's frame, the trace's plot): the rail and the
+  readings strip from the panel (_panel.html; the family's `panel`, else the
+  automatic layout: device_pages.page_panel), one pane per axis behind an axis
+  selector for a per-axis family; written through device_writes.js (the
+  module's put route, sent once, `axis` on a per-axis write), hazards behind
+  the dialog. Under the readings, one time plot per trend the family's panel
+  names (_panel.html's `trends`, trend.js; Plotly is loaded only then). So a kind with no data component (a motor, a supply, a GEECS DB
+  device) is complete with no template of its own.
+#}{% extends "base.html" %}{% import "_panel.html" as P %}
+{% block title %}{{ name or kind }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css">{% endblock %}
+{% block crumbs %}{% if kind in kinds %}<nav class="crumbs" aria-label="Breadcrumb"><span class="sep" aria-hidden="true">›</span>
+  {% if name %}<a href="{{ root }}/device/{{ kind }}">{{ kind }}</a><span class="sep" aria-hidden="true">›</span><span class="mono" aria-current="page">{{ name }}</span>
+  {% else %}<span aria-current="page">{{ kind }}</span>{% endif %}</nav>{% endif %}{% endblock %}
+{% block header %}{% if device %}<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>
+<span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
+{% endif %}{% endblock %}
+{% macro role_table(list, axis) -%}
+<div class="tscroll"><table class="roles">
+  <thead><tr><th>Role</th><th class="num">Value</th><th>Units</th><th>State</th><th>PV</th></tr></thead>
+  <tbody>{% for role in list %}
+    <tr data-role="{{ role.name }}"{% if axis %} data-axis="{{ axis }}"{% endif %} data-type="{{ role.type }}"{% if role.units %} data-units="{{ role.units }}"{% endif %}>
+      <td>{{ role.label }}</td><td class="num v">—</td><td class="u">{{ role.units or "" }}</td>
+      <td class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></td>
+      <td class="pv mono">—</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+{%- endmacro %}
+{% block body %}
+<main class="device" data-kind="{{ kind }}"{% if name %} data-device="{{ name }}"{% endif %}{% if recover %} data-recover="1"{% endif %}>
+  {% if rows is defined %}
+  <form class="panel picker" method="get" action="{{ root }}/device/{{ kind }}">
+    <div class="body"><div class="row">
+      <div class="field"><label for="pick">{{ kind | capitalize }}</label>
+        <select id="pick" name="name" data-current="{{ name or '' }}">
+          <option value="">{{ ("choose a " ~ kind ~ "…") if rows else ("no " ~ kind ~ " in the registry") }}</option>
+          {% for d in rows %}<option value="{{ d.name }}"{% if d.name == name %} selected{% endif %}>{{ d.name }} · reading</option>{% endfor %}
+          {% if name and name not in rows | map(attribute="name") %}<option value="{{ name }}" selected>{{ name }} · typed</option>{% endif %}
+        </select></div>
+      <div class="field"><label for="typed">or a device name</label>
+        <input id="typed" name="typed" spellcheck="false" autocomplete="off" placeholder="GEECS device name"></div>
+      <button class="btn" type="submit">Go</button>
+      <span class="dim" id="roster-note">{{ problem or "" }}</span>
+    </div></div>
+  </form>
+  {% endif %}
+
+  {% if rows is defined and not name %}
+  <article class="panel"><header><span class="eyebrow">{{ kind | capitalize }} devices in the registry</span></header>
+    <div class="tscroll"><table id="roster">
+      <thead><tr><th>Device</th><th>Family</th><th>State</th></tr></thead>
+      <tbody>{% for d in rows %}<tr data-name="{{ d.name }}"><td class="id"><a href="{{ root }}/device/{{ kind }}/{{ d.name | urlencode }}">{{ d.name }}</a></td><td>{{ d.family }}</td>
+        <td class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">reading</span></td></tr>{% endfor %}</tbody>
+    </table></div>
+  </article>
+  {% endif %}
+  {% if pane %}{% set st, title, note = pane %}
+  <div class="state" data-state="{{ st }}">
+    <div class="t">{{ title }}</div>
+    {% if note %}<div class="m">{{ note }}</div>{% endif %}
+    {% if other %}<a class="btn sm" href="{{ root }}/device/{{ other }}/{{ name | urlencode }}">Open it as a {{ other }}</a>{% endif %}
+    {% if st == "error" %}<div class="row">{% for k in kinds %}<a class="btn sm" href="{{ root }}/device/{{ k }}">{{ k }}</a>{% endfor %}</div>{% endif %}
+  </div>
+  {% elif device %}
+  <article class="panel">
+    <header>
+      <span class="mono name">{{ name }}</span>
+      <span class="dim">{{ family.template if family else device.family }} · {{ kind }}</span>
+      <span class="chip lg" id="device-state" data-state="{{ kit_state.get(device.state, 'unknown') }}">{{ device.state or "unknown" }}</span>
+      <span class="dim" id="heartbeat">heartbeat {{ device.heartbeat or "—" }}</span>
+    </header>
+    {% block kind_component %}{% set axes = tables | map("first") | list %}
+    <div class="body settables" id="settables">
+      {% if axes | length > 1 %}<div class="row axis-pick"><div class="field"><label>Axis</label><div class="seg" role="group" aria-label="axis">{% for a in axes %}<button type="button" data-axis-pick="{{ a }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ a }}</button>{% endfor %}</div></div></div>{% endif %}
+      {% for a in axes %}
+      <div class="camera axis-pane" data-axis-pane="{{ a or '' }}"{% if not loop.first %} hidden{% endif %}>
+        <aside class="rail panel-rail">{{ P.rail(panel, specs, a) }}{% if not panel.rail %}<p class="dim">Nothing on this device is settable.</p>{% endif %}</aside>
+        <div class="pane">{{ P.readings(panel, specs, a) }}<div class="alarms"></div>{{ P.trends(trends, windows, root ~ "/api/devices/" ~ (name | urlencode) ~ "/trends", a) }}</div>
+      </div>
+      {% endfor %}
+      <div class="out" id="write-out" data-state="unknown" role="status"></div>
+      {% if auto %}<p class="dim note">Laid out automatically: every settable role, then every reading. {{ "The family " ~ family.template ~ " has no panel." if family else "A GEECS DB device: its variables as the module serves them." }}</p>{% endif %}
+    </div>
+    {% endblock %}
+    {% block role_tables %}<details class="disc roles-all"><summary>Every role · {{ device.roles | length }}</summary><div class="body">
+    {% for axis, roles in tables %}
+      {% if axis %}<span class="eyebrow">axis {{ axis }}</span>{% endif %}
+      {{ role_table(roles | selectattr("level", "equalto", "operator") | list, axis) }}
+      {% set expert = roles | selectattr("level", "equalto", "expert") | list %}
+      {% if expert %}<details class="disc"><summary>Expert · {{ expert | length }} roles</summary><div class="dbody">{{ role_table(expert, axis) }}</div></details>{% endif %}
+    {% endfor %}
+    </div></details>{% endblock %}
+  </article>
+  {{ P.hazard_dialog() }}
+  {% endif %}
+</main>
+<script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/device_rules.js" defer></script><script src="{{ root }}/static/device_source.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/device.js" defer></script>{% if device %}<script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/device_rail.js" defer></script>{% endif %}{% if device and trends %}<script src="{{ root }}/theme/plotly-cartesian-3.1.1.min.js" defer></script><script src="{{ root }}/theme/plot.js" defer></script><script src="{{ root }}/static/trend_rules.js" defer></script><script src="{{ root }}/static/trend.js" defer></script>{% endif %}{% endblock %}

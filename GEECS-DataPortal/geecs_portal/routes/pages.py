@@ -194,7 +194,7 @@ def run_view(
             "tab": "analysis" if tab == "analysis" and analysis_enabled else "overview",
             "plot_page": plot_page,
             "analysis_enabled": analysis_enabled,
-            "config_editor": portal.config_editor_enabled and analysis_enabled,
+            "configurator": portal.configurator_url if analysis_enabled else "",
             "devices": devices,
             # The config editor previews this shot of the recipe's device.
             "shot": 1,

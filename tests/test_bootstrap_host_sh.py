@@ -263,7 +263,11 @@ def _run_with_docker(
     )
     for f in ("systemctl", "docker", "id"):
         (stub_dir / f).chmod(0o755)
-    env = dict(os.environ, PATH=f"{stub_dir}:{os.environ.get('PATH', '')}")
+    env = dict(
+        os.environ,
+        PATH=f"{stub_dir}:{os.environ.get('PATH', '')}",
+        GEECS_ETC_DIR=str(tmp_path / "etc"),  # never the host's /etc/geecs
+    )
     return subprocess.run(
         ["bash", str(BOOTSTRAP), str(_site_env(tmp_path)), "--dry-run", *extra],
         capture_output=True,
@@ -370,7 +374,7 @@ def test_rendered_config_ini_carries_the_archiver_section(tmp_path: Path) -> Non
     r = _run(tmp_path, REDIS_ENABLED)
     assert r.returncode == 0, r.stderr
     assert "[archiver]" in r.stdout
-    assert "url = http://192.168.6.14:17665" in r.stdout
+    assert "url = http://192.168.6.22:17665" in r.stdout
 
 
 def test_service_account_outside_the_docker_group_is_not_ready(tmp_path: Path) -> None:
@@ -396,13 +400,16 @@ def test_docker_without_the_compose_plugin_is_not_ready(tmp_path: Path) -> None:
 def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
     tmp_path: Path,
 ) -> None:
-    """The PVA 'empty = none' precedent: no GEECS_ARCHIVER_HOST, no appliance, no Docker demand."""
+    """The PVA 'empty = none' precedent: no GEECS_ARCHIVER_HOST, no appliance, no Docker demand.
+
+    Canopy needs Docker too, so this site has none of its keys either.
+    """
     site = _site_env(tmp_path)
     site.write_text(
         "\n".join(
             ln
             for ln in site.read_text().splitlines()
-            if not ln.startswith("GEECS_ARCHIVER_")
+            if not ln.startswith(("GEECS_ARCHIVER_", "GEECS_CANOPY_PORT"))
         )
         + "\n"
     )
@@ -432,6 +439,68 @@ def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
     )  # the rest of the fleet is untouched
 
 
+def test_canopy_and_the_control_room_have_their_clones_units_and_root_steps(
+    tmp_path: Path,
+) -> None:
+    r = _run_with_docker(tmp_path, "--only", "canopy,control-room")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout
+    assert "canopy-checkout" in out and "control-room-checkout" in out
+    assert "GeecsCanopy/deploy/geecs-canopy.service" in out
+    assert "GeecsControlRoom/deploy/geecs-control-room.service" in out
+    assert "canopy: no host env" in out  # the image is built from the clone
+    assert "deploy-staging/canopy" in out  # render_conf.sh's compose file
+    assert "/etc/geecs/control-room/secrets.env" in out
+    # the runbook's build + alembic + key step comes before enabling Canopy
+    assert out.index("DEPLOYMENT.md §2") < out.index("enable --now geecs-canopy")
+    assert "enable --now geecs-control-room" in out
+
+
+def test_a_rerun_never_prints_the_lines_that_reset_the_secrets_files(
+    tmp_path: Path,
+) -> None:
+    for folder in ("canopy", "control-room"):
+        (tmp_path / "etc" / folder).mkdir(parents=True)
+        (tmp_path / "etc" / folder / "secrets.env").write_text("FILLED=1\n")
+    r = _run_with_docker(tmp_path, "--only", "canopy,control-room")
+    assert r.returncode == 0, r.stderr
+    assert "/etc/geecs/canopy/secrets.env exists: kept" in r.stdout
+    assert "sudo install -m 0600" not in r.stdout
+    assert "/etc/geecs/control-room/secrets.env" not in r.stdout
+
+
+def test_the_canopy_root_lines_survive_the_bootstraps_extraction(
+    tmp_path: Path,
+) -> None:
+    """The bootstrap keeps render_conf.sh's ``  sudo `` lines (a dry run never renders,
+    so the test above cannot see them): a format change there must fail here."""
+    import re
+
+    boot = BOOTSTRAP.read_text()
+    pattern = re.search(r"sed -n 's/\^(  sudo )/sudo /p'", boot)
+    assert pattern, "the bootstrap's extraction of render_conf.sh's root lines moved"
+    r = subprocess.run(
+        [
+            "bash",
+            str(REPO_ROOT / "GeecsCanopy/deploy/render_conf.sh"),
+            str(_site_env(tmp_path)),
+            str(tmp_path / "out"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+    assert r.returncode == 0, r.stderr
+    kept = [ln for ln in r.stdout.splitlines() if ln.startswith(pattern.group(1))]
+    for needle in (
+        "-m 0755 /etc/geecs/canopy",
+        "/var/lib/geecs-canopy/pgdata",
+        "/etc/geecs/canopy/compose.yaml",
+        "/etc/geecs/canopy/secrets.env",  # the rerun filter drops the line naming it
+    ):
+        assert any(needle in ln for ln in kept), needle
+
+
 def _existing_config(tmp_path: Path, text: str) -> Path:
     cfg = tmp_path / "checkouts" / ".config" / "geecs_python_api" / "config.ini"
     cfg.parent.mkdir(parents=True)
@@ -446,7 +515,7 @@ def test_existing_config_without_archiver_gets_the_section_appended(
     _existing_config(tmp_path, "[tiled]\nuri = http://x:8000\napi_key = secret\n")
     r = _run(tmp_path, REDIS_ENABLED, "--only", "archiver")
     assert r.returncode == 0, r.stderr
-    assert "would append [archiver] url = http://192.168.6.14:17665" in r.stdout
+    assert "would append [archiver] url = http://192.168.6.22:17665" in r.stdout
 
 
 def test_existing_archiver_section_is_left_alone(tmp_path: Path) -> None:
@@ -464,9 +533,9 @@ def test_rendered_config_ini_carries_the_mcp_service_urls(tmp_path: Path) -> Non
     assert r.returncode == 0, r.stderr
     assert "[mcp]" in r.stdout
     for line in (
-        "scanner_url = http://192.168.6.14:8300",
-        "portal_url = http://192.168.6.14:8200",
-        "logbook_url = http://192.168.6.14:8400",
+        "scanner_url = http://192.168.6.22:8300",
+        "portal_url = http://192.168.6.22:8200",
+        "logbook_url = http://192.168.6.22:8400",
     ):
         assert line in r.stdout, line
 
@@ -487,7 +556,7 @@ def test_a_pre_rebuild_mcp_section_is_not_edited_but_the_keys_are_named(
     assert r.returncode == 0, r.stderr
     assert "would append [mcp]" not in r.stdout
     assert "lacks scanner_url portal_url logbook_url" in r.stdout
-    assert "scanner_url = http://192.168.6.14:8300" in r.stdout
+    assert "scanner_url = http://192.168.6.22:8300" in r.stdout
     assert cfg.read_text() == "[mcp]\nclient_identity = geecs-mcp\n"
 
 
@@ -500,7 +569,7 @@ def test_a_partial_mcp_section_names_only_the_missing_keys(tmp_path: Path) -> No
     r = _run(tmp_path, REDIS_ENABLED, "--only", "mcp")
     assert r.returncode == 0, r.stderr
     assert "lacks portal_url logbook_url" in r.stdout
-    assert "portal_url = http://192.168.6.14:8200" in r.stdout
+    assert "portal_url = http://192.168.6.22:8200" in r.stdout
 
 
 def test_an_mcp_header_with_a_comment_is_not_duplicated(tmp_path: Path) -> None:
@@ -552,3 +621,39 @@ def test_a_site_without_the_services_host_renders_no_mcp_section(
     )
     assert only.returncode != 0
     assert "GEECS_SERVICES_HOST" in only.stderr + only.stdout
+
+
+def test_the_analysis_worker_is_deployed_only_where_the_site_names_its_port(
+    tmp_path: Path,
+) -> None:
+    """The example names no port: a full run deploys none, and --only says why."""
+    full = _run(tmp_path, "exit 1\n")
+    assert full.returncode == 0, full.stderr
+    assert "analysis-worker" not in full.stdout
+    (tmp_path / "bin" / "systemctl").unlink()
+    (tmp_path / "bin").rmdir()
+    only = _run(tmp_path, "exit 1\n", "--only", "analysis-worker")
+    assert only.returncode != 0
+    assert "GEECS_ANALYSIS_WORKER_PORT" in only.stderr
+
+
+def test_a_site_naming_the_analysis_workers_port_gets_its_clone_env_and_unit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Every per-service table carries the worker: clone, package, template, unit."""
+    example = tmp_path / "site.env.example"
+    text = SITE_ENV.read_text()
+    assert "GEECS_ANALYSIS_WORKER_PORT=\n" in text
+    example.write_text(
+        text.replace(
+            "GEECS_ANALYSIS_WORKER_PORT=\n", "GEECS_ANALYSIS_WORKER_PORT=8900\n"
+        )
+    )
+    monkeypatch.setattr(sys.modules[__name__], "SITE_ENV", example)
+    r = _run(tmp_path, "exit 1\n", "--only", "analysis-worker")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout
+    assert "analysis-worker-checkout" in out
+    assert "analysis-worker-checkout/GeecsAnalysisWorker" in out  # the env step
+    assert "GeecsAnalysisWorker/deploy/geecs-analysis-worker.service" in out
+    assert "enable --now geecs-analysis-worker" in out

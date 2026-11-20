@@ -67,6 +67,79 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   `window.GEECS_THEME` rather than carrying a copy, and the Python
   constants are pinned to it by test.
 
+## Line plots are Plotly (the maintainer's ruling, 2026-11-05)
+
+Every line plot on every GEECS surface (a trace, a lineout, a histogram, a
+scalar plot) is **Plotly, drawn through `plot.js`**, the one template this
+package derives from its tokens. Images are each surface's own for now: the
+Control Room's canvas frame viewer is right for 16-bit frames and stays, and
+the Data Portal is bound by nothing about images while it evolves.
+Adoption: the Control Room's trace page draws through it (2026-11-05), and
+the settables page's trends (2026-11-18); the
+camera page's lineouts and histogram are still its own canvas drawing (owed:
+onto `plot.js`, `decimate` moving here from `trace_rules.js` if the camera
+needs it); the portal's figures are below.
+
+- **One vendored bundle**, `static/plotly-cartesian-<version>.min.js`
+  (MIT, the version in the file name): the official `cartesian` dist bundle
+  (scatter, bar, histogram, heatmap, box, contour; no WebGL, so no
+  `scattergl`: a page decimates a long trace to two points per pixel column
+  instead, as the trace page does). Lab hosts have no internet: never a CDN,
+  never fetched at build or run time. Upgrading it renames the file and
+  every template reference in one commit;
+  `tests/test_plot_js.py::test_every_page_names_the_bundle_the_theme_vendors`
+  fails on a page left behind. A static file, so the package's "no Python
+  runtime dependency" stays true.
+- **`plot.js`** (`window.GeecsPlot`): `layout(over)` and `config(over)` are
+  the template with a page's keys merged over it; `watch(host)` repaints a
+  drawn plot on the `geecs:theme` event `theme.js` dispatches
+  (`Plotly.relayout` of the colour and face leaves only, so a repaint never
+  undoes the viewer's zoom); `axisFormat(units)` is the SI-prefix rule
+  below as one function. Trace *i* takes `--trace-((i mod n)+1)`
+  through the layout's `colorway`, so a page sets no line colour; the
+  modebar is PNG export, zoom, pan, zoom in/out, autoscale, reset; a
+  double-click resets, a legend click toggles a trace, no Plotly logo, the
+  kit's faces. Pinned in `tests/test_plot_js.py` under node: every colour
+  and face in the template a token (a sentinel reader), the trace mapping,
+  every token it reads defined in every palette, the repaint.
+- **A page owns its data and axes only**: titles with the unit as the
+  family names it, `yaxis.type`, `uirevision` to keep the viewer's zoom
+  across live updates. SI prefixes on ticks belong on base SI units only
+  (`exponentformat: "SI"` for s, V, A, Hz, m, W); every other unit is
+  plain (a wavelength axis of 1200 nm never reads "1.2k"): take it from
+  `GeecsPlot.axisFormat(units)`, never a copy.
+- The Data Portal's figures are server-authored (plotly.py, `$tok:`
+  sentinels resolved in the page) and load this bundle from its `/theme`
+  mount; moving them onto `plot.js` is the portal's own change, not done.
+
+## Forms drawn from a schema: `form.js`
+
+Every editor of a GEECS-Schemas document draws with **`form.js`**
+(`window.GeecsForm`), the one copy, as `plot.js` is for plots: a JSON
+Schema with the `tier` annotations in, kit controls out (`.field`,
+`details.fold`, a `.panel` per list item), the edited document and its diff
+back. `mount(host, {schema, value, readOnly, onChange})`; `diff(before,
+after, schema)` gives every change at a field's path (a reordered list
+included) with the strictest tier on that path, and the strictest overall,
+which decides what a save does. The kit styles its two marks, `.tier` and
+`[data-changed="true"]`. A host never re-implements the rules; a service
+that diffs on its side (the configurator, whose diff a save trusts) holds
+its diff to this one by test. Pinned in
+`tests/test_form_js.py` under node.
+
+How a document is laid out is read from **`x-` hints in the schema**, never
+from a per-kind renderer: `x-sections` (closed folds with a one-line gist),
+`x-ndim-from` and each variant's `x-ndim` (only the variants that fit the
+document's frames are offered), `x-docs` and `x-scalars` (a variant's
+reference link and its scalars' meanings), `x-axes` (one named row per
+axis), `x-suggest` (a datalist), `x-form-note` (why the form is plainer).
+`form.js`'s docstring is their contract. A kind's layout is whoever serves
+its schema: the analysis core stamps the registry's (`x-ndim`, `x-docs`,
+`x-scalars`, `x-axes`), the configurator its pages' (`form_hints.py`).
+The old analysis config editor (ScanAnalysis' `editor.js`, deleted by
+#1339) was a second form engine with the recipe's layout hard-coded; its
+affordances live here now, as hints any kind can use.
+
 ## Adoption status (owner rulings, 2026-09-13)
 
 Theme = paint (tokens, palettes, picker); kit = furniture (shell,
@@ -77,9 +150,7 @@ the theme without being on the kit.
 |---|---|---|---|
 | GeecsLogbook | yes | yes | yes (0.10.0) |
 | GeecsScanner (web console, its branch) | yes | yes | yes |
-| GeecsPanels (prototype) | yes | yes | yes |
 | GEECS-DataPortal | yes | yes (2026-10-28, every page at once; its own rules in `static/portal.css`) | yes (the middleware copy and its `root` processor removed in the same change) |
-| ScanAnalysis config editor (`/configs`) | yes | no | no |
 
 **The portal went onto the kit on 2026-10-28**, ahead of the owner's
 ruling that it go LAST, once HTU is quiet, as the kit's acceptance test:
@@ -88,9 +159,8 @@ the author overrode it to fold GeecsPlotter into the portal (deleted
 in the portal's `CLAUDE.md` for the maintainer to confirm at the
 promotion to `master`). The adoption still grew the kit as that ruling
 intended: `.tabs` and `.toast` (`GeecsKit.toast`) came from the portal's
-run page, each with a specimen on `kit.html`. The config editor follows
-the portal (it is a router inside it); it never gets a kit pass of its
-own. Do not start it early to "tidy up".
+run page, each with a specimen on `kit.html`. The run page's embedded
+configurator drawer draws on the page's own kit.
 
 ## The FastAPI glue and the template guards
 
@@ -120,7 +190,7 @@ yes it is a route, whatever it looks like.
 | 0 | `details.disc` | The detail belongs to one row and the reader is still scanning. Native `<details>` — keyboard, no-JS and find-in-page all work. Tracking open state in JS means you are on the wrong rung. |
 | 1 | `.inspector` | The user steps through many items and compares them. The selection belongs in the URL; if the link cannot carry it, it is not finished. |
 | 2 | `.drawer` | A focused sub-task on the object already on screen. Never opens another drawer, never holds a destructive confirm, must survive `Esc` without losing typing. |
-| 3 | `<dialog>` | A question that must be answered before anything else proceeds. Real `showModal()` — that is where the focus trap, `Esc` and the inert background come from. One question, at most two buttons, no scrolling, no form. Focus never lands on the destructive button. |
+| 3 | `<dialog>` | A question that must be answered before anything else proceeds. Real `showModal()` — that is where the focus trap, `Esc` and the inert background come from. One question, at most two buttons, no scrolling, no form — except that a confirmation may hold the one input it confirms (the scanner's scan title before Start). Focus never lands on the destructive button. |
 | 4 | a route | Long enough that someone will link to it, reload it, or return tomorrow. Needs no CSS, which is the point. |
 
 ## Containers, by role
@@ -129,8 +199,12 @@ Border, fill, radius and shadow each say *separate object*; spending all
 four on every block is why dense screens go flat.
 
 - `.panel` — a thing with an identity and its own state (a device, a scan, a
-  queue): border, header, shadow.
+  queue): border, header, shadow. Its header's eyebrow is the **title**,
+  one step up from the eyebrows inside (the UI face, heavier, ink), so the
+  card and a section in it never wear the same label.
 - `.group` — controls belonging to the panel around them. **No edges.**
+  `details.fold` is a group that closes: the eyebrow is its `<summary>`,
+  open in the markup, no script tracking the state.
 - `.well` — recessed fill, no border: output the reader did not write (a log
   tail, YAML, a repro snippet).
 

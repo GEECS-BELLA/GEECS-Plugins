@@ -20,8 +20,8 @@ geecs_core/
                     #   repository's per-experiment files (stdlib-only)
   epics_env.py      # config.ini [epics]/[pva] → EPICS_*_ADDR_LIST, applied
                     #   before a CA client imports aioca (stdlib-only) —
-                    #   every CA client of the IOCs needs it, not only
-                    #   GeecsBluesky (GeecsPanels, scripts)
+                    #   every CA client that takes its addressing from
+                    #   config.ini (GeecsBluesky, the lab probes)
   transport/        # layer 1 — the UDP/TCP wire protocol, asyncio-native,
                     #   stdlib-only (GeecsUdpClient, GeecsTcpSubscriber) +
                     #   scan_mode (Master Control's scan-mode device

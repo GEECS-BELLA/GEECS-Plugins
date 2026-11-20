@@ -14,4 +14,3 @@ image. This package is the GEECS-shaped part around it.
 | `deploy/` | Dockerfile, compose template, systemd unit, renderer, secrets example |
 
 `DEPLOYMENT.md` is the runbook; `CLAUDE.md` holds the rules.
-The decision record is `Planning/geecs_canopy.md` §7.

@@ -312,3 +312,77 @@ def test_failed_credential_lookup_falls_back(monkeypatch: pytest.MonkeyPatch) ->
     _fake_geecs_db(monkeypatch, boom)
     kwargs, who = mysql_probe._credentials("h", 1, creds_timeout=1)
     assert who == "probe user" and kwargs["host"] == "h"
+
+
+def test_no_fallback_host_is_no_target_not_a_guess(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Since 2026-11-15 the CA gateway and the DB are on different hosts, so no
+    client-side address implies the DB's: without ``--host`` and without a
+    resolving ``Configurations.INI`` the probe says so (rc 6) and connects
+    nowhere, instead of probing a guess and calling the network down.
+    """
+    _fake_geecs_db(monkeypatch, lambda: {})
+    code, line = mysql_probe.probe(None, 3306, timeout=0.5, creds_timeout=0.5)
+    assert code == 6 and line.startswith("no-target"), (code, line)
+    assert "gave no [Database] credentials" in line, line
+    args = ["--port", "3306", "--timeout", "0.5", "--creds-timeout", "0.5"]
+    assert mysql_probe.main(args) == 6
+    assert capsys.readouterr().out.startswith("no-target")
+    # An empty --host is "no host" on the CLI too (the shell passes none; a hand
+    # run may pass ""), never a connect to localhost.
+    assert mysql_probe.main(["--host", "", *args]) == 6
+    assert capsys.readouterr().out.startswith("no-target")
+
+
+def _raise(exc: Exception):
+    def find() -> dict:
+        raise exc
+
+    return find
+
+
+def test_no_target_names_the_lookups_own_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Six different failures used to print one line blaming the data share; each
+    is a different thing to fix, so the no-target line carries the lookup's reason.
+    """
+    _fake_geecs_db(
+        monkeypatch,
+        _raise(
+            FileNotFoundError(
+                "GEECS database config not found at /share/Configurations.INI"
+            )
+        ),
+    )
+    _, line = mysql_probe.probe(None, 3306, timeout=0.5, creds_timeout=0.5)
+    assert "Configurations.INI" in line and "data share not mounted" in line, line
+
+    _fake_geecs_db(
+        monkeypatch,
+        _raise(FileNotFoundError("GEECS user config not found at /home/x/config.ini.")),
+    )
+    _, line = mysql_probe.probe(None, 3306, timeout=0.5, creds_timeout=0.5)
+    assert "user config not found" in line and "data share" not in line, line
+
+    _fake_geecs_db(monkeypatch, _raise(KeyError("[Paths] geecs_data key missing")))
+    _, line = mysql_probe.probe(None, 3306, timeout=0.5, creds_timeout=0.5)
+    assert "KeyError" in line and "geecs_data" in line, line
+
+    monkeypatch.setitem(sys.modules, "geecs_core.db.geecs_db", None)  # the import fails
+    _, line = mysql_probe.probe(None, 3306, timeout=0.5, creds_timeout=0.5)
+    assert "geecs_core is not importable" in line, line
+
+    release = threading.Event()
+
+    def stalled() -> dict:
+        release.wait(30)
+        return {}
+
+    _fake_geecs_db(monkeypatch, stalled)
+    try:
+        _, line = mysql_probe.probe(None, 3306, timeout=0.5, creds_timeout=0.3)
+    finally:
+        release.set()
+    assert "timed out after 0.3 s" in line, line

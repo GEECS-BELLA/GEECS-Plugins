@@ -28,12 +28,17 @@ geecs_scanner/
     streams.py    StreamCache: qs_client ProgressStream + the console ring + optimization record
     demo.py       DemoQueueClient / DemoResolver / demo_preflight — a manager in memory
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
-    actions.py    the action-plan preview: flatten nested runs over the schema models
+    setups.py     setups: the preview, the hazard confirms (geecs_schemas.setup_hazards),
+                  the apply's questions and the item's md
     scanlog.py    read the run's scan.log from the folder the start document names
+    preset_saver.py "Save as preset": a PUT to the configurator (stdlib HTTP), which commits it
     scan_log_list.py the shared scan-log list (state-dir JSON, optimistic save) + the picker's logged variables
     settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
-    readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
+    readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async route
     trajectory.py isolated hardware-free preview over shared Bluesky expansion
+    shot_gate.py  the "shot gate" chip: the form's trigger profile's gate, one read-only
+                  ShotGate reader per address on a daemon thread (closed when no page
+                  asks for five minutes); shown, never a gate here
     writer_status.py the Tiled writer's heartbeat verdict (geecs_bluesky.tiled.spool's rule) projected onto the API model (the "tiled writer" chip, /health); shown, never a gate
   web/
     app.py        create_app (the process) and create_scanner_router (the same as a router)
@@ -87,7 +92,8 @@ deploy/           the unit template + DEPLOYMENT.md
   (the readback — the scanner reads gateway PVs directly, like the
   preflight does through the client seam), and
   `geecs_bluesky.tiled.spool` (the writer's heartbeat model and reader —
-  the shared side of the spool, never `tiled_writer`, the service loop).
+  the shared side of the spool, never `tiled_writer`, the service loop),
+  and `geecs_bluesky.shot_gate` (the gate client, standard library only).
   Never the
   portal, the logbook, GEECS-MCP, or the engine's
   `plans`/`devices`/`run_engine`/`namespace`. `tests/test_boundaries.py`
@@ -97,17 +103,80 @@ deploy/           the unit template + DEPLOYMENT.md
 - **The demo is sample content**, chosen by a flag; nothing in it is a
   default for a deployment.
 
-- **Idle-only items.** A move (`mv`), an action (`run_action`) and the two
+- **Idle-only items.** A move (`mv`), a setup (`apply_setup`) and the two
   calibration plans are queue items that run by themselves the moment they
   are added, so the service refuses them unless the manager is idle **and
   nothing waits** — the check and the add happen under the one lock. The
-  action preview flattens nested `run` steps over the schema models in
-  `service/actions.py` (never the worker's compiler: `geecs_bluesky.plans`
-  is off limits); an unresolvable plan cannot be run.
-- **Writes go through the resolver.** "Save as preset" calls
-  `ConfigsRepoResolver.write_preset` (atomic, refuses overwrite unless asked,
-  never creates the experiment folder); the scanner never opens a file in
-  the configs tree itself. Committing the new YAML is a human act.
+  setup preview flattens nested `apply` steps with GEECS-Schemas'
+  `flatten_setup` (never the worker's plans: `geecs_bluesky.plans` is off
+  limits); an unresolvable setup cannot be applied. The page's Setups panel
+  relays the apply's questions into the same acknowledgement dialog a
+  scan's preflight uses.
+- **Append only behind a started queue** (#1281). Add to Queue posts
+  `append: true`: the client adds behind the waiting items while the
+  queue is started, and while it is stopped (a failed item may sit at the
+  front, and an add restarts the queue) it still refuses with
+  `pending_items`, which the page shows rather than offering Replace.
+  `DELETE /api/queue/{uid}` removes one waiting item; the running uid is
+  `policy_refusal`, an unknown one `not_found`. The many-waiting-items
+  limit was the client's posture, never the manager's.
+- **A setup is applied as one idle-only `apply_setup` item**
+  (`GET /api/setups`, `GET /api/setups/{name}` the preview with its digest
+  and hazard confirms, `GET /api/setups/{name}/diff` each write against its
+  readback on `/api/readback`'s path, `POST /api/setups/{name}/apply`).
+  The apply needs the operator, then asks its questions as the preflight
+  does (`policy_refusal` with `needs_acknowledgement`, relayed by the
+  client, never acknowledged here): the setup's writes, and one hazard
+  confirm per `set` the family files (as `panel_devices.yaml` amends them)
+  or the operator policy's `hazards` name (`geecs_schemas.setup_hazards`;
+  a DB device's family is its device type, read once from the DB, and a
+  device whose family cannot be told is asked about whenever a family rule
+  names the role). Every check carries the setup's digest, so an
+  acknowledgement never covers an edited setup, and the item's
+  `md["geecs"]["setup"]` carries that digest, which the worker checks
+  before its first write (`GeecsBluesky/EVENT_SCHEMA.md`). An unreadable
+  policy or device file refuses the apply. No grant is checked: the queue
+  path, like a move or a scan; grants are the device module's gate. The
+  reopen generation is read before the questions are judged, so a reopen
+  that ran meanwhile refuses the item.
+- **The scanner never writes the configs tree.** "Save as preset" asks
+  the configurator (`service/preset_saver.py`, `--configurator-url`, a
+  site value) over HTTP with the standard library's client: it reads the
+  preset's etag (none: a create), `PUT`s the whole document with the
+  operator (required), and the configurator commits it to main as the
+  operator's. No configurator configured, no save (the answer says so);
+  the demo keeps saves in memory (`DemoPresets`). Nothing of the
+  configurator is imported: a peer service.
+- **The preset mini is the configurator's embedded editor.** With
+  `--configurator-browser-url` (a site value: the configurator as the
+  browser reaches it), "Edit preset…" opens the loaded preset in the
+  configurator's drawer (`GeecsConfigurator.open`, its `embed.js` loaded
+  from that URL beside this process's `/theme/form.js`) limited to the
+  preset's settings (not its plan, which is this form's), with this page's
+  operator; the configurator saves and commits it. The form here is not
+  reloaded: a save says to load the preset again. `/api/readback` takes
+  `word` (read as text) and answers `not_numeric` when the gateway gave a
+  value that is not a number (never for no answer); the configurator's
+  capture re-reads such a variable as a word, keyed on the flag, never on
+  the detail's wording (free text for a person).
+- **The environment reopen is the configurator's apply**
+  (`reopen_environment`, `POST /api/environment/reopen`): the worker reads
+  trigger profiles, the scan-variable catalogue, the native-device
+  registry and the shot offsets only at environment open. Under the one
+  lock, refused unless the environment is open and idle, nothing runs
+  **and nothing waits** (a closed environment is the readiness unit's to
+  open, never this route's); while it runs `StatusOut.reopening` is true,
+  every verb that queues (preflight, submit, move, action, calibration,
+  Set to best) is refused with `reopening`, and so is one that began before
+  the reopen and reaches the lock after it (`_reopen_guard` /
+  `_check_generation`: never an item queued after its caller waited out a
+  reopen, never a scan on a preflight of the old configs), and the
+  queue is started after the open if items wait. A failed open leaves the
+  environment closed: `manager_unreachable`, the readiness unit's recovery.
+- **The dry run of an unsaved trigger profile** is
+  `POST /api/preflight/trigger-profile` (`run_trigger_profile_preflight`,
+  or the full preflight of a given preset under the draft): the worker's
+  own checks, never re-implemented here; it queues nothing.
 - **scan.log is read where the start document says.** `scan_folder` in the
   start document is the run's folder on this host; `service/scanlog.py`
   reads `<folder>/scan.log` from an offset and never creates anything. The
@@ -129,8 +198,11 @@ deploy/           the unit template + DEPLOYMENT.md
   Not the configs repo: a list edited daily would keep that checkout
   dirty and, once committed, block `git pull` on the host.
 - **Portal links are URL only.** `--portal-url` (a site value) prefixes
-  `/run/<uid>` and `/day/<iso>` links in the rail; nothing from the portal
-  is imported.
+  `/run/<uid>` and `/day/<iso>` links in the rail, and each carries this
+  scanner's experiment as the portal's `experiment` query (`portalHref` in
+  the script): the portal browses every experiment on the share and
+  defaults to the main one, so an instance's links would otherwise land
+  on the main experiment's day. Nothing from the portal is imported.
 - **The Tiled writer's word is shown, never enforced.** `service/writer_status.py`
   reads `heartbeat.json` under `GEECS_TILED_WRITER_STATE` (the unit sets
   it; `/var/lib/geecs-tiled-writer`, the same on every host) and projects
@@ -141,6 +213,28 @@ deploy/           the unit template + DEPLOYMENT.md
   loses nothing, so no preflight question, no Start gate and no refusal
   ever comes from it (owner's ruling 2026-09-25; pinned in
   `tests/test_writer_status.py`).
+
+- **The shot gate is shown here, enforced by the worker.** A trigger
+  profile may name a software interlock server (`shot_gate`).
+  `GET /api/shot-gate?trigger_profile=` answers for the profile the form
+  submits under (empty: the experiment default), resolved from the configs
+  per request; the page polls it every 2 s and on every change of the
+  profile. `ShotGateWatches` keeps one read-only reader per address, each on
+  a daemon thread started the first time a profile names it,
+  reconnecting by itself, and closed when no status read has asked about
+  it for `WATCH_IDLE_S` (300 s; the page polls every 2 s, a background
+  tab about once a minute), and reads `unknown` ("connecting") until a new
+  reader's first frame. That is a second
+  connection beside the worker's, so the server must accept more than one
+  client (`ShotGateSpec` states it). The answer: `enabled: false` with the
+  reason (no gate in the profile, no profile to tell: the chip hidden),
+  `unknown` for a profile that cannot be read (it may name a gate; never
+  hidden, never an error), else `ok` safe, `degraded` not safe with the
+  server's reason, `failed` not connected or
+  silent. It never calls `fired` (the per-fire freshness rule is the
+  worker's), and no preflight question, Start gate or refusal comes from
+  it: the worker refuses a run whose gate does not connect and holds every
+  fire for its permission.
 
 ## Testing
 
@@ -179,7 +273,7 @@ The form selects an `OptimizerConfig` by ID; shared `prepare_optimizer_preset`
 resolves defaults and required devices before both preflight and submission.
 Saved presets retain the authored devices/kwargs; expansion happens only for
 preflight/submission through the shared client seam.
-Expanded required devices have `essential=True` and `save_images=True` even
+Expanded required devices have `required=True` and `save_images=True` even
 when an authored table row says otherwise. StreamCache reduces the worker's `optimization` stream; NaN
 becomes null for JSON. Set to best takes a run UID, rejects stale/incomplete
 runs, unsuccessful runs, offers older than 15 minutes, and offers invalidated
@@ -226,3 +320,5 @@ Lists accept numeric comma/tab/space/newline values, preserving repeats. There
 is no axis-count ceiling or evaluator. Presets seed the form; no preset is
 automatically selected. Optimize retains its existing required-device and
 Set to best controls.
+
+**Experiment instances.** A scanner serves one experiment; a second experiment gets its own `geecs-scanner@<Instance>` on its slot's port, reaching its own manager through `QS_CLIENT_*_ADDR`, never a picker in this one.

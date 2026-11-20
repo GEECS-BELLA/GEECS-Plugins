@@ -27,7 +27,6 @@ import pytest
 pytest.importorskip("aioca")
 
 import bluesky.plan_stubs as bps
-import bluesky.plans as bp
 from bluesky import RunEngine
 from bluesky.utils import RunEngineInterrupted
 from bluesky.utils import FailedStatus
@@ -46,7 +45,6 @@ from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     GeecsScanModeError,
-    GeecsTriggerTimeoutError,
 )
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
 from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
@@ -57,13 +55,13 @@ from geecs_bluesky.plans.scan_mode import (
     scan_mode_preflight,
     values_agree,
 )
-from geecs_bluesky.plans.strict import geecs_per_shot
 from geecs_core.testing.fake_scan_mode_device import (
     FakeScanModeDevice,
     FakeScanModeGroup,
 )
 from tests.ca_mock_helpers import DocCollector, connect_mock
 from tests.test_strict_plans import WRITES as STRICT_WRITES, FakeBox, _camera
+from tests.test_strict_plans import strict_count
 
 pytestmark = pytest.mark.fake_server  # the conftest's 30 s timeout
 
@@ -589,10 +587,10 @@ def _messages(RE: RunEngine) -> list[tuple[str, Any]]:
     return seen
 
 
-def test_the_announce_lands_between_trigger_and_fire(
+def test_the_announce_lands_between_the_baseline_and_the_fire(
     RE: RunEngine, stack: Stack
 ) -> None:
-    """``trigger, announce, fire, wait`` — the path is what makes the stamp advance."""
+    """``baseline, announce, fire, wait`` — the path is what makes the stamp advance."""
     cam = _camera(RE, FakeBox(), CAM)
     stack.start(**{CAM: {"camera": cam}})
     control = stack.make_control()
@@ -601,20 +599,23 @@ def test_the_announce_lands_between_trigger_and_fire(
     col = DocCollector()
     RE.subscribe(col)
     RE(bps.mv(control, _entry()))
-    RE(bp.count([cam], num=2, per_shot=geecs_per_shot(sc, scan_mode=control)))
+    RE(strict_count(sc, [cam], 2, scan_mode=control))
     RE(bps.mv(control, EXIT))
-    events = col.primary_events()
-    assert [e["data"][ANNOUNCED_SHOT] for e in events] == [1, 2]
-    assert [e["data"]["uc_cam-acq_timestamp"] for e in events] == [1001.0, 1002.0]
-    shot = [m for m in seen if m[0] in ("trigger", "set", "wait")]
-    first = shot.index(("trigger", "uc_cam"))
-    assert shot[first : first + 5] == [
-        ("trigger", "uc_cam"),
+    events = [e["data"] for e in col.primary_events()]
+    assert [e[ANNOUNCED_SHOT] for e in events] == [1, 2]
+    assert all(e["announce_stamp"] <= e["fire_stamp"] for e in events)
+    stream = col.stream_events("uc_cam_stream")
+    assert [e["data"]["uc_cam-acq_timestamp"] for e in stream] == [1001.0, 1002.0]
+    shot = [m for m in seen if m[0] in ("wait_for", "set", "wait")]
+    slot = [
+        ("wait_for", None),  # the baseline read
         ("set", "scan_mode"),  # the announce (mv = set + its own wait)
         ("wait", None),
         ("set", "sc"),  # the fire
-        ("wait", None),  # the shot wait
+        ("wait", None),
+        ("wait_for", None),  # the shot wait
     ]
+    assert sum(shot[i : i + 6] == slot for i in range(len(shot))) == 2
     assert _puts(stack) == ["fire", "fire"]
 
 
@@ -630,9 +631,13 @@ def test_a_box_less_profile_never_fires(RE: RunEngine, stack: Stack) -> None:
     col = DocCollector()
     RE.subscribe(col)
     RE(bps.mv(control, _entry(CAM)))
-    RE(bp.count([cam], num=2, per_shot=geecs_per_shot(sc, scan_mode=control)))
+    RE(strict_count(sc, [cam], 2, scan_mode=control))
     RE(bps.mv(control, EXIT))
-    assert [e["data"][ANNOUNCED_SHOT] for e in col.primary_events()] == [1, 2]
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r[ANNOUNCED_SHOT] for r in rows] == [1, 2]
+    # No fire, so the row's clock is the announce.
+    assert all(r["fire_stamp"] == r["announce_stamp"] > 0 for r in rows)
+    assert col.docs["start"][0]["shot_clock_column"] == "fire_stamp"
     assert ("set", "sc") not in seen
     assert not _puts(stack)
 
@@ -646,12 +651,13 @@ def test_a_refire_takes_a_new_shot_number(RE: RunEngine, stack: Stack) -> None:
     col = DocCollector()
     RE.subscribe(col)
     RE(bps.mv(control, _entry()))
-    RE(bp.count([cam], num=2, per_shot=geecs_per_shot(sc, scan_mode=control)))
+    RE(strict_count(sc, [cam], 2, scan_mode=control))
     RE(bps.mv(control, EXIT))
-    events = col.primary_events()
-    assert [e["data"][ANNOUNCED_SHOT] for e in events] == [1, 2, 3]
-    stamps = [e["data"]["uc_cam-acq_timestamp"] for e in events]
-    assert stamps[0] == 1001.0 and stamps[1] != stamps[1] and stamps[2] == 1003.0
+    events = [e["data"] for e in col.primary_events()]
+    assert [e[ANNOUNCED_SHOT] for e in events] == [1, 2, 3]
+    assert [e["complete"] for e in events] == [True, False, True]
+    stream = col.stream_events("uc_cam_stream")
+    assert [e["data"]["uc_cam-acq_timestamp"] for e in stream] == [1001.0, 1003.0]
     assert stack.devices[CAM].shot_numbers == [1, 2, 3]
 
 
@@ -853,14 +859,16 @@ def test_an_aborted_run_still_exits_scan_mode_before_standby(
     bound = bind_plans(
         _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
     )
-    with pytest.raises(GeecsTriggerTimeoutError):
-        RE(bound["count"]([cam], num=1))
+    # Two exhausted shots in a row pause the run; the operator aborts it.
+    with pytest.raises(RunEngineInterrupted):
+        RE(bound["count"]([cam], num=2))
+    RE.abort()
     tl = stack.timeline
     assert tl.index(("scan_end", CAM)) < tl.index(("put", "standby"))
     assert not control.entered and not stack.state_file.exists()
     assert not stack.devices[CAM].in_scan_mode
     # every announce was a fresh number: the retakes never re-sent one
-    assert stack.devices[CAM].shot_numbers == [1, 2, 3]
+    assert stack.devices[CAM].shot_numbers == [1, 2, 3, 4, 5, 6]
 
 
 def test_a_refused_entry_claims_nothing(RE: RunEngine, stack: Stack) -> None:
@@ -879,17 +887,15 @@ def test_a_refused_entry_claims_nothing(RE: RunEngine, stack: Stack) -> None:
     assert tl.index(("put", "armed")) < tl.index(("put", "standby"))
 
 
-def test_gated_is_refused_under_a_scan_mode_profile(
-    RE: RunEngine, stack: Stack
-) -> None:
+def test_fly_naming_a_scan_mode_profile_is_refused(RE: RunEngine, stack: Stack) -> None:
     cam = _camera(RE, FakeBox(), CAM)
     stack.start()
     bound = bind_plans(
         _profiles(RE, stack.timeline, use_scan_mode=True),
         scan_mode=stack.make_control(),
     )
-    with pytest.raises(GeecsConfigurationError, match="strict only"):
-        RE(bound["count"]([cam], num=2, acquisition="gated"))
+    with pytest.raises(GeecsConfigurationError, match="GEECS scan mode"):
+        RE(bound["count"]([cam], num=2, acquisition="fly", trigger_profile="SM"))
     assert not stack.timeline  # nothing driven, nothing sent
 
 
@@ -969,7 +975,7 @@ def test_release_scan_mode_ends_a_run_a_halt_left(RE: RunEngine, stack: Stack) -
 def test_run_device_names_lists_owners_once_plus_the_box(RE: RunEngine) -> None:
     cam = _camera(RE, FakeBox(), CAM)
     sc = _shot_control(RE, [], use_scan_mode=True)  # its device is the box
-    names = run_device_names([cam, cam.scalars], [cam.scalars], sc)
+    names = run_device_names([cam, cam.scalars], sc)
     assert names == (CAM, BOX)
     assert run_device_names([cam]) == (CAM,)
     # a detector's signal names its device (the one naming walk); a plan-side
@@ -1017,7 +1023,7 @@ def test_preflight_refuses_a_device_root_that_is_no_drive(
     sc = _shot_control(RE, [], use_scan_mode=True)
     control = stack.make_control(device_path=lambda p: p)  # no translation set
     with pytest.raises(GeecsConfigurationError, match="pushes device-side paths"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=(CAM,))
 
 
 def test_preflight_refuses_what_scan_mode_cannot_carry(
@@ -1034,16 +1040,16 @@ def test_preflight_refuses_what_scan_mode_cannot_carry(
     with pytest.raises(
         GeecsConfigurationError, match="conflicts with the devices' own"
     ):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=(CAM,))
     control = stack.make_control()
     with pytest.raises(GeecsConfigurationError, match="Nope"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=("Nope",))
+        scan_mode_preflight(sc, control, run_devices=("Nope",))
     with pytest.raises(GeecsConfigurationError, match="no GEECS device"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=())
-    scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=())
+    scan_mode_preflight(sc, control, run_devices=(CAM,))
     monkeypatch.setenv("EPICS_CA_ADDR_LIST", "203.0.113.9")
     with pytest.raises(GeecsConfigurationError, match="one host"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=(CAM,))
 
 
 def test_preflight_reads_the_boundary_rows_as_they_are_now(
@@ -1069,13 +1075,13 @@ def test_preflight_reads_the_boundary_rows_as_they_are_now(
     control = stack.make_control(
         boundary_writes=db.get_scan_boundary_writes("TestExp"), geecs_db=db
     )
-    scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+    scan_mode_preflight(sc, control, run_devices=(CAM,))
     db.start = "edges"  # edited in the DB after the control was built
     with pytest.raises(GeecsConfigurationError, match="'edges' as its startvalue"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=(CAM,))
     # a DB that does not answer keeps the rows last read, and says so
     db.down = True
     with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.scan_mode"):
         with pytest.raises(GeecsConfigurationError, match="conflicts"):
-            scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+            scan_mode_preflight(sc, control, run_devices=(CAM,))
     assert "could not be re-read" in caplog.text

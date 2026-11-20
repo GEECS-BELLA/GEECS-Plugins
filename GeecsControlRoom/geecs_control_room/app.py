@@ -2,7 +2,7 @@
 
 Every page extends ``base.html``, which carries what a page needs to reach
 Canopy from the browser: Hare's WebSocket URL and the display's read key,
-set here from the settings (condition (a): a read key, never a write key;
+set here from the settings (a read key, never a write key;
 every write goes through the module's put route).
 """
 
@@ -22,7 +22,7 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_control_room import home, screens
+from geecs_control_room import device_pages, home, images, screens, traces, trends
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
 
@@ -33,9 +33,16 @@ def create_app(
     settings: Settings,
     module: ModuleClient | None = None,
     scanner: httpx.AsyncClient | None = None,
+    camera: images.Images | None = None,
+    vole: trends.VoleClient | None = None,
 ) -> FastAPI:
-    """Build the app; ``module`` and ``scanner`` default to clients of the settings' URLs."""
+    """Build the app; ``module``, ``vole`` and ``scanner`` default to clients of the settings' URLs, ``camera`` to CA and HTTP."""
     module = module or ModuleClient(settings.canopy_url, settings.read_key)
+    vole = vole or trends.VoleClient(settings.canopy_url, settings.read_key)
+    fetch = None
+    if camera is None:
+        fetch = images.HttpFetch()
+        camera = images.Images(images.AiocaCa(), fetch)
     if scanner is None and settings.scanner_url:
         scanner = httpx.AsyncClient(base_url=settings.scanner_url, timeout=home.SCANNER_TIMEOUT_S)  # fmt: skip
 
@@ -43,8 +50,11 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         await module.aclose()
+        await vole.aclose()
         if scanner is not None:
             await scanner.aclose()
+        if fetch is not None:
+            await fetch.aclose()
 
     app = FastAPI(title=settings.title, lifespan=lifespan)
     app.add_middleware(ForwardedPrefixMiddleware)
@@ -61,10 +71,14 @@ def create_app(
 
     templates = make_templates(_PKG / "templates", context_processors=[canopy])
     app.state.templates = templates
-    app.include_router(screens.router(settings))
+    app.include_router(screens.router(settings, device_pages.embedded))
     app.include_router(screens.action_router())
     app.include_router(home.router(settings, scanner))
     app.include_router(home.preset_router(settings))
+    app.include_router(images.router(camera))
+    app.include_router(traces.router(traces.Traces(camera)))
+    app.include_router(trends.router(vole))
+    app.include_router(device_pages.router(settings))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

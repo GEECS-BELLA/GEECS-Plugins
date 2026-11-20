@@ -14,16 +14,22 @@ only — the PV prefix is derived from the experiment and device name
 are the kind's own, and hosts and paths are facility values with a home of
 their own.  An absent file means the experiment has no native devices.
 
-Two kinds so far: ``aravis_camera`` (an areaDetector camera, a detector of
-the scan) and ``epics_motor`` (one or more EPICS motor records, scan axes).
+Four kinds so far: ``aravis_camera`` (an areaDetector camera, a detector
+of the scan), ``epics_motor`` (one or more EPICS motor records, scan axes),
+``setpoint_device`` (a supply's plain records: settables confirmed on
+their readbacks, extra readbacks, status bits) and ``witness`` (a hardware
+count of one trigger domain's edges, recorded in every strict row).
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Optional, Union
+import re
+from collections.abc import Iterable
+from typing import Annotated, ClassVar, Literal, Optional, Union
 
 from pydantic import (
     Field,
+    PositiveFloat,
     SerializerFunctionWrapHandler,
     ValidationInfo,
     field_validator,
@@ -31,9 +37,10 @@ from pydantic import (
     model_validator,
 )
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
+    FamilyFile,
     TemplateName,
     families_from,
 )
@@ -109,6 +116,42 @@ class AravisCamera(_NativeEntry):
     )
 
 
+def _normalised(name: str) -> str:
+    """The GEECS normalization a name binds by: runs outside ``[A-Za-z0-9_]`` → ``'_'``, stripped, lowercase.
+
+    A copy of ``geecs_core.pv_naming.normalize_component`` (this package
+    sits below GEECS-Core); ``tests/test_native_devices.py`` pins the two
+    to agree where GEECS-Core is importable.
+    """
+    return re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_").lower()
+
+
+#: The setpoint record beside a readback by the gateway contract (``current`` → ``current:SP``).
+SETPOINT_SUFFIX = ":SP"
+
+
+def _record_names(
+    what: str, names: Iterable[str], seen: dict[str, str], *, same: str = "record"
+) -> None:
+    """Refuse a name that is no record name, or one that normalises like another.
+
+    *seen* maps each normalised name already taken to its spelling: the
+    worker binds every name to an attribute by the GEECS normalization
+    (:func:`_normalised`), so two that normalise alike would be one attribute.
+    """
+    for name in names:
+        if not name or name != name.strip() or any(c.isspace() for c in name):
+            raise ValueError(
+                f"{what} {name!r} is not a record name (no blanks, no whitespace)"
+            )
+        key = _normalised(name)
+        if key in seen:
+            raise ValueError(
+                f"{seen[key]!r} and {name!r} are the same {same} after normalization"
+            )
+        seen[key] = name
+
+
 class EpicsMotor(_NativeEntry):
     """A positioner: one device, one EPICS motor record per axis.
 
@@ -137,37 +180,268 @@ class EpicsMotor(_NativeEntry):
     @field_validator("axes")
     @classmethod
     def _axes_are_distinct_names(cls, axes: list[str]) -> list[str]:
-        seen: dict[str, str] = {}
-        for axis in axes:
-            if not axis or axis != axis.strip() or any(c.isspace() for c in axis):
-                raise ValueError(
-                    f"axis {axis!r} is not a record name (no blanks, no whitespace)"
-                )
-            # The worker binds each axis to an attribute by the GEECS
-            # normalization (lowercase, punctuation runs → '_'): two axes
-            # that normalise alike would be one attribute.
-            key = "".join(c.lower() if c.isalnum() else "_" for c in axis)
-            if key in seen:
-                raise ValueError(
-                    f"axes {seen[key]!r} and {axis!r} are the same axis after "
-                    "normalization"
-                )
-            seen[key] = axis
+        _record_names("axis", axes, {}, same="axis")
         return axes
 
 
+class SetpointSettable(SchemaModel):
+    """One settable of a setpoint device: how long a scan waits for its readback.
+
+    The tolerance the readback must come within is not here: it is a device
+    fact the IOC holds as a record (the family's ``tolerance_by`` role for
+    the settable's setpoint, a supply's ``current:TOL``), read by the scan
+    worker at every set.  What stays is the client's patience; a settable
+    that still gives a ``tolerance`` is refused as an unknown field.
+    """
+
+    # Finite: an infinite timeout removes the deadline (PositiveFloat
+    # alone admits +inf).
+    timeout: PositiveFloat = Field(
+        10.0,
+        allow_inf_nan=False,
+        description=(
+            "Seconds the scan worker waits for the readback to arrive within the "
+            "IOC's set tolerance after the write, before the set fails: the "
+            "client's patience, not a device fact. Size it for the slowest ramp "
+            "plus the readback's scan period. The tolerance itself is the IOC's "
+            "record (the family's tolerance_by role, e.g. current:TOL), never "
+            "written here."
+        ),
+    )
+
+
+def _no_set_tolerance(family: FamilyFile, record: str) -> Optional[str]:
+    """Why *family* gives the settable *record* no set-tolerance record, naming the family and role; ``None`` if it does."""
+    setpoint = family.setpoint_role_for(record)
+    if setpoint is None:
+        role = next((r for r in family.roles if r.suffix == record), None)
+        what = (
+            f"has it as {role.type} role {role.name!r}"
+            if role
+            else "names no such record"
+        )
+        return (
+            f"settable {record!r}: family {family.template!r} {what} and no "
+            "setpoint role for it, so no set-tolerance record: a scan could not "
+            "confirm a set on it"
+        )
+    if setpoint.tolerance_by is None:
+        return (
+            f"settable {record!r}: family {family.template!r}'s setpoint role "
+            f"{setpoint.name!r} names no set-tolerance record (tolerance_by): a "
+            "scan could not confirm a set on it"
+        )
+    return None
+
+
+class SetpointDevice(_NativeEntry):
+    """A setpoint device: a supply's plain records (``NATIVE_DEVICES.md`` §8).
+
+    The entry names the records under the device's prefix
+    (``<experiment>:<device>:<record>``), since the worker has no DB rows to
+    enumerate them: each settable is its readback record, written at its
+    setpoint record (``<record>:SP``, or the family's setpoint role for that
+    readback) and confirmed on the readback within the IOC's set tolerance
+    (the record the family's ``tolerance_by`` role names for that setpoint);
+    readbacks are extra row columns; status bits are two-state records that
+    fail a set when they read 1. Limits, units and the set tolerance live in
+    the records (``DRVH``/``DRVL``, ``EGU``, ``current:TOL``), the one home
+    for device facts: a settable the family gives no setpoint role with a
+    ``tolerance_by`` is refused.
+    """
+
+    kind: Literal["setpoint_device"] = Field(
+        description=(
+            "Device kind: 'setpoint_device' (a supply's plain records: "
+            "setpoint, readback, status bits)."
+        )
+    )
+    settables: dict[str, SetpointSettable] = Field(
+        min_length=1,
+        description=(
+            "The settables, by readback record name under the device's prefix "
+            "(e.g. {'current': {timeout: 10}} for "
+            "'<experiment>:<device>:current', written at the family's setpoint "
+            "role for it, 'current:SP', and confirmed within the IOC's set "
+            "tolerance, 'current:TOL'). Each must be a readback the family "
+            "writes through a setpoint role with a 'tolerance_by'. Each is a "
+            "scan axis 'Device:record' and a setup's set target."
+        ),
+    )
+    readbacks: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Further numeric readback records, read into each row beside the "
+            "settables' own (e.g. ['voltage'])."
+        ),
+    )
+    status: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Status bits, two-state records that read 1 when tripped (e.g. "
+            "['fault', 'interlock']): a set is refused while one reads 1 and "
+            "fails if one rises while it waits."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _names_are_distinct_records(self, info: ValidationInfo) -> "SetpointDevice":
+        seen: dict[str, str] = {}
+        _record_names("settable", self.settables, seen)
+        _record_names("readback", self.readbacks, seen)
+        _record_names("status bit", self.status, seen)
+        for record in self.settables:
+            if record.endswith(SETPOINT_SUFFIX):
+                raise ValueError(
+                    f"settable {record!r} is a setpoint record: name its "
+                    f"readback ({record[: -len(SETPOINT_SUFFIX)]!r})"
+                )
+        family = families_from(info).get(self.family_template)
+        if family is None:  # an unknown template is _NativeEntry's refusal
+            return self
+        self._check_against(family)
+        written = set(self.setpoint_records(family).values())
+        clash = sorted(written & {*self.readbacks, *self.status})
+        if clash:
+            raise ValueError(f"{clash} are setpoint records of this device's settables")
+        return self
+
+    def _check_against(self, family: FamilyFile) -> None:
+        """Refuse a settable the family gives no set tolerance, a record it knows as something else, a status bit it lacks.
+
+        A settable must be a readback the family writes through a setpoint
+        role with a ``tolerance_by`` (the IOC's set-tolerance record): the
+        scan worker confirms a set within that record's value and has no
+        other.  A family lists every bit its template has but may omit a
+        readback (the Easy-Driver's ``temperature``): a readback the family
+        does not name is the template's own business.
+        """
+        by_suffix = {r.suffix: r for r in family.roles}
+        for record in self.settables:
+            refusal = _no_set_tolerance(family, record)
+            if refusal is not None:
+                raise ValueError(refusal)
+        for record in self.readbacks:
+            role = by_suffix.get(record)
+            if role is not None and role.type != "readback":
+                raise ValueError(
+                    f"readback {record!r}: family {family.template!r} has it as a "
+                    f"{role.type}, not a readback"
+                )
+        faults = sorted(r.suffix for r in family.roles if r.type == "bit" and r.fault)
+        for record in self.status:
+            if record not in faults:
+                raise ValueError(
+                    f"status bit {record!r} is not a fault bit of family "
+                    f"{family.template!r} ({', '.join(faults) or 'none'})"
+                )
+
+    def setpoint_records(self, family: FamilyFile) -> dict[str, str]:
+        """Each settable's setpoint record: the family's setpoint role for it.
+
+        The one rule every reader writes or archives by (the worker, and
+        later the scanner's list, the panel and the archiver); *family* is
+        the device's (``load_families()[entry.family_template]``), against
+        which the entry validated, so every settable has one.
+        """
+        return {
+            record: self._family_record(family, record)[0] for record in self.settables
+        }
+
+    def tolerance_records(self, family: FamilyFile) -> dict[str, str]:
+        """Each settable's set-tolerance record: its setpoint role's ``tolerance_by`` role's suffix.
+
+        The record the IOC holds the settable's set tolerance in (a
+        supply's ``current:TOL``, geecs-epics decision 21), by the family's
+        one rule (:meth:`FamilyFile.tolerance_for`); *family* as for
+        :meth:`setpoint_records`.
+        """
+        return {
+            record: self._family_record(family, record)[1] for record in self.settables
+        }
+
+    def _family_record(self, family: FamilyFile, record: str) -> tuple[str, str]:
+        # Validation refuses this against the same families; a family other
+        # than the one validated against is the caller's error.
+        refusal = _no_set_tolerance(family, record)
+        if refusal is not None:
+            raise ValueError(refusal)
+        return family.setpoint_for(record), family.tolerance_for(record)  # type: ignore[return-value]
+
+
+class Witness(_NativeEntry):
+    """A trigger domain's witness: a hardware count of its edges, the count's stamp, an epoch.
+
+    Recorded, never waited on: each strict row reads the count (the
+    family's ``count`` role, ``<counter>Counts``), the count record's own
+    timestamp and the epoch (the family's ``epoch`` role, a string that
+    changes whenever the count restarts). At most one witness per domain.
+    Names only, as every entry: the records are the family's.
+    """
+
+    kind: Literal["witness"] = Field(
+        description="Device kind: 'witness' (a counter of a trigger domain's edges)."
+    )
+    counter: str = Field(
+        "Counter1",
+        pattern=r"^[A-Za-z][A-Za-z0-9_]*$",
+        description=(
+            "The counter record's name stem under the device's prefix: the "
+            "count is '<counter>Counts'. It must be the family's count record."
+        ),
+    )
+    domain: str = Field(
+        "main",
+        pattern=r"^[a-z][a-z0-9_]*$",
+        description=(
+            "The trigger domain it counts (a plain word): the edges every "
+            "synchronous device of that domain sees. One witness per domain; "
+            "strict runs record the 'main' domain's."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _the_familys_records(self, info: ValidationInfo) -> "Witness":
+        family = families_from(info).get(self.family_template)
+        if family is None:  # an unknown template is _NativeEntry's refusal
+            return self
+        roles = {r.name: r for r in family.roles}
+        count, epoch = roles.get("count"), roles.get("epoch")
+        if count is None or epoch is None or epoch.text != "string":
+            raise ValueError(
+                f"family {family.template!r} needs a 'count' role and a string "
+                "'epoch' role to serve a witness"
+            )
+        if count.suffix != f"{self.counter}Counts":
+            raise ValueError(
+                f"counter {self.counter!r}: family {family.template!r} counts at "
+                f"{count.suffix!r}, not '{self.counter}Counts'"
+            )
+        return self
+
+    def records(self, family: FamilyFile) -> tuple[str, str]:
+        """The count and epoch records under the device's prefix, from *family* (its own)."""
+        roles = {r.name: r.suffix for r in family.roles}
+        return roles["count"], roles["epoch"]
+
+
 #: Every native device kind, discriminated by ``kind`` (a new kind is one more member).
-NativeDevice = Annotated[Union[AravisCamera, EpicsMotor], Field(discriminator="kind")]
+NativeDevice = Annotated[
+    Union[AravisCamera, EpicsMotor, SetpointDevice, Witness],
+    Field(discriminator="kind"),
+]
 
 #: The kinds that are detectors of the scan — they acquire per shot (a
 #: stack, a stamp) and take the detector rules (``save_images``, the run
-#: shapes a native camera is refused in).  A positioner is a settable: never
-#: in this set.
+#: shapes a native camera is refused in).  A positioner and a setpoint
+#: device are settables: never in this set.
 DETECTOR_KINDS: frozenset[str] = frozenset({"aravis_camera"})
 
 
 class NativeDevices(VersionedSchemaModel):
     """The experiment's devices served by native EPICS IOCs, by GEECS device name."""
+
+    tier: ClassVar[Tier] = "maintainer"
 
     schema_version: Literal[1] = Field(
         1,
@@ -194,4 +468,13 @@ class NativeDevices(VersionedSchemaModel):
         blank = [name for name in devices if not name.strip()]
         if blank:
             raise ValueError("a native device name must not be blank")
+        domains: dict[str, str] = {}
+        for name, entry in devices.items():
+            if isinstance(entry, Witness):
+                if entry.domain in domains:
+                    raise ValueError(
+                        f"witnesses {domains[entry.domain]!r} and {name!r} both "
+                        f"count domain {entry.domain!r}: one witness per domain"
+                    )
+                domains[entry.domain] = name
         return devices

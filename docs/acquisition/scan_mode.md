@@ -37,7 +37,7 @@ It suits free-running devices that should take one shot each when told.
 Without the flag an empty profile is refused.
 
 Scan mode is strict acquisition only. `count`, `sweep` and `optimize` run
-under it; a gated run and the shot-offset calibration plans refuse a
+under it; a fly run and the shot-offset calibration plans refuse a
 scan-mode profile.
 
 ## What happens during a run
@@ -64,12 +64,12 @@ scan-mode profile.
 ## Shot numbers and files
 
 The shot number is run-wide and starts at 1. Every fire takes the next
-number, refires included, and a number is never sent twice. A device that
-misses a shot still leaves a row: the partial row keeps its number and the
-retake takes the next one, so the row index and the number usually agree.
-They part when an announced shot ends in no row. For example, an
-immediate pause rewinds the shot in progress and the replay is announced
-under the next number.
+number, refires included, and a number is never sent twice. Every
+announced fire is a row of the shot table: a shot a required device misses
+keeps its row and number, and the refire takes the next one. Runs recorded
+before the shot table could part the two: an immediate pause rewound the
+shot in progress and the replay was announced under the next number, so
+the row index is never the join key.
 
 Each row records the number it was announced as:
 
@@ -97,7 +97,7 @@ spellings.
     `Scan999_pulsewire-picoscope_002.tdms` through `_004`. Rows 2 to 4 get
     their files; row 1 gets none.
 
-The post-run stack check does not match a non-essential device's files to
+The post-run stack check does not match a non-required device's files to
 its stream under scan mode, because the files are named by shot number and
 not by timestamp.
 
@@ -169,11 +169,28 @@ Seen on the Undulator, accepted for now:
   values again before the run begins (a DG645 switches trigger source
   twice). Unlisted devices whose host lost both `ScanStart`s are named in
   the worker's log.
+- **A silent device usually never heard `ScanStart`.** In a packet-capture
+  soak (Undulator idle, 2026-10-14, captured on two device hosts) every
+  `ScanStart` that reached a captured host was acknowledged by all of its
+  devices, and every captured miss was a `ScanStart` that never arrived at
+  the host — whole hosts at once, never one device while its host-mates
+  answered; misses spanned more hosts than the two captured. Loss followed
+  silence on the group: 0 of 52 entries after gaps of 5–60 s missed and
+  3 of 8 after 300 s; 3 of 12 cycles at 300 s gaps; 0 of 16 at 300 s gaps
+  with an `Empty` sent to the group every 60 s between cycles (123 of 124
+  group datagrams reached both hosts). `Empty` and the multicast `ScanEnd`
+  were lost the same way, at both hosts and at different times, with zero
+  receive errors and zero capture drops on the hosts: the loss is in the
+  network, downstream of the sender, and its cause is open. The worker
+  recovers as described above — `ScanEnd` to the devices that entered,
+  then one fresh `ScanStart`, never a second `ScanStart` into an open
+  scan. The idle `Empty` keepalive is measured, not built: the worker
+  sends `Empty` only in the `Empty, Empty, ScanStart` entry sequence.
 - **A software single shot sets the pace.** With the box on `Single shot`
-  (laser off) the next shot follows once the essential devices have
+  (laser off) the next shot follows once the required devices have
   answered, after the plan's own work and any `shot_period`. A slower
-  device the run does not wait for (unlisted or `non_essential`) misses
-  some shots. With the laser on, `Single shot external rising edges`
+  device the run does not wait for (unlisted, or a preset device with
+  `required: false`) misses some shots. With the laser on, `Single shot external rising edges`
   synchronizes each shot to a laser edge; the same limits still set the
   rate, so a moving scan can take every other edge.
 

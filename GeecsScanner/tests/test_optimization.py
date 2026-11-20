@@ -11,7 +11,7 @@ def test_config_and_required_merge(client):
     assert response.json()["required_devices"] == ["U_BCaveICT"]
     preset = {
         "name": "optimization",
-        "devices": [{"device": "U_BCaveICT", "essential": False, "save_images": False}],
+        "devices": [{"device": "U_BCaveICT", "required": False, "save_images": False}],
         "plan": {
             "name": "optimize",
             "kwargs": {"optimizer_config": "xopt_beam_charge"},
@@ -135,7 +135,7 @@ def test_expired_best_is_refused_and_reported(
         service.set_optimization_best(SetBestIn(run_uid="run"))
 
 
-@pytest.mark.parametrize("plan", ["mv", "run_action"])
+@pytest.mark.parametrize("plan", ["mv", "apply_setup"])
 def test_non_run_item_invalidates_best(service, manager, completed_best, plan):
     service._queue_item(
         plan, ["U_S1H.current", 0.0] if plan == "mv" else ["test"], {}, what="test"
@@ -149,6 +149,9 @@ def test_saving_optimizer_draft_does_not_resolve_or_merge(
     service, monkeypatch, tmp_path
 ):
     from geecs_scanner.service.models import SavePresetIn
+    from geecs_schemas import Preset
+
+    from geecs_scanner.service.preset_saver import SavedPreset
 
     captured = []
     monkeypatch.setattr(
@@ -157,22 +160,23 @@ def test_saving_optimizer_draft_does_not_resolve_or_merge(
         lambda _: pytest.fail("saving resolved an optimizer"),
     )
     monkeypatch.setattr(
-        service.resolver,
-        "write_preset",
-        lambda p, **kw: captured.append(p) or tmp_path / "draft.yaml",
+        service._presets,
+        "save",
+        lambda name, doc, **kw: captured.append(Preset.model_validate(doc))
+        or SavedPreset("presets/draft.yaml", None, "saved"),
     )
     document = {
         "name": "draft",
-        "devices": [{"device": "Meter", "essential": False, "save_images": False}],
+        "devices": [{"device": "Meter", "required": False, "save_images": False}],
         "plan": {
             "name": "optimize",
             "kwargs": {"optimizer_config": "renamed", "acquisition": "strict"},
         },
     }
-    service.save_preset("draft", SavePresetIn(preset=document))
+    service.save_preset("draft", SavePresetIn(preset=document, operator="Op"))
     assert captured[0].plan.kwargs == document["plan"]["kwargs"]
     assert (
-        not captured[0].devices[0].essential and not captured[0].devices[0].save_images
+        not captured[0].devices[0].required and not captured[0].devices[0].save_images
     )
 
 

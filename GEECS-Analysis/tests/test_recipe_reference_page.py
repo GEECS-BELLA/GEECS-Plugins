@@ -1,6 +1,6 @@
 """The published recipe reference has a card for everything the registry has.
 
-The config editor links every step, measure and summary to its card
+The recipe schema links every step, measure and summary to its card
 (``recipe_schema()``'s ``x-docs``). The page's cards come from data that
 ``docs/sites/analysis_recipes/make_examples.py`` embeds; when a new kind is
 registered without rerunning it, its editor link lands on a "no card yet"

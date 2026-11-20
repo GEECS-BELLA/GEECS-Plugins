@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 import bluesky.plan_stubs as bps
+from bluesky.preprocessors import rewindable_wrapper
 from bluesky.protocols import Readable
 from bluesky.utils import separate_devices
 from geecs_schemas.shot_offsets import DeviceOffset, ShotOffsets
@@ -46,8 +47,14 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import refuse_native_cameras
 from geecs_bluesky.native_scope import NOT_CALIBRATION
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.plans.gated import TRIGGER_PERIOD_S, run_bracket
-from geecs_bluesky.plans.strict import fire_and_await_shot
+from geecs_bluesky.plans.shot_gate import (
+    LapseClock,
+    fire_gated,
+    hold_for_permission,
+    open_gate,
+    pause_on_lapses,
+)
+from geecs_bluesky.plans.strict import fire_and_await_shot, run_bracket
 from geecs_bluesky.callbacks.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
 
@@ -88,10 +95,10 @@ DEFAULT_CALIBRATION_SHOTS = 10
 #: requested shots plus that many again to replace incomplete ones.
 _RETAKE_BUDGET = 2
 
-#: The trigger period assumed when a caller does not say — HTU's 1 Hz, the
-#: same default the gated batch uses.  Sizes the quiet confirmation window
-#: and the whole-shot folding in the sync check.
-DEFAULT_TRIGGER_PERIOD_S = TRIGGER_PERIOD_S
+#: The trigger period assumed when a caller does not say — the laser rep
+#: rate (HTU: 1 Hz).  Sizes the quiet confirmation window and the
+#: whole-shot folding in the sync check.
+DEFAULT_TRIGGER_PERIOD_S = 1.0
 
 #: A measured offset larger than this is refused for *writing*: a third of
 #: a second is outside anything a frame drain explains, so the measurement
@@ -823,6 +830,11 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         The configs-repo resolver the measurement is written through;
         ``None`` registers a plan that can measure but not write (the
         hermetic worker).
+
+    Notes
+    -----
+    A profile's ``shot_gate`` holds every SINGLESHOT before its devices are
+    armed, and is connected before the box is driven.
     """
 
     def measure_shot_offsets(  # noqa: C901, PLR0915
@@ -844,7 +856,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         across devices, averaged over the shots, is the calibration.
 
         No run is opened and nothing is claimed: a queue item like
-        ``run_action``, not a scan.  The box returns to STANDBY on every path
+        ``apply_setup``, not a scan.  The box returns to STANDBY on every path
         that unwinds the plan except ``RE.halt()``, which skips finalizers.
 
         The measurement is **reported** by default and stored only with
@@ -948,6 +960,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             TriggerState.SINGLESHOT,
         ):
             _refuse_profile_without(shot_control, state)
+        shot_gate = shot_control.shot_gate
         confirm_time = max(
             QUIET_CONFIRM_FLOOR_S, QUIET_CONFIRM_PERIODS * trigger_period
         )
@@ -971,15 +984,31 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             # caused.
             yield from bps.mv(shot_control, TriggerState.ARMED.value)
 
+            lapsed: list[bool] = []
+
             def fire():
-                yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
+                if not (yield from fire_gated(shot_control, shot_gate)):
+                    lapsed.append(True)
 
             complete: list[dict[str, float]] = []
             attempts = 0
             budget = shots * _RETAKE_BUDGET  # the requested shots, plus as many retakes
+            lapses = LapseClock(lambda: shot_control.pause_count)
             while len(complete) < shots and attempts < budget:
                 attempts += 1
+                # Before the devices are armed: a hold must not spend their
+                # shot timeout.
+                yield from hold_for_permission(shot_gate)
                 missed = yield from fire_and_await_shot(views, fire)
+                if lapsed:
+                    # The gate's permission lapsed while the devices were
+                    # armed: nothing fired, so this was no attempt.  The
+                    # armed devices time out empty; hold again.
+                    lapsed.clear()
+                    attempts -= 1
+                    yield from pause_on_lapses(shot_gate, lapses)
+                    continue
+                lapses.reset()
                 if missed:
                     logger.warning(
                         "shot %d incomplete (%s did not deliver) — discarded and "
@@ -1011,7 +1040,13 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         # which is the line telling the operator there is an uncommitted
         # change to review.
         with plan_report_sink(REPORT_LOGGER):
-            complete = yield from run_bracket(inner(), shot_control, TriggerState.OFF)
+            yield from open_gate(shot_gate)
+            # Not rewindable: a resume after a pause (an operator's, or a
+            # gate hold's) must never replay the cached SINGLESHOTs — every
+            # replayed put is a physical shot no gate permitted.
+            complete = yield from rewindable_wrapper(
+                run_bracket(inner(), shot_control, TriggerState.OFF), False
+            )
             measurement = offsets_from_shots(complete)
             logger.info(
                 "shot offsets over %d shot(s), reference %s:\n%s",
@@ -1036,9 +1071,10 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             )
             path = resolver.write_shot_offsets(document)
             logger.info(
-                "shot offsets stored in %s — this is an UNCOMMITTED change in "
-                "the configs repo: review and commit it. The worker picks the new "
-                "offsets up at its next environment open, not now.",
+                "shot offsets stored in %s — under the configurator's inbox it "
+                "commits them to the configs repo; elsewhere this is an UNCOMMITTED "
+                "change to review and commit. The worker picks the new offsets up "
+                "at its next environment open, not now.",
                 path,
             )
             return measurement

@@ -11,7 +11,6 @@ from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisRecipe
 
 from scan_analysis.config.diagnostic_factory import create_scan_analyzer
-from scan_analysis.config_store import ConfigStore
 from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_products import Product, ProductPlan
 from scan_analysis.core_recipe import scan_recipe
@@ -93,7 +92,14 @@ def test_sink_skips_a_kind_whose_product_this_run_lacks(tmp_path):
     assert not saved.notes
 
 
-def test_store_lists_validates_and_writes_a_recipe(tmp_path):
+def test_a_canonical_recipe_written_to_the_tree_loads_and_binds(tmp_path):
+    """The written form (canonical YAML) reads back as the same recipe and binds to the core."""
+    import yaml
+    from geecs_analysis.recipe import binding_errors
+    from geecs_schemas.analysis import canonical_document
+
+    from scan_analysis.config import load_diagnostic
+
     root = tmp_path / "scan_analysis_configs"
     (root / "analyzers" / "HTU").mkdir(parents=True)
     (root / "groups").mkdir()
@@ -107,15 +113,13 @@ def test_store_lists_validates_and_writes_a_recipe(tmp_path):
             {"kind": "average"},
         ],
     )
-    store = ConfigStore(root)
-    report = store.validate("analyzer", v3.model_dump(mode="json", exclude_none=True))
-    assert report.ok and report.canonical["schema_version"] == 3
-    (root / "analyzers" / "HTU" / "New.yaml").write_text(report.yaml)
-    entries = {e.id: e for e in store.list("analyzer")}
-    assert entries["New"].valid and entries["New"].summary["schema_version"] == 3
-    assert entries["New"].summary["analyzer_kind"] == "beam"
-    loaded = store.read("analyzer", "New")
-    assert loaded.valid and loaded.document["schema_version"] == 3
+    canonical = canonical_document(v3)
+    assert canonical["schema_version"] == 3 and binding_errors(v3) == []
+    (root / "analyzers" / "HTU" / "New.yaml").write_text(
+        yaml.safe_dump(canonical, sort_keys=False)
+    )
+    loaded = load_diagnostic("New", config_dir=root)
+    assert loaded.model_dump() == v3.model_dump() and loaded.measure.kind == "beam"
 
 
 def test_sink_resolves_every_kind_in_a_fresh_process():

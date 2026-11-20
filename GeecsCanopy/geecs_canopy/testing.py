@@ -15,6 +15,7 @@ import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -104,9 +105,17 @@ def write_documents(
 
 
 def make_env(
-    tmp_path: Path, *, key: Any = KEY, squirrel: FakeSquirrel | None = None
-) -> SimpleNamespace:  # Any: Canopy's key object
-    """The module over the documents and a ``FakeHare`` (and a ``FakeSquirrel``), and its routes: ``module, hare, app, clock, folder, squirrel``."""
+    tmp_path: Path,
+    *,
+    key: Any = KEY,
+    squirrel: FakeSquirrel | None = None,
+    gateway: Callable[[], list[Any]] | None = None,
+) -> SimpleNamespace:  # Any: Canopy's key object; the gateway's Resolved devices
+    """The module over the documents and a ``FakeHare`` (and a ``FakeSquirrel``, and a ``gateway`` callable listing DB devices), and its routes: ``module, hare, app, clock, folder, squirrel``.
+
+    The module reads a gateway off the loop; ``await env.module.read_gateway()``
+    before the first request that needs its devices.
+    """
     from geecs_canopy.routes import build_app
 
     folder = write_documents(tmp_path)
@@ -114,7 +123,7 @@ def make_env(
     squirrel_settings = {"squirrel_url": "http://canopy.test", "squirrel_key": "service-write-key"} if squirrel else {}  # fmt: skip
     settings = ModuleSettings(EXPERIMENT, tmp_path, tmp_path, 3.0, settle_timeout_s=0.05, **squirrel_settings)  # fmt: skip
     hare = FakeHare()
-    module = Module(settings, hare, Journal(tmp_path / "j.sqlite3"), clock=lambda: clock[0])  # fmt: skip
+    module = Module(settings, hare, Journal(tmp_path / "j.sqlite3"), clock=lambda: clock[0], gateway=gateway)  # fmt: skip
     app = build_app(module, read_access=lambda: key, squirrel_transport=squirrel.transport() if squirrel else None)  # fmt: skip
     return SimpleNamespace(module=module, hare=hare, app=app, clock=clock, folder=folder, squirrel=squirrel)  # fmt: skip
 

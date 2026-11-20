@@ -45,8 +45,16 @@ from geecs_portal import analysis_runs
 from geecs_portal.cache import ShotDataCache
 from geecs_portal.batch import WorkerLink
 from geecs_portal.day_scans import DayScans
-from geecs_portal.routes import batch, browse, images, logbook, pages, plot_api, runs
-from geecs_portal.routes.config_editor import mount_config_editor
+from geecs_portal.routes import (
+    analysis_configs,
+    batch,
+    browse,
+    images,
+    logbook,
+    pages,
+    plot_api,
+    runs,
+)
 from geecs_portal.state import PortalState
 
 logger = logging.getLogger(__name__)
@@ -74,12 +82,13 @@ def create_app(
     default_experiment: str = "",
     processing_config_dir: Optional[Path] = None,
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
-    config_editor: bool = False,
     logbook_url: str = "",
+    logbook_browser_url: str = "",
     logbook_client: Optional[httpx.Client] = None,
     plotter: Optional[FastAPI] = None,
     worker: Optional[WorkerLink] = None,
     day_scans: Optional[DayScans] = None,
+    configurator_url: str = "",
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -119,6 +128,14 @@ def create_app(
         shows no link. The link is built for runs of
         ``default_experiment`` alone — the logbook serves one
         experiment's share and scan numbers restart per experiment.
+    logbook_browser_url : str, optional
+        The logbook as the browser reaches it, when that differs from
+        ``logbook_url`` (behind a front door: the browser's
+        ``https://<name>/<experiment>/logbook``, while ``logbook_url``
+        stays an address this process dials). Every link uses it; the
+        plot send still posts to ``logbook_url``. Empty: links use
+        ``logbook_url``. Absolute only (``ValueError`` otherwise): a path
+        would take this app's prefix, which is where it never is.
     logbook_client : httpx.Client, optional
         The HTTP client the plot send talks to the logbook with. ``None``
         (the default) makes one per send; tests inject a client over an
@@ -134,13 +151,15 @@ def create_app(
         The analysis worker (``scan-analysis-worker``, its own service) the
         day page's "Analyze this day" panel reaches through
         ``/api/batch/...``. ``None`` (the default) shows no panel.
-    config_editor : bool, default False
-        Mount the analysis config editor (``scan_analysis.config_editor``)
-        at ``/configs`` over the same ``processing_config_dir`` tree, with a
-        live preview of the document under edit on the scan page's current
-        shot. A **write verb** (it saves YAML into the configs tree) and
-        therefore explicit opt-in — ``--config-editor`` on the CLI; nothing
-        without ``processing_config_dir`` and the ``analysis`` extra.
+    configurator_url : str, optional
+        The configurator as the browser reaches it (a site value). The
+        Analysis tab's **edit** opens a recipe, ``.himg`` job or group in
+        the embedded editor (GeecsConfigurator's ``static/embed.js``), with
+        this portal's preview of the unsaved recipe on the page's scan; the
+        save is the configurator's (the operator as git author, its tier
+        and dry run, which is this portal's ``/api/analysis/validate``).
+        The configurator lists this portal's origin in its CORS origins.
+        Empty (the default): no edit button for the configurator.
     """
     # The analysis-run worker outlives requests: built
     # before the app so the lifespan can refuse new runs and log any
@@ -163,20 +182,28 @@ def create_app(
     # root-absolute href/action/src/fetch must carry (empty at root).
     app.add_middleware(ForwardedPrefixMiddleware)
     templates = make_templates(_TEMPLATES_DIR, filters={"run_state": run_state})
-    # The portal's own assets: the version-pinned vendored Plotly bundle
-    # (doctrine amendment 2026-08-30 — still no npm, no CDN) and its
-    # stylesheet.
+    # The portal's own stylesheet.
     app.mount(
         "/static", RevalidatingStaticFiles(directory=str(_STATIC_DIR)), name="static"
     )
-    # The shared palette and kit. The config editor is a router inside this
-    # app, so one mount serves both and a viewer's choice follows them.
+    # The shared palette and kit, and the vendored Plotly bundle beside them
+    # (the theme's, one copy for every surface: still no npm, no CDN); the
+    # run page's embedded configurator editor loads kit.js and form.js here.
     mount_theme(app)
     # Per-app pixel cache: completed runs' shot data kept in memory so
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
     data_cache = ShotDataCache()
-    logbook_base = logbook_url.rstrip("/")
+    if logbook_browser_url and not logbook_browser_url.startswith(
+        ("http://", "https://")
+    ):
+        # A path would be taken as same-origin and get this app's own prefix:
+        # a logbook on its own path behind the front door is never there.
+        raise ValueError(
+            f"logbook_browser_url must be absolute (http(s)://...): {logbook_browser_url!r}"
+        )
+    logbook_send_url = logbook_url.rstrip("/")
+    logbook_base = (logbook_browser_url or logbook_url).rstrip("/")
     portal = PortalState(
         catalog=catalog,
         templates=templates,
@@ -188,15 +215,27 @@ def create_app(
         analysis_factory=analysis_factory,
         logbook_base=logbook_base,
         logbook_send_base=(
-            logbook_base if logbook_base.startswith(("http://", "https://")) else ""
+            logbook_send_url
+            if logbook_send_url.startswith(("http://", "https://"))
+            else ""
         ),
         logbook_client=logbook_client,
         plot_page=plotter is not None,
         worker=worker,
         day_scans=day_scans or DayScans(),
+        configurator_url=configurator_url.rstrip("/"),
     )
     app.state.portal = portal
-    for family in (plot_api, runs, logbook, browse, pages, images, batch):
+    for family in (
+        plot_api,
+        runs,
+        logbook,
+        browse,
+        pages,
+        images,
+        batch,
+        analysis_configs,
+    ):
         app.include_router(family.router)
 
     if processing_config_dir is not None and not portal.processing_names():
@@ -209,9 +248,6 @@ def create_app(
             "— the processing selector is disabled",
             processing_config_dir,
         )
-
-    if config_editor and processing_config_dir is not None:
-        mount_config_editor(app, portal)
 
     if plotter is not None:
         app.mount("/plot", plotter, name="plot")

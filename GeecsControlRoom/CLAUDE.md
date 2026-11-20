@@ -3,8 +3,8 @@
 The operator surfaces over Canopy (`Planning/operator_surfaces.md`): the
 experiment's home, the **Control Room**, and the **screens renderer** —
 a control GUI is a screen file in the configs repo drawn by one renderer,
-never code per screen. FastAPI + Jinja on the kit, plain JavaScript, no
-build step (§7: the first slice decides whether that stays).
+never code per screen — and the **device pages** (§ "The device pages").
+FastAPI + Jinja on the kit, plain JavaScript, no build step.
 
 ## Layout
 
@@ -16,20 +16,76 @@ geecs_control_room/
   home.py           the home at /: the strip (/api/home/strip, the scanner's API; /api/home/baseline,
                     the golden presets' diff), the "Not live" and "In alarm" lists (/api/home/devices),
                     the launcher (home.yaml), the presets (/api/home/presets and the pass-throughs
-                    /api/presets[/{id}/diff|golden|restore] to the module's preset routes)
+                    /api/presets[/{id}/diff|golden|restore] to the module's preset routes), the device
+                    directory (`directory`: the registry by page kind; its `words` in /api/home/devices)
   screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
                     its image files, and the module pass-throughs (/api/devices/{name}[/put],
                     /api/actions, …/{plan}/run, …/runs/{id}[/stop])
+  device_pages.py   KINDS (kind word → family kind → template; `settables` the module's DB devices, family
+                    kind None); `catalogue` the one registry join (every device with its kind word, None for
+                    no page); `db_devices` the roster's DB devices; /device/{kind} the picker (the registry's
+                    devices of the kind, the roster's for settables; /api/device/{kind} their roster states),
+                    /device/{kind}/{name} the device resolved by one module read (denied / stale panes, never
+                    blank) and the panel it draws (`page_panel`: the family's `panel`, else `auto_panel`,
+                    trimmed to the served roles by `drawn_panel`; § "The settables page" below)
+  images.py         a camera's frame (/api/devices/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
+                    names, rehosted to the IOC's CA address, one fetch in flight, shared, held on role
+                    `image_counter` with ETag/304; § "The JPEG" below) and arrays
+                    (/api/devices/{name}/arrays: the `on_request` roles of type `array`, at most every 0.5 s, shared)
+                    and the raw frame (/api/devices/{name}/frame.raw: role `raw_frame`, uint16 LE row-major,
+                    gzip framed, geometry + `raw_counter` tag in headers, ETag (counter + full scale)/304; `raw_counter` probed first so
+                    an unmoved camera costs one scalar read; one read in flight, held RAW_HOLD_S; 503 words
+                    for an unreadable counter or frame and a geometry disagreement; the contract is
+                    § "The raw frame" below), over CA (aioca), read only; the module's route cached ROUTE_TTL_S
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
-                    slowly), fills the device pickers, the presets region (save dialog, diff drawer,
-                    restore confirm, the run on the row, the golden mark)
-  static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
-  static/screen_rules.js, home_rules.js   the pages' rules, pure (verdict word, value shown,
-                    bounds, writable, differs, outcome state; the home lists' words)
+                    slowly), fills the device pickers, the directory's words and its filter, the presets
+                    region (save dialog, diff drawer, restore confirm, the run on the row, the golden mark)
+  static/screen.js  the renderer's live half: the module's verdicts polled per device, each widget's page
+                    (its device's GeecsDeviceSource, or its bare PV's; a deferred widget's kind fits) under
+                    the ONE rail (device_rail.js) and device_writes.js (a group widget's controls and readings
+                    too), the words, a flipper's lamps, the action runs
+  static/screen_rules.js, home_rules.js, directory_rules.js   the pages' rules, pure (verdict word,
+                    misfit, value shown, bounds, outcome state; the home lists' words; the
+                    directory's filter, row words and chip)
+  static/device_source.js   one device as a page reads it (entry, frame watched on first ask, meta, word,
+                    its write record as `target`): the device page's GeecsDevicePage and each device a screen binds
+  static/device.js, device_rules.js   the device pages' live half (roles from the module per role and
+                    axis, values from Hare) and its rules (picker options, a role row's word and units, the
+                    rail's present-hiding, a control's written value, a pane's alarms)
+  static/device_rail.js   the ONE rail and readings strip of every page drawn from a panel (the settables,
+                    trace and camera pages; a screen's widgets): fill from Hare, enable on the module's word, write through
+                    device_writes.js (axis on a per-axis write), the setpoint control (§ "The setpoint
+                    control" below); starts itself on the settables page
+  static/device.css the device pages' layout
+  static/camera.js, camera_controls.js, camera_rules.js, camera.css   the camera page (device_camera.html):
+                    the viewer (frame loop, zoom/pan, colour map, levels), crosshairs and analysis ROI
+                    drawn and dragged, the rail and readings (the family's panel, device_rail.js over
+                    camera.js's writes), its own camera ROI (one draft, a dialog first) and display, the
+                    lineouts and histogram; the Raw toggle (frame.raw at 2 Hz, rotated / flipped by role
+                    `transform` as TRANS1 would, levels per mode as fractions of the full scale);
+                    device.js's GeecsDevicePage gives it the roles, values, words
+  traces.py         a trace (/api/devices/{name}/trace?y=: the family's axis role (`axis_of`) and an array
+                    it draws, `[channels, samples]` by its `channels_by`, float32 LE gzip framed, held on
+                    its `fresh_by` counter with ETag/304; § "The trace" below), over CA through Images' cache
+  static/trace.js, trace_rules.js, trace.css   the trace page (device_trace.html): the rail and readings
+                    (device_rail.js) from the family's `panel`, the plot (Plotly through the theme's plot.js: one trace per
+                    channel, decimated to the plot's width, linear/log, the viewer's window = Plotly's x
+                    range, and average); the rules reuse camera_rules.js's
+  trends.py         a settables page's trend history (/api/devices/{name}/trends?seconds=&axis=: the family panel's
+                    trend roles at the PVs the module names, each subscribed in Vole and read over the window with
+                    the read key; `VoleClient`; § "The trends" below)
+  static/trend.js, trend_rules.js   the settables page's trends: one Plotly plot per trend of the family's panel,
+                    the past from trends.py, each line extended from GeecsDevicePage's frames; the rules pure
+  static/device_writes.js   a device page's write path (operator, hazard dialog, one list at a time,
+                    sent once, `axis` on a per-axis write): every device page's
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
                     dropped, a timeout, back-off to 10 s, at most 8 requests at once
-  templates/        base.html (every page's shell), screen.html (EVERY screen), the pages
+  templates/        base.html (every page's shell; `crumbs` the trail after the brand), screen.html (EVERY screen), device.html (every
+                    device page: header with the operator, the hazard dialog, the folded role tables, and by default
+                    the settables page; a kind with a data component fills `kind_component`: device_camera.html the
+                    camera's, device_trace.html the trace's), _panel.html (the rail's macros: control, tweak, rail,
+                    readings, trends, hazard_dialog; one copy), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
 deploy/
@@ -40,9 +96,16 @@ deploy/
 
 - **A client of Canopy, never a part of it.** Canopy and GeecsCanopy are
   services: Hare's WebSocket for live values, the module's routes for
-  verdicts and writes. Never import `geecs_canopy`, GeecsBluesky, the
-  portal or the logbook (import contract `control-room-edges`).
-- **Read keys only (condition (a), `Planning/geecs_canopy.md` §7.6).** The
+  verdicts and writes, Vole's buffer for a trend's past (read key, § "The
+  trends"). Never import `geecs_canopy`, GeecsBluesky, the
+  portal or the logbook (import contract `control-room-edges`). The one
+  exception to "through Canopy" is what Hare does not carry: a camera's
+  frame and its arrays, and a trace, are read over Channel Access by this
+  server (`images.py`, `traces.py`, aioca), **read only**, at the PVs the module's device route
+  names (never derived here); CA addressing is the standard `EPICS_CA_*`
+  environment from `site.env`, never `config.ini` or GEECS-Core. No write
+  ever leaves this process but through the module's put route.
+- **Read keys only (no operator key carries Canopy `write`).** The
   page carries the display's read key (on `<body>`, for Hare's socket);
   a write key never reaches this process. Every write is
   `POST /geecs/v1/devices/{name}/put` with the operator's name, sent once:
@@ -64,10 +127,47 @@ deploy/
   such role, "wrong kind" when its type does not fit the kind, Hare's alarm
   rules where the module gives no verdict) and writes it through the same
   put route. A writing kind on a bare PV is drawn disabled.
-- **A button may name an action plan** (`bind: {action: <plan>}`, checked
-  against the experiment's `action_library/actions.yaml`). The module runs
-  it, every `set` through its gates; the page asks once (the plan's
-  description and its hazard steps) when it writes a hazard role, sends
+- **A screen's controls are the rail's.** Every widget but an annotation,
+  a picture and an action button is `_panel.html`'s `control`
+  (`screens.spec_of`: the screen's label and units over the role's, else the
+  record's EGU from Hare; its `precision` how a value is shown, `digits`,
+  never the record's precision a setpoint's settle is judged by) filled and written by `device_rail.js` through `device_writes.js`,
+  one per device (the outcome on the widget's own line, its `confirm` note
+  asked first in the rail's hazard dialog): a `setpoint` is the setpoint
+  control (§ below), a `toggle` or `flipper` the rail's two-state pair
+  (its `values`, else 0 and 1; labelled by the enum's own words, a bit's Off
+  / On; a reading that is neither presses neither), a `select` the rail's
+  select (the PV's choices, narrowed to a family role's `choices`), a
+  `button` a command, a `readout` the value with its word. A LabVIEW
+  variable's convention is the screen's word, never a DB type edit: a
+  boolean a VI keeps as a number is a `toggle` with `values: {on, off}`
+  (it binds a numeric setpoint role; the module's bounds gate still
+  applies), a choice the LabVIEW GUI showed as a number box a `select`
+  (enum roles only). What a kind accepts is GEECS-Schemas' table, carried
+  to the page as `data-fits`.
+- **A `group` widget is the device page's group.** `{device, group}` draws
+  that rail group (every group so headed, in order, where a panel repeats a
+  heading; `settings`: the automatic layout, every group of it)
+  with `_panel.html`'s `rail` and the panel's readings folded under it
+  (under the device's first group widget only, per axis),
+  from the module's device route read when the page is drawn
+  (`device_pages.embedded`: one read per device, concurrently, waiting
+  `EMBED_TIMEOUT_S`, never the poll's `READ_TIMEOUT_S`; handed to
+  `screens.router` by the app, since `device_pages` builds on `screens`)
+  through the device page's own classification (`unread`, `classify`,
+  `drawn_of`: one copy for both) on the bound axis; `settings` is the
+  automatic layout only where the page draws one (on a family panel it is a
+  title like any). Its controls
+  are any screen control's (the device's page and writes, the widget's
+  outcome line); a channel group hides by its own device's
+  `<ch>_present`. The module silent or refusing for that device, the widget
+  says why as the device page would ("not drawn"; "reload" only where asking
+  again may help) and the rest of the screen draws: never a 500, never a
+  blank.
+- **A button may name a setup** (`bind: {action: <setup>}`, checked
+  against the experiment's `setups/`). The module applies it, every `set`
+  through its gates; the page asks once (the setup's description and its
+  hazard steps) when it writes a hazard role, sends
   the run once, and shows the module's run (`running 2/5`, `failed · step
   3 · out_of_bounds`) with Stop while it runs. A sequence is never
   scripted in a screen.
@@ -96,6 +196,42 @@ deploy/
   could not give reads "unknown", never "none". A row's cause is the module's evidence (heartbeat word,
   roles by verdict). The launcher is `<experiment>/home.yaml` (GEECS-Schemas
   `HomeLayout`); its link URLs are settings, never the file's.
+- **The launcher is curated; the directory is complete.** The home's
+  device directory is the registry (`native_devices.yaml` +
+  `panel_devices.yaml`, `device_pages.catalogue`, the pickers' join), never
+  `home.yaml`: every registry device under its page
+  kind in `KINDS` order (a kind with none hidden), a device whose family no
+  page draws last under "no page yet" without a link, and the roster's DB
+  devices under `settables` (the roster read once at page load, the only
+  rows that are the roster's; the module silent, they are left out and the
+  panel says so). Its rows are drawn by the server, so
+  the links work without script; its words (the module's state, the IOC
+  heartbeat; `not on the roster`; heartbeat `unknown` when the module gave
+  no detail, a device off the roster included, `no IOC` only when the
+  detail names none) ride the two lists' `/api/home/devices` read as
+  `words`, never a read of their own; the state word is the pickers' rule
+  (`device_pages.state_word`). The filter is client-side, every term
+  a substring of the name or the family (`directory_rules.js`).
+- **No page is a leaf.** Every device page's topbar carries the trail after
+  the brand (the brand is the home's link): the kind's picker, then the
+  device (`device.html`'s `crumbs` block, inherited by every kind's
+  template).
+- **The raw frame is the driver's frame; the page transforms it.** The
+  camera family's `raw_frame` role is `ARR:ArrayData` (`NDStdArrays`,
+  `USHORT`) on `CAM1.CAM`, the driver's own port: before `TRANS1`, before
+  background subtraction (`PROC1`). The MJPEG stream, the crosshair store
+  (`OVER1`) and the analysis ROI (`ROI1`) are after `TRANS1`, so in Raw the
+  page applies the `transform` role's value (read from Hare like every
+  value, never a header) to the decoded frame before drawing, and every
+  overlay coordinate stays MJPEG mode's. A transform that is not one of
+  `TRANS1:Type`'s eight is drawn untransformed with the overlays hidden and
+  said. "Raw" means exactly that, and the page says so. Mono frames only.
+  A Blackfly's embedded pixels (FlyCapture `FRAME_INFO`) are the camera's
+  to turn off, never masked in the page. Never a second `ARR` after
+  `TRANS1`, never a write; at most 2 Hz per camera, shared, for the lab
+  network (no binned preview). Hare does not carry images; if it does
+  later, the frame's *source* moves and the rendering stays. The rest is
+  § "The raw frame" below.
 - **The GEECS device name is the one identity key.** A binding names a
   device and a family role (and an axis), never a PV a second time; a bare
   PV is for a DB-served device only.
@@ -107,6 +243,526 @@ deploy/
   colour (this package's templates and static files are in
   `GeecsWebTheme/tests/test_no_literal_colours.py`'s `_SURFACES`); status
   is a dot and a word.
+
+## The device pages
+
+One front panel per **data shape**, for any device of that shape: the
+camera page (an image), the trace page (an array over a calibrated axis)
+and the settables page (everything else: a motor, a supply, every GEECS DB
+device). The kind word in `/device/<kind>/<name>` maps to a family `kind`
+and a template in `device_pages.KINDS`, the one table; the registry join
+(`native_devices.yaml` + `panel_devices.yaml` by device name, a device's
+family from its panel entry, else its native entry) is `catalogue`, the
+pickers' and the directory's one reader. Adding a device is a registry
+row; a new family of an existing family kind is its family file; a new
+family kind is a row in `KINDS` (a template only for a new data shape:
+`motor` and `supply` are two rows on `device.html`).
+
+- **The picker** (`/device/<kind>`) lists the kind's registry devices (the
+  roster's DB devices for `settables`) in a kit select, each with the
+  module's state word, and takes a free-text name for a device the files do
+  not list; the form works without script (a 303 to the page). A device the
+  two files give different families is no kind's: it is left out and named
+  in the picker's note (the module's join rule).
+- **Resolution is one read of the module's device route**; the page never
+  derives a PV and is never blank or a 500. Not on the roster (404), a
+  refused read (401/403), a family of another kind (a link to the right
+  kind) or no page for the family: the kit's `denied` pane, saying which;
+  another 4xx: `error`; the module unreachable or a 5xx: `stale` with a 503,
+  the page asking again until it answers. An unknown kind word is a 404
+  pane naming the kinds.
+- **Every page's rail and readings strip are a panel**: the family's
+  `panel`, else `auto_panel` (§ "The settables page"), drawn with
+  `_panel.html`'s macros and filled by `device_rail.js`. A kind's own
+  roles stay off the rail whatever the family says (`OWN_ROLES`: the
+  camera ROI, behind its dialog). The role tables sit folded under the
+  panel on every page (operator roles first, `expert` in a nested
+  disclosure).
+- **The image and the arrays** are this server's CA reads, read only
+  (§ "Rules that hold here", "A client of Canopy, never a part of it");
+  they are polled, never streamed (SSE was the prototype's), each read
+  shared: the JPEG, the raw frame and a trace held on the producing
+  plugin's counter (§ "The JPEG", "The raw frame", "The trace"), the
+  camera's plot arrays at most every 0.5 s.
+- **A page never computes a verdict.** Units are the family's (a camera's
+  exposure in s). A run-locked role is drawn enabled: the module refuses
+  it (423) and its outcome says why. Not on any page, each the module's
+  to give if wanted: a saturation verdict (the page shows the raw maximum
+  and the pixel format), "crosshair to centroid" (crosshairs are set by
+  value), a run-lock override, a decoded `.MSTA` or supply state word, a
+  refusal at a setpoint's `HIHI`/`LOLO` (the module's bounds are the drive
+  limits; the IOC's `IVOA` refuses until then). An IOC restart
+  (`<IOC>:SysReset`) is not offered; if it is, it is a production-only
+  control behind a confirm, never for a bench instance (geecs-epics'
+  architecture page, "Operating an IOC").
+
+**The camera page shows what the areaDetector chain serves.** The LabVIEW
+camera GUI's features map almost one to one onto the chain: the ROI (the
+driver's camera ROI, and the analysis ROI of the ROI plugin), exposure,
+gain, trigger mode and delay, the rate (`ArrayRate_RBV`), the last update
+(freshness by the STAT counter), the maximum against saturation (the raw
+STAT0 maximum), two named crosshairs (the overlay plugin), centroid, sigma,
+max, mean and total (the statistics plugin), the lineouts and the
+histogram, the colour table and autoscale (client side), the save toggle
+(the scanner's save set, not a page control) and device errors (alarms).
+A feature with no role in `ad_camera_chain` (the trigger delay, today) is
+added to the family, never to the page. Three gaps are
+decisions, not pages, and are not built: a **spatial low-pass filter** and
+**perspective correction** are no stock plugin (an offline analysis step,
+or a custom plugin in the IOC chain); **FWHM and the 45° second moments**
+are no statistics-plugin output (derivable from sigma x, y, xy and the
+profiles, in the module or a derived channel). Background subtraction and
+rotate/flip exist as plugins: whether a camera runs them is the IOC
+chain's decision. Per-shot trends of a camera's statistics are Vole's (Canopy's live
+buffer), never the camera page's (the settables page draws the trends a
+family's panel names, § "The trends"). A LabVIEW scope panel only showed traces; the trace page is its
+successor (§ "The trace").
+
+## The raw frame
+
+`GET /api/devices/{name}/frame.raw` (`images.py`) and the page's Raw mode
+(`camera.js`, `camera_rules.js`) are one contract, pinned end to end by
+`tests/test_raw_page.py` (the route over the fake CA, its bytes through the
+page's rules under node):
+
+- **200**: uint16 little-endian, row-major, `raw_height` rows of
+  `raw_width`; `Content-Type: application/octet-stream`,
+  `Content-Encoding: gzip` from `zlib.compressobj(1, wbits=31)` (gzip
+  framing, which `fetch` decodes; bare `zlib.compress` is zlib framing and
+  a browser will not); `Content-Length` the compressed length;
+  `Cache-Control: no-store`. Headers `X-Frame-Width`, `X-Frame-Height`
+  (read in the frame's batch), `X-Frame-Full-Scale` (role `full_scale`,
+  read once per device in the background, never in the frame's way;
+  omitted while unreadable, and the page then assumes 4095 and says "full
+  scale assumed"), `X-Frame-Tag` = the quoted decimal `raw_counter` (the
+  page shows it), and `ETag` = the representation (a strong validator):
+  `"<counter>"` while the full scale is unread, `"<counter>;<full scale>"`
+  once read (`"7;4095"`). No transform header.
+- **304** on an `If-None-Match` naming the held `ETag` (weak, a list or `*`
+  too): no body, the same `ETag` and `X-Frame-Tag`. A full scale landing
+  after the first frame changes the `ETag`, so the page's next conditional
+  ask is a 200 with the held body and the new `X-Frame-Full-Scale` (no
+  second array read), never a 304 that leaves "full scale assumed" up. The
+  page treats 304 as "nothing new", never as an error (`rawAnswer`), draws
+  an answer whose `ETag` differs from the one drawn last (`rawIsNew`: the
+  same tag at a new scale is drawn again; `new frames/s` counts tags
+  only), and drops its held `ETag` on a toggle, so the first raw ask after
+  one is never a 304 with nothing drawn.
+- **404** when the module names no `raw_frame` (or `raw_width`,
+  `raw_height`, `raw_counter`) role: the PV is never derived. **503** with
+  words: `the frame counter (<pv>) could not be read`, `the raw frame (<pv>)
+  could not be read: <why>`, `geometry disagrees: <n> values for <w>×<h>`
+  (the batch is not atomic across a camera-ROI change, so the length is
+  checked against the geometry before compressing; a colour frame and an
+  empty one fail here too). Never a frame that does not match its headers.
+- **Reads**: one in flight per device, the result held `RAW_HOLD_S` (0.5 s)
+  and shared. `raw_counter` alone first; equal to the held tag, the held
+  frame is served (a 2 Hz poller on a 1 Hz camera costs one scalar read
+  per 0.5 s); else the frame, `raw_width` and `raw_height` in one batch,
+  then the counter again — on a mismatch the batch is read once more and
+  tagged by the second counter. The frame is asked as `DBR_SHORT`
+  (`datatype=np.int16`; a `USHORT` waveform's native CA type is
+  `DBR_LONG`, int32, twice the bytes on the wire) and its sizes natively;
+  a count above 32767 arrives negative and the cast, a `view` as uint16
+  (little-endian), restores it exactly: never a clamp. This replaces the
+  earlier "`astype`, never `view`" rule, which was for the int32 delivery
+  (a view of int32 doubles the element count); a frame that arrives other
+  than 16-bit is a 503 (`the raw frame arrived as <dtype>, not 16-bit`):
+  a guard on this client's read, not a check of the IOC's `FTVL` (the IOC
+  converts any `FTVL` to `DBR_SHORT`; every camera family's `ArrayData` is
+  `USHORT`).
+  The cast and the gzip run in `asyncio.to_thread` (≈ 15 MB peak per
+  read of a 2592×2048 frame).
+- **The page**: Raw off by default and never remembered; on, a 2 Hz poll
+  with `If-None-Match`; the body is a `Uint16Array` (every platform the
+  page runs on is little-endian); the histogram has `full scale + 1` bins,
+  counted once per frame; auto-levels take its 0.1/99.9 percent points and
+  the histogram plot draws it (`histogramPlot`: Raw's own histogram over
+  0..full scale, STAT's `histogram_on` not consulted; MJPEG mode, and Raw
+  before its first frame, draw STAT's over `hist_min`..`hist_max`; the
+  Raw toggle redraws the plot at once), the LUT has `full scale +
+  1` entries over the same maps and scales, and the black/white inputs and
+  the cursor read counts. **Levels are per mode**, stored as fractions of
+  the mode's full scale (255, or `X-Frame-Full-Scale`), so a white of 255
+  from MJPEG never saturates Raw and a 12-bit black never zeroes the JPEG;
+  `levels`, `lut` and `autoLevels` take the full scale. The colour map,
+  scale and auto flag are shared. Raw's chip is `new frames/s` from tags
+  advancing; the `image_counter` chip is hidden. Under auto-levels a lone
+  hot pixel clips to the same white as the noise's top 0.1 percent, under
+  any scale (the white level clips, not the scale); a white at full scale
+  singles it out. The operator page documents this; the maintainer has not
+  ruled on changing the rule, so it stays as it is until they do.
+- **Rules with rows**: every rule Raw adds is a pure function in
+  `camera_rules.js` with a row in `test_camera_rules_js.py` — the
+  histogram at a scale, the percentile levels on it, the LUT at 4096,
+  stored levels per mode, `transformName` and `transformFrame` for each of
+  the eight names (TRANS1's mapping of a W×H frame's (x, y): Rot90
+  (H-1-y, x), Rot180 (W-1-x, H-1-y), Rot270 (y, W-1-x), Mirror (W-1-x, y),
+  Rot90Mirror (y, x), Rot180Mirror (x, H-1-y), Rot270Mirror (H-1-y,
+  W-1-x)), `decodeRaw`, `rawAnswer`, `rawIsNew`, `histogramPlot`,
+  `modeWords`, `imageSize` in raw; for the JPEG, `jpegIsNew` and
+  `ifNoneMatch` (both loops).
+  `camera.js` keeps the DOM work only.
+
+## The JPEG
+
+`GET /api/devices/{name}/frame.jpg` is held on role `image_counter`
+(MJPG1's `ArrayCounter_RBV`) the way `frame.raw` is held on `raw_counter`:
+
+- **Reads**: one in flight per device, shared, at most every
+  `FRAME_EVERY_S` (0.1 s, the floor on the counter probe). The counter
+  first; equal to the held JPEG's and the JPEG younger than `JPEG_REUSE_S`
+  (1 s, timed from the request), the held bytes are served with no
+  upstream fetch (a 10 Hz poller on a 1 Hz camera costs ten scalar reads
+  and one fetch per second, not ten fetches); else the JPEG is fetched,
+  **tagged by the counter read before the fetch** (the plugin stores its
+  JPEG, then posts the counter, so the JPEG is at least that new and a
+  later counter change always fetches again; no second probe, no
+  refetch).
+- **The reuse cap is the safety net**: should a counter ever be posted
+  before its JPEG, the stale frame lasts `JPEG_REUSE_S`, never until the
+  next trigger. A stopped camera therefore costs one fetch per second.
+- **Headers**: `X-Frame-Tag` = the bytes' CRC-32 (unchanged: the page
+  decodes new bytes only); `ETag` = the counter and the CRC
+  (`"3;0a1b2c3d"`), so a capped fetch that brings other bytes under the
+  same counter is a 200, never a 304 that hides them; **304** on a matching
+  `If-None-Match` (`etag_matches`, as the raw route), no body, the same `ETag`
+  and `X-Frame-Tag`.
+- **No counter, no hold**: the module names no `image_counter`, or the
+  probe fails (any CA failure, a NaN): the JPEG is fetched every floor as
+  before the hold, served without an `ETag`, and never held. An unreadable
+  counter is not asked again for `ROUTE_TTL_S` (a silent one would hold
+  every frame for the CA timeout) and never fails the image.
+- **The page**: the MJPEG loop asks with `If-None-Match` the last answer's
+  `ETag` (`ifNoneMatch`), treats a 304 as "nothing new" (`rawAnswer`),
+  decodes an answer whose `X-Frame-Tag` differs from the one drawn
+  (`jpegIsNew`; `new frames/s` counts these only), and drops its held
+  `ETag` on an error, a decode failure and a toggle, so the next ask after
+  one is never a 304 with nothing drawn.
+
+Deploy (bandwidth, the CA array size, the front door's gzip, the Canopy
+image rebuild): `README.md` § Deploy.
+
+## The settables page
+
+Every kind without a data component (a motor, a supply, a GEECS DB device)
+is complete in `device.html` with no template of its own: a rail and a
+readings strip drawn from a **panel**, one pane per axis behind the kit's
+segmented axis selector for a per-axis family. The panel is the family's
+`panel` when it has one; otherwise `device_pages.auto_panel` builds one from
+the module's device route: every role with a `writePv` in role order in one
+`Settings` group (four or more bits/enums among them: those in a `Switches`
+grid group after the rest, or the whole group a grid when there is no
+rest), every other monitored role a reading, nothing hidden. `drawn_panel`
+trims either to the roles the device serves (`omit`, `labels` and the
+policy's hazards already applied by the module's route): a group with none
+left is dropped, a tweak is drawn only with all four of its roles (else each
+is drawn by its own type), a button pair only with its role. Drawing is by
+role type (_panel.html's `control`, the one control macro), a `tweak` as the
+setpoint with `−` / step / `+` (the record moves by its step: the page never
+computes the target), a `grid` group as compact cells. The family's
+`actions` stay the module's write permissions; the page draws by role and
+hint, and a role the device's `allow` does not grant is drawn disabled with
+the module's word. A role's `text` and `units` come from the module's device
+route (a DB device's from the DB through the gateway source); a value with no
+units of its own shows the record's EGU from Hare. A setpoint is the
+setpoint control (§ below: a field tracking the device's setpoint, a draft
+kept until a write of it is accepted, the two values under it, `differs`);
+a tweak's − / + while its step is a draft sends the step and then the press
+as one list, stopped at the first refusal, so the record never steps by a
+step the field no longer shows (`device_rules.tweakList`); a select, a
+checkbox or a button writes when chosen (`device_rules.commitKey`,
+`writeValue`).
+A feedback loop has no page of its own: its family (`loop_contract`,
+the names of geecs-epics' loop contract) is a `setpoint_device` with a
+panel, so the settables page draws it under the kind word `supply` (the
+mode, the setpoint, the tuning and the travel limits on the rail; the
+mode the engine took, the state and its reason first in the readings: a
+close the engine refuses is an accepted write whose mode reads back Off).
+A loop is a panel device only (`{family: loop_contract, prefix: ...}`, no
+`ioc:`): it is no registry device and no scan axis, since its setpoint
+serves no set tolerance. Its `mode` settles by the mode taken, so a preset
+restore writes it after the setpoint and the limits. The two limits are
+separate restore rows, written one at a time in either order: the
+engine takes a limit even where it crosses the other (restoring a range
+disjoint from the live one crosses on the way in one direction or the
+other, whatever the fixed order) and refuses to close while they are
+crossed, so the family needs no ordering of them.
+A family's panel may name **trends** (§ "The trends" below): the
+loop's value beside its setpoint, and its actuator's readback beside the
+last target. A live image beside it is not this page's.
+A device is classified by its roster `source` first: a gateway device's
+family is its DB device type, never looked up as a family file, even when
+it is spelled like one.
+
+### The trends
+
+The maintainer's ruling of 2026-11-18, on the loop's page: "it's not
+displaying any history of RoC or stage position; that's extremely useful
+for operators". A family's `panel` may name `trends` (GEECS-Schemas
+`PanelTrend`: a title and one to four monitored numeric roles), and the
+settables page draws each as a time plot under the readings
+(`_panel.html`'s `trends`, `trend.js`, `trend_rules.js`), one line per role
+named by the role's label, the y axis the roles' unit when they share one
+(the family's, else the record's EGU from Hare), x the wall clock.
+`device_pages.drawn_trends` trims each to the roles the device serves, and
+a trend with none left is not drawn. Only `device.html` draws them: the
+camera and trace pages fill the pane themselves, and a screen's `group`
+widget draws no trend.
+
+- **The past is Vole's, the present is Hare's.** When the plots are first
+  shown (an axis pane hidden at load reads when it is picked, never
+  before), and on each window choice, the page asks this server once:
+  `GET /api/devices/{name}/trends?seconds=[&axis=]` (`trends.py`), which
+  resolves the device by the module's device route, takes the trend roles'
+  PVs from it (never derived, never from the request: the route cannot be
+  made to subscribe a PV the family's panel does not trend), and for each
+  subscribes it in Vole (`POST /vole/v1/pvs/subscribe/{pv}`) and reads its
+  window (`GET /vole/v1/pvs/{pv}?from=&to=&maxPoints=`, `MAX_POINTS` 4000)
+  with this process's **read** key (`VoleClient`, beside `ModuleClient`;
+  `VOLE_TIMEOUT_S` 3 s for each of the two phases, the roles
+  concurrently; any 2xx is an answer, and the history is read whatever the
+  subscribe said, its failure reported only where there is no history). It
+  is this server's call, not the browser's, because Vole's times are
+  integer nanoseconds (the route answers in milliseconds), the answer's
+  `now` (stamped when the answer is built, after Vole's calls) is the one
+  clock the page draws by (neither a viewer's own clock nor a slow Vole
+  shifts the plot), and a cross-origin `fetch` would need Canopy to allow
+  it where Hare's socket does not. Each line is then extended from the
+  frames the page is already sent (`GeecsDevicePage.frame`, Hare's one
+  socket: no second stream), stamped by the record's own `tsNs`.
+- **Vole as observed** (2026-11-18, against Canopy at the fleet's pin; the
+  code relies on each, and `trends.py`'s docstring keeps the list): a
+  repeated subscribe answers 200; the value held on entering the window
+  comes back as a first sample stamped exactly at `from`, so a buffered PV
+  never answers empty and an empty answer means "not buffered until now";
+  `maxPoints` thins to that many real samples spread over the window
+  (never averages), so a busy PV's past is a thinned one; `severity` is a
+  word (`NO_ALARM`, `INVALID`).
+- **Vole silent is words, never an error.** The route answers 200 with a
+  `state` per role: `history`, `starting` (subscribed and read, nothing
+  yet: Vole has only now begun to buffer it) or `failed` (with `why`). The
+  one line under the window choice (`historyNote`) says which: "Canopy's
+  buffer has only now begun keeping …" apart from "no earlier history
+  (why)", "reading the history" from a window click until its answer, and
+  after a failed later read "could not be read again … the past drawn is
+  the earlier read's" (a past once drawn is kept, `kept`, and is never
+  said to be missing). A fault in `trend.js` never reaches the rail or the
+  readings (a frame, a redraw, a click and the read each catch; Plotly is
+  loaded only when the panel has trends). 404: the device serves no trend
+  role; the module's own refusals and silence keep `device_pages.unread`'s
+  statuses.
+- **What a line is.** The values the page was sent (its past as Vole kept
+  it, thinned there when busy), each held until the next (Plotly's `hv`: a
+  monitored record posts on change, so a straight line between two posts
+  would draw a ramp nobody measured) and, while the newest live point is a
+  value, carried to now. A gap, never a zero and never bridged: a `null`
+  or non-finite value, an INVALID record, a frame that does not say it is
+  connected (`!frame.connected`, the page's reading of a frame), the
+  socket down (a frame arriving after it with the record's old stamp is
+  drawn when it arrived, so the gap keeps its width). The page never
+  computes: no average, no rate, no fit, no error band, no alarm line; a
+  derived quantity worth a trend is a record the IOC serves and a role the
+  family names.
+- **The window** (10 s, 30 s, 2 min, 10 min, 1 h: `device_pages.WINDOWS_S`,
+  10 min on load) is the viewer's own, written nowhere; the x axis is that
+  window ending now, fixed, redrawn each second (five times a second for a
+  window of 30 s or less, to watch a fast loop work); y is the viewer's to
+  zoom.
+- **Bounded, and never silently short.** The live buffer alone is bounded
+  (`trim`): a point older than the longest window goes (it is never drawn
+  again; the newest such stays, the value held on entering), then past
+  `CAP` (20000 per role) the oldest go. The history is never cut to make
+  room. Where the cap took live points newer than the history's end
+  (`hole`), a gap closes the history (its last value is never held across
+  a stretch the page no longer holds) and the page reads the history again,
+  at most every 30 s; a failed re-read says so in the note. Each line is
+  thinned to four points per pixel column (first, lowest, highest, last):
+  a second per-column pass beside `trace_rules.decimate`, kept apart
+  because a held line needs each column's first and last, which min/max
+  alone drops.
+- **Deploy order.** A monitored role the engine does not serve reads
+  unreachable, which makes the device's word `unknown` and hands the
+  archiver a PV that never connects. So a family role new to a contract
+  (the loop's `actuator`, `Actuator_RBV`) deploys after the engine release
+  that serves it, or the instance's panel row carries `omit: [actuator]`
+  until then.
+- **Rules with rows**: `trend_rules.js` in `test_trend_rules_js.py` (which
+  also runs `trend.js` itself over a fake page: the history, the live
+  extension, a dropped socket, a window choice pending and a failed
+  re-read, a hidden pane, the cap's gap and re-read, Vole silent, a
+  throwing Plotly); the route and the template in `test_trends.py` over a
+  stubbed Vole.
+
+The camera page draws its family's panel with the same macros
+(acquisition with acquire's Stop / Start, the crosshairs, the analysis
+ROI; the readings strip), filled and written by this rail through
+`camera.js`'s writes (one list at a time for the page, shared with the
+image's drags). Two blocks stay the camera's own: the camera ROI, one
+draft of four fields applied behind its dialog because it changes what
+scans save (its fields carry `data-roi-role`, never `data-role`, so the
+rail does not bind them), and the display (this viewer's colour map and
+levels). The rail skips a group without `data-roles` (a page's own group
+beside the panel's). The rail-and-pane grid (class `camera`) and the
+readings strip are `device.css`'s; `camera.css` is the camera page's alone.
+The screen renderer draws its controls with this rail too, and a `group`
+widget draws one of these panels' groups whole (§ "Rules that hold here").
+
+## The setpoint control
+
+The maintainer's rulings of 2026-11-06, from his operators' request to set a
+value and see it read back in the same interface (our LabVIEW GUIs do not
+track a setpoint: never cite them as precedent). One control: `_panel.html`'s
+`control` for a `setpoint` and `device_rail.js`'s `setpoint()`, its rules in
+`device_rules.js` with rows in `test_device_rules_js.py` and, over
+GeecsCanopy's own module, in `test_module_contract.py`.
+
+- **The field tracks the device's setpoint** whenever it holds no draft
+  and is not focused (a value landing under the caret, a DB device's
+  measured value at 5 Hz, would be typed into and written). The setpoint is the
+  role's **write record**, the module's `writePv`, read over Hare
+  (`GeecsDevicePage.target`: watched on first ask, judged as a bare PV, since
+  the module judges the role's own record): areaDetector's `X` beside the
+  `X_RBV` the role reads, the motor's `.VAL`, a supply's `current:SP`
+  (`device_rules.sources`). No family declares a setpoint record of its own:
+  the route already names it, a role keeps the meaning the archiver, presets
+  and Squirrel read, and a DB device needs no per-device data. One
+  exception: a DB device's write record is the gateway's `:SP`, the last put
+  the gateway forwarded (0 or empty until the first since the gateway
+  started; it never reads the device), so its field tracks the device's
+  value. Drop the exception if the gateway ever seeds `:SP` from the device.
+- **Both values beside the field where they are distinct records**: `set`
+  the setpoint record, `now` the measured one (the family's `readback`, else
+  the role's own record), each with its word; `now` alone where the two are
+  one record (a motor's speed).
+- **The draft** (a number or text field once typed in, marked) writes on
+  Enter, never as typed, so an arrow key or a spinner click on a motor's
+  target never sends a move; Esc drops it. It survives a blur, a refusal, an
+  unsent write (no operator, the hazard not confirmed, another write in
+  flight) and a value that is no number, and clears only when a write of it
+  is accepted (`device_rules.accepted`, the one test of the module's answer,
+  which `device_writes.js` stops on; `device_rules.keepsDraft`): one rule for
+  a field's Enter and a tweak's step. The field is disabled while its write
+  runs, so a kept draft is focused again after, for Esc or a fix, unless
+  focus went elsewhere meanwhile (the operator's name, asked for).
+- **`differs`, after a write settles.** An accepted write of a setpoint (or
+  its tweak's press) arms the field; the mark is judged `SETTLE_MS` (1 s)
+  after the acceptance and, for a setpoint with `settled_by` (the motor's
+  `dmov`), only while that done flag reads 1 (`device_rules.mark`); it stands
+  while the measured value is outside the tolerance of the setpoint and
+  clears, disarming, when they agree (`device_rules.disarms`: verified
+  agreement, or nothing to judge). While the module is silent (a failed
+  device poll: no route entry) the mark is hidden and the field stays armed
+  (`device_rules.settleMark`), so the mark returns with the route; pinned by
+  running `device_rail.js` itself over a fake page in
+  `test_device_rules_js.py`. The tolerance, in order (`device_rules.tolerance`):
+  the role's `tolerance` number (the page's own family's, `data-tol`; else
+  the module's route's: a DB device's DB `tolerance`, its set-convergence
+  criterion, which GeecsCanopy's gateway source puts on the role), else its
+  `tolerance_by` role's value read over Hare (the motor's `rdbd`, the
+  record's own retry deadband; a native supply's `current_tol`, its IOC's
+  constant `current:TOL`, geecs-epics decision 21, read `once` so the module
+  never judges it and an IOC not yet serving it leaves the device's word
+  alone), else one unit in the last digit of the measured record's
+  precision (Hare's meta), else exact (a whole number, or no precision). A
+  family role is a number or a link, never both, so a native device has one
+  candidate; only a page and an image installed from different families
+  could offer two, and the number wins. A `tolerance_by` role is a
+  tolerance only while connected, not INVALID and above zero: unread,
+  unserved, INVALID (an IOC's `:TOL` serves a missing value as 0 INVALID),
+  zero or negative is **no tolerance**, never exact and never the
+  precision: the mark waits, judges nothing, and the field stays armed
+  (pinned by running `device_rail.js` over a fake supply in
+  `test_device_rules_js.py`). The page judges its own writes only: another client's
+  write, or one made before the page loaded, arms nothing; a reload disarms.
+
+## The trace
+
+The trace page (`/device/trace/<name>`, family kind `array_detector`) binds
+by data shape, never by model: one page for every array over a calibrated
+axis (the PicoScope's `scope_contract`, `[channels, samples]` over its time
+axis; the spectrometer's `spectrometer_contract`, two `[pixels]` spectra
+over `Wavelength_RBV`, the raw `spectrum` (`ARR`) and the
+background-subtracted `processed` (`PROC:ARR`), no `channels_by`). What differs per hardware is the family file's: the
+rail's groups and the readings strip are its `panel`, drawn as the
+settables page draws it (§ above; a role in the panel's `buttons`, a
+two-state one such as an acquire, a pair of buttons writing 0 and 1 with
+the one the role reads `aria-pressed`), the axis is
+the role with `axis_of`, the y arrays the ones it names, in its order
+(`traces.trace_roles`, the one reading of that rule, for the route and the
+template; the template drops an array the device omits). With several, the
+page's Show toggle picks one (`trace_rules.shownY`): the viewer's pick, else
+the first whose panel `show_while` role reads 1 (the spectrometer's
+`processed` while `background_enable` is on), else the first. A switch
+starts the average afresh, asks with no `ETag`, drops an answer still in
+flight for the last array, and hides the plot (`visibility`, so the
+viewer's window survives) until the new array's first capture: the last
+array is never left drawn under the new one's toggle and chip (pinned by
+running `trace.js` itself over a fake page in `test_trace_rules_js.py`). A group whose roles
+are all `ch_<x>_…` is hidden while `ch_<x>_present` reads 0 (and its
+readings with it); unknown keeps it shown. Controls are filled, enabled and
+written exactly as the camera's (`camera_rules.control`, the module's put
+route, sent once, a `confirm: hazard` role behind the dialog).
+
+`GET /api/devices/{name}/trace` (`traces.py`) and `trace_rules.js` are one
+contract, pinned by `tests/test_traces.py` and `tests/test_trace_rules_js.py`
+(the route's own bytes decoded under node):
+
+- **200**: float32 little-endian, gzip framed (`zlib.compressobj(1, wbits=31)`,
+  as `frame.raw`): the axis (`samples` values), then the y array as the IOC
+  lays it out, `channels × samples`, channels fastest (a disabled channel
+  NaN); headers `X-Trace-Channels`, `X-Trace-Samples`, `X-Trace-Tag` = the
+  quoted counter, `ETag` the same. **304** on a matching `If-None-Match`.
+  **404** when the family names no axis or no `fresh_by` for its array,
+  `?y=` (default: the axis' first array) names an array the axis does not
+  draw (`the axis wavelength draws no array 'x': it draws spectrum,
+  processed`), or the module names no such role; **503** with words: the counter or the
+  array unreadable, `shape disagrees: <n> values for <c> channels`, the axis
+  unreadable or `has <m> values for <s> samples`.
+- **Reads**: one in flight per device and array, held `TRACE_HOLD_S` (0.5 s), shared.
+  The counter first (equal to the held tag: the held trace, one scalar
+  read); else the array asked `DBR_FLOAT` and the channel count in one
+  batch, the counter again (a mismatch reads the batch once more, tagged by
+  the second). The axis is read with the first trace and again only when
+  its length is not the trace's, its first two values moved (a two-value
+  probe per new capture: a new interval or pre-trigger moves them; a whole
+  axis would be a third of a 2 × 100 k capture's bytes) or it is older than
+  `AXIS_EVERY_S` (10 s); arrays over one axis share it. The counter is the y array's `fresh_by`, the
+  producing plugin's own (`ARR:ArrayCounter_RBV` for the scope and the raw
+  spectrum, `PROC:ARR:ArrayCounter_RBV` for the processed one): the
+  driver's posts before `ARR` publishes, so a trace tagged by it could hold
+  the previous capture under a fresh tag.
+- **The page**: polls at 2 Hz while visible, `If-None-Match` the last
+  `ETag`, 304 is nothing new; the chip is the counter role's word; the
+  scale, the window and the average (the last N captures of one shape and
+  one axis, a tag counted once, finite values only) are the viewer's,
+  written nowhere. What the route serves is unchanged by how the page
+  draws: the plot is **Plotly through the theme's template**
+  (`GeecsWebTheme/CLAUDE.md` § "Line plots are Plotly"; the bundle and
+  `plot.js` from `/theme`), one trace per channel in channel order (an off
+  channel one null point named `<x> off`, so trace *i* keeps
+  `--trace-(i+1)`), each decimated to two points per pixel column of the
+  plot (`plotData` over `decimate`; on a log scale a column's positive
+  extrema only), `Plotly.react` on each new capture with `uirevision` (the
+  viewer's zoom and legend toggles survive captures; x's revision is the
+  capture's shape, y's the scale). The window is Plotly's x range: a box
+  zoom or pan (`windowFromRelayout`) re-decimates inside it; autoscale,
+  reset or a double-click is the whole trace. Axis titles carry the
+  family's units; SI prefixes on ticks and in the hover for base SI units
+  only (the theme's `GeecsPlot.axisFormat`: s, V, A, Hz, m, W), every other unit plain (the
+  first cut prefixed every unit and a wavelength axis read "knm"). The
+  cartesian bundle has no `scattergl`; decimation is why SVG `scatter`
+  holds a 2 × 100 k capture at 2 Hz.
+
+The benches are `scripts/scope_soft_ioc.py` (caproto through `uvx`, loopback,
+every role of the scope contract, a synthetic `[3, samples]` capture at
+1 Hz, the counters in the IOC's order; channel C disabled, D absent) and
+`scripts/spectrometer_soft_ioc.py` (every role of the spectrometer
+contract, a 2048-pixel spectrum over a wavelength polynomial at 1 Hz, the
+chain's background path: `PROC:SaveBackground` holds the spectrum as if
+the light were blocked (its dark pattern and noise), `PROC:EnableBackground`
+subtracts it into `PROC:ARR`, STAT1 over the result): geecs-epics
+has no simulator for either.
 
 ## Settings
 
@@ -121,15 +777,22 @@ deploy/
 | `GEECS_CONTROL_ROOM_TITLE` | the page title (default "Control Room") |
 | `GEECS_CONTROL_ROOM_SCANNER_URL` | the scanner as this process reaches it (the strip); unset: "not configured" |
 | `GEECS_CONTROL_ROOM_SCANNER_BROWSER_URL` | the scanner link as the browser reaches it; unset: the above |
-| `GEECS_CONTROL_ROOM_PORTAL_URL`, `_LOGBOOK_URL`, `_CONFIG_EDITOR_URL` | the launcher's links (browser URLs); unset: a disabled entry |
+| `GEECS_CONTROL_ROOM_PORTAL_URL`, `_LOGBOOK_URL`, `_CONFIG_EDITOR_URL` | the launcher's links (browser URLs); unset: a disabled entry. The config editor's is the configurator's home: its launcher entry opens on this experiment, and the launcher's Edit layout and a screen's Edit screen open `home.yaml` and the screen's file there (`Settings.editor_url`: links only, never its API) |
 
 ## Testing
 
 `poetry run pytest tests -q`: the module is stubbed with httpx's
-`MockTransport`. The page scripts run under node (skipped without it; no
+`MockTransport`; `test_images.py` drives the frame, raw frame and arrays
+routes over a fake CA and a fake fetch (no CA library, no IOC): the raw
+frame's bytes are checked on the wire (`aiter_raw`, then `gzip.decompress`),
+since httpx would decode the gzip itself, and the fake CA's `counters` script
+the counter probe and the mid-batch retry. The page scripts run under node (skipped without it; no
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
-with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py`
-as tables, one row per rule (`tests/_node.py` is the harness). A rule a
+with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
+`test_directory_rules_js.py` / `test_device_rules_js.py` / `test_camera_rules_js.py` / `test_trend_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
+`test_screen_rail_js.py` runs the real `device_rail.js` and `device_writes.js` over a fake screen (a widget's `confirm` note asks before any put, the pair's values and enum words, a select narrowed to a family role's choices, a bare PV's field disabled, an unsent choice going back) and the real `screen.js` over a fake page (a widget's `precision` shown as `digits`, never the record's precision the settle is judged by; the rail filling a readout's units from Hare, whose placeholder `test_screens.py` pins in the template); `test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
+by `frame.raw` over `test_images.py`'s fake CA (as int16, as aioca delivers it asked `DBR_SHORT`), its bytes checked on the
+wire, then decoded, transformed and levelled by `camera_rules.js` under node. A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script
 keeps the DOM work only.
 
@@ -137,6 +800,8 @@ keeps the DOM work only.
 module (`geecs_canopy.testing.make_env`: its routes over a fake Hare) mounted
 at `/geecs` behind `ModuleClient`, driven through this app's routes. It pins
 the fields the pages read (a role's `role`, `axis`, `pv`, `read`, `writable`,
-`verdict`; the put envelope's `outcome`, `code`, `journalId`, `detail`; a
-journal row's fields) and the home's lists and `unread`. geecs-canopy is a
+`verdict`, and for the camera `label` and `locked`; the image and arrays read
+at the PVs the module names; the put envelope's `outcome`, `code`, `journalId`, `detail`; a
+journal row's fields) and the home's lists, `unread` and the directory's `words` (a camera, a
+bench scope behind an IOC heartbeat, a bench spectrometer). geecs-canopy is a
 dev-only dependency; `geecs_control_room` never imports it.

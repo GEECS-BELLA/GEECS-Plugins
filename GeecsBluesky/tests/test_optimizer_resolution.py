@@ -66,7 +66,7 @@ def test_listing_hides_retired_and_invalid_configs(tmp_path):
 def test_expansion_preflight_and_submission_share_optimizer_resolution(monkeypatch):
     preset = Preset(
         name="opt",
-        devices=[{"device": "Meter", "essential": False, "save_images": False}],
+        devices=[{"device": "Meter", "required": False, "save_images": False}],
         plan={"name": "optimize", "kwargs": {"optimizer_config": "test"}},
     )
     resolver = SimpleNamespace(resolve_optimizer_config=lambda _: _config())
@@ -74,8 +74,9 @@ def test_expansion_preflight_and_submission_share_optimizer_resolution(monkeypat
     assert expected.args == [["Meter"]]
     assert expected.kwargs["max_iterations"] == 3
     assert expected.kwargs["shots_per_step"] == 2
-    assert "non_essential" not in expected.kwargs
-    assert not preset.devices[0].essential  # input document remains a draft
+    # The objective's device is merged required, so every device is.
+    assert "non_essential" not in expected.kwargs and "required" not in expected.kwargs
+    assert not preset.devices[0].required  # input document remains a draft
     with pytest.raises(GeecsConfigurationError, match="resolver"):
         expand_preset(preset)
     observed = {}
@@ -131,3 +132,20 @@ def test_optimizer_listing_preserves_root_and_io_failures(
         monkeypatch.setattr(Path, "iterdir", unreadable)
     with pytest.raises((RuntimeError, FileNotFoundError, PermissionError)):
         resolver.optimizer_config_listing()
+
+
+@pytest.mark.parametrize("spelled", ["align", "align.yaml", "align.yml"])
+def test_the_references_table_reads_an_optimizer_config_as_this_resolver_does(
+    tmp_path, spelled
+):
+    """A delete check and the configs gate hold the file the worker loads for a preset's ``optimizer_config``."""
+    from geecs_schemas import READ_AS
+
+    resolver = ConfigsRepoResolver("Test", tmp_path)
+    assert resolver.optimizer_config_path(spelled) == resolver.optimizer_config_path(
+        READ_AS["optimizer_config"](spelled)
+    )
+    assert (
+        READ_AS["optimizer_config"](spelled)
+        == resolver.optimizer_config_path(spelled).stem
+    )

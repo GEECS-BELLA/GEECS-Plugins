@@ -1,0 +1,50 @@
+[tool.poetry]
+name = "geecs-configurator"
+version = "0.1.0"
+description = "One editor over every GEECS-Schemas document in the configs repository: the documents, their tiers and their consumers"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_configurator" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+fastapi = ">=0.110"
+uvicorn = ">=0.29"
+jinja2 = ">=3.1"
+pydantic = ">=2.7"
+pyyaml = ">=6.0"
+# The registry, the models, the tiers and the storage table.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+# configs_repo, for the configs root; never GeecsDb.
+geecs-core = { path = "../GEECS-Core", develop = true }
+# The kit, form.js and the FastAPI glue every surface shares. Imported, never copied.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] }
+# The GitHub App: an RS256 JWT for its installation tokens, and its REST calls.
+pyjwt = { version = ">=2.8", extras = ["crypto"] }
+httpx = ">=0.27"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+httpx = ">=0.27"
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testing"] }
+# The scanner, DEV-ONLY: the contract tests mount its demo app, so a route the
+# configurator calls (the reopen, the trigger-profile dry run, the readback,
+# Save as preset's calls back here) breaks this suite in the same PR. Never
+# imported by the package (the configurator-edges contract).
+geecs-scanner = { path = "../GeecsScanner", develop = true }
+# The data portal, DEV-ONLY, with its analysis extra (ScanAnalysis; the
+# analysis core comes with the portal itself): the contract tests mount its app, so its validate and schema
+# routes for the analysis kinds, and the dry run the save asks of them, break
+# this suite in the same PR. Never imported by the package.
+geecs-data-portal = { path = "../GEECS-DataPortal", develop = true, extras = ["analysis"] }
+
+[tool.poetry.scripts]
+geecs-configurator = "geecs_configurator.__main__:main"
+geecs-configurator-validate = "geecs_configurator.validation:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

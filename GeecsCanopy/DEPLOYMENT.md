@@ -6,7 +6,10 @@ amd64 only). Everything below runs from the host's canopy clone
 `sudo -u <service account> docker compose --env-file /etc/geecs/site.env --project-directory /etc/geecs/canopy --project-name geecs-canopy`:
 the account the unit runs as, since compose reads the 0600 `secrets.env`
 itself, and the env file feeds the compose file's `${VAR}`s as the unit's
-`EnvironmentFile=` does.
+`EnvironmentFile=` does. **`dc run` only while the unit is stopped:** the
+unit's `up --abort-on-container-exit` attaches the one-off container and
+stops the whole project when it exits. Against a running unit use
+`dc exec -T api …`.
 
 ## 1. What runs
 
@@ -20,9 +23,11 @@ itself, and the env file feeds the compose file's `${VAR}`s as the unit's
 All four use host networking (CA needs UDP). Postgres and Redis live in this
 project, as the archiver keeps its own store: Canopy's state is its own, and
 its upgrade runbook below dumps and migrates one database nobody else uses.
-The front door forwards `/canopy/` to the api; the WebSocket is
-`/canopy/hare/v1/ws/pvs` (the proxy must pass `Upgrade`). CORS is `*` in
-Canopy itself.
+A front door forwards `/canopy/` to the api; the WebSocket is
+`/canopy/hare/v1/ws/pvs` (the proxy must pass `Upgrade`). A host without
+one (the HTU services box) serves it on its port at `/`, like every other
+surface: `GEECS_CANOPY_BIND=0.0.0.0`, `GEECS_CANOPY_ROOT_PATH=` empty.
+CORS is `*` in Canopy itself.
 
 ## 2. First install
 
@@ -35,8 +40,10 @@ deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging GeecsCanopy/deploy/g
 sudo install -m 0644 ~/deploy-staging/geecs-canopy.service /etc/systemd/system/ && sudo systemctl daemon-reload
 dc build                                   # the derived image, FROM pin.py's digest
 dc run --rm api alembic upgrade head       # creates Canopy's schema (postgres starts first)
+dc run --rm -T api python scripts/create_key.py "geecs-module" -r -w   # its Token line → GEECS_CANOPY_SQUIRREL_KEY in secrets.env
 sudo systemctl enable --now geecs-canopy
-dc run --rm api geecs-canopy squirrel-sync  # Squirrel's PV registry from the device documents (section 3a)
+until curl -sf http://127.0.0.1:<port>/health >/dev/null; do sleep 3; done   # the api starts once postgres and redis are healthy
+dc exec -T api geecs-canopy squirrel-sync --check; dc exec -T api geecs-canopy squirrel-sync   # the drift (exit 1 on a first install), then Squirrel's PV registry (section 3a)
 ```
 
 A configs share that mounts after the containers start stays invisible to
@@ -53,10 +60,10 @@ key (`read@*`, every page and front end) and the **ops** key (`admin@*`).
 Every other key is minted into Postgres, printed once:
 
 ```bash
-dc run --rm -T api python scripts/create_key.py "<app>" -r        # add -w only for a service key
+dc exec -T api python scripts/create_key.py "<app>" -r        # add -w only for a service key
 ```
 
-**Rule (condition (a)): no operator or front-end key ever carries Canopy
+**Rule: no operator or front-end key ever carries Canopy
 `write`.** A key's `write` is key-wide: it reaches Hare's `PUT` and
 Squirrel's restore directly, around every guard of the GEECS module. Write
 keys are service keys only (the module itself, an ops script), never on a
@@ -92,7 +99,8 @@ each counter last advanced.
 `GEECS_CANOPY_CONFIGS_ROOT` (the configs repo's root, mounted
 `/opt/geecs-configs`), `GEECS_CANOPY_STATE_DIR` (the journal's folder,
 `/var/lib/geecs-canopy/module` on the host, owned by the image's `appuser`,
-uid 1000, group the service account); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
+uid 1000, group the service account; where uid 1000 is a person's account on
+the host, that account shows as the journal's owner, which is harmless); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
 (5), `_SETTLE_TIMEOUT_S` (30: a move's put-callback, not Hare's 5 s
 connect timeout), `_RELOAD_S` (10: the device documents' re-read),
 `_GATEWAY_RELOAD_S` (60: the DB devices' re-read); `GEECS_CANOPY_SQUIRREL_URL`
@@ -113,6 +121,8 @@ grants:
   - operators: [A. Operator]
     families: [PLC Digital Output]    # a DB device's family is its GEECS device type
     roles: [DO.Ch1]                   # and a role its GEECS variable name
+  - operators: ["*"]                  # alone: every operator who gives a name
+    families: [scope_contract]
 hazards:                              # roles that need the hazard confirm
   - devices: [U_ShutterPLC]
     roles: [DO.Ch1]
@@ -121,7 +131,14 @@ hazards:                              # roles that need the hazard confirm
 `hazards` is the one home of the hazard confirm for a DB device (a native
 device's comes from its family file's `confirm: hazard`; both apply to
 both). The device route marks such a role `confirm: hazard`, so the page
-asks before it writes.
+asks before it writes. `operators: ["*"]`, alone in its list, grants every
+operator who gives a name: the journal still records the name, and the
+grant's scope and roles still bound it. The `*` is quoted (bare, it is a
+YAML alias and the whole file is unreadable: every put denied) and is not
+a pattern: `a*`, a star beside names, or a name with a space at either end
+fails the file's validation, with the same result. An image built before
+the wildcard reads it as a literal name, so rebuild the image before the
+policy uses it.
 
 **The policy guards against mistakes, not against users.** The operator
 is the name the request carries, and nothing binds it to a person: anyone
@@ -132,7 +149,7 @@ and that no page key reaches Hare's or Squirrel's own write routes. **A DB
 device has no run lock**: a scan driving a LabVIEW device through the
 gateway does not stop a module write to it (section 4).
 Binding the operator to a person needs a key per operator or the front
-door's user header (an upstream candidate, §7.4 of the decision page).
+door's user header (an upstream candidate).
 Operator and page keys are `read` only (section 3): the module authorizes
 its own writes and reaches Hare in-process, so a person never needs
 Canopy `write`.
@@ -156,7 +173,7 @@ Postgres path, a `geecs` schema with its own Alembic tree and version
 table (Canopy's tree is one for all its modules), is not built.
 
 **Squirrel.** Its registry is **derived, never hand-edited**:
-`dc run --rm api geecs-canopy squirrel-sync` reconciles it with the module's
+`dc exec -T api geecs-canopy squirrel-sync` reconciles it with the module's
 devices (the GeecsArchiver pattern: add, update, remove; `--check` prints
 the drift, writes nothing and exits 1 on drift) — one row per writable,
 non-command role of every device, the setpoint record as the address with
@@ -245,16 +262,16 @@ after the same steps on the sim. An older image cannot run on a newer
 schema, so every bump is:
 
 ```bash
-dc run --rm api alembic current                     # note the revision: the rollback target
+dc exec -T api alembic current                      # note the revision: the rollback target
 dc exec -T postgres sh -c 'pg_dump -p 5433 -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' \
   | sudo -u <service account> tee /var/backups/geecs-canopy/pre-<new-commit>.dump >/dev/null
 git pull && GeecsCanopy/deploy/render_conf.sh /etc/geecs/site.env ~/deploy-staging/canopy   # + install
-dc build && dc run --rm api alembic upgrade head
-sudo systemctl restart geecs-canopy                 # then the backend check of section 2
+dc build && sudo systemctl stop geecs-canopy && dc run --rm api alembic upgrade head
+sudo systemctl start geecs-canopy                   # then the backend check of section 2
 ```
 
 Rollback, rehearsed on the sim before the bump: with the **newer** image
-still built, `dc run --rm api alembic downgrade <noted revision>` (every
+still built and the unit stopped, `dc run --rm api alembic downgrade <noted revision>` (every
 migration at `0a5ee23` has a real `downgrade()`), then check out the
 previous pin, re-render, `dc build`, restart. If a downgrade fails, stop the
 unit and restore the dump (`pg_restore --clean -p 5433 -U canopy -d canopy`).

@@ -145,7 +145,7 @@ Which subnet the CA server serves/beacons on is controlled by the standard
 EPICS server env vars, set in the deployment environment:
 
 ```bash
-export EPICS_CAS_INTF_ADDR_LIST="192.168.6.14"     # serve only on the lab interface
+export EPICS_CAS_INTF_ADDR_LIST="192.168.6.22"     # serve only on the lab interface
 export EPICS_CAS_BEACON_ADDR_LIST="192.168.6.255"  # beacon to the lab subnet
 ```
 
@@ -158,40 +158,44 @@ there is no CA-level auth.
 
 ## 2. Current dev deployment — and its risks
 
-The gateway currently runs on the lab server **192.168.6.14**, alongside:
+The gateway runs on the services box, **192.168.6.22**, since 2026-11-15,
+beside the worker-side services and Tiled, which moved there on 2026-10-30
+(`docs/platform/fleet_map.md`). The GEECS MySQL database, which the gateway
+reads at startup, stays on the central lab server **192.168.6.14**. Until
+the move the gateway ran there beside the database; the first three risks
+below were that arrangement's, kept as the record of why it moved, the
+fourth spans both hosts, and the last is the box's own:
 
-- the GEECS MySQL database (which the gateway itself reads at startup),
-- the Tiled server (`http://192.168.6.14:8000`) and its metadata database.
-
-This is fine for the pilot; name it for what it is — a stack of load-bearing
-services on one box. Plainly:
-
-- **Single point of failure.** One host outage takes down device PVs (Bluesky
-  scans, Phoebus displays), the experiment DB, *and* Tiled data access at once.
-  Nothing else in the lab restores any of them automatically.
-- **Resource contention.** MySQL, Tiled ingestion, and the gateway's asyncio
-  loop share CPU/RAM/disk I/O. The gateway is light (~100 updates/s), but a
-  heavy Tiled write burst or a runaway query degrades everything together.
-- **Upgrade coupling.** An OS upgrade or reboot for any one service (e.g. the
-  22.04 migration) is downtime for all of them, and Python/library upgrades on
-  a shared host risk cross-breaking environments. Keep each service in its own
-  venv/poetry env at minimum.
-- **Storage growth.** Tiled's data and metadata grow with every scan; MySQL
-  grows slowly; logs grow steadily. Unmonitored, the shared disk filling up is
-  the most likely way this box fails.
-
-Storage placement rules:
-
-- **Large scan/image files belong on the NetApp** (the data share) — Tiled
-  should *reference* assets on NetApp, not ingest bulk image data onto the
-  server's local disk.
-- **The Tiled metadata database stays on proper local/server storage with
-  backups.** Do **not** move a live database onto NetApp — SQLite (and DB
-  engines generally) over SMB/NFS is a corruption lottery (locking semantics,
-  cache coherence). Local disk + scheduled backup dumps is the right split:
-  metadata local, assets on NetApp.
-- The gateway itself is stateless (everything rebuilds from the DB at startup)
-  — it needs no storage beyond logs.
+- **Single point of failure, with the DB (until 2026-11-15).** One host
+  outage took down device PVs (Bluesky scans, Phoebus displays) *and* the
+  experiment DB at once — and with the DB, every device-configuration read
+  the gateway and the scanner make. Nothing else in the lab restored either
+  of them automatically.
+- **Resource contention (until 2026-11-15).** MySQL and the gateway's
+  asyncio loop shared CPU/RAM/disk I/O. The gateway is light (~100
+  updates/s), but a runaway query degraded both together.
+- **Upgrade coupling (until 2026-11-15).** An OS upgrade or reboot for
+  either service was downtime for both, and Python/library upgrades on a
+  shared host risk cross-breaking environments — the one of the three that
+  still holds on the box: keep each service in its own venv/poetry env.
+- **Storage growth.** MySQL grows slowly; logs grow steadily. The gateway
+  itself is stateless (everything rebuilds from the DB at startup) — it needs
+  no storage beyond logs. Tiled's growth with every scan is the services
+  box's concern: its catalog and metadata database live on that host's local
+  disk, never on the data share (SQLite over SMB/NFS is a corruption
+  lottery), and the scan tables and stacks it serves stay on the share —
+  `GeecsBluesky/TILED_SETUP.md` has the layout.
+- **One box (since 2026-11-15).** On the services box the gateway shares
+  the host with the worker, Tiled, the archiver and every web surface: one
+  outage stops every scan-side service at once, and Tiled's write bursts and
+  the archiver's JVM share the gateway's CPU and disk. Accepted with eyes
+  open: the box is sized for it and is configuration-managed, watched and
+  backed up nightly, none of which the central server was (the facility
+  repo's services-box runbook has the figures); a gateway elsewhere bought no resilience, since without the worker
+  nothing scans; and scan mode requires the worker and the gateway on one
+  host in any case (`check_gateway_host`, GeecsBluesky — the constraint the
+  2026-10-30 split violated for scan-mode runs). What is worth keeping off
+  the box is a watcher of it.
 
 ---
 
@@ -222,7 +226,7 @@ works. The caproto CLI tools are the lightest install:
 python -m venv ca && source ca/bin/activate
 pip install caproto
 
-export EPICS_CA_ADDR_LIST=192.168.6.14   # directed name search — routes over VPN
+export EPICS_CA_ADDR_LIST=192.168.6.22   # directed name search — routes over VPN
 export EPICS_CA_AUTO_ADDR_LIST=NO        # don't also broadcast on your local subnet
 
 caproto-get undulator:cagateway:version undulator:cagateway:uptime
@@ -231,7 +235,7 @@ caproto-monitor undulator:cagateway:heartbeat   # ticks every 5 s; Ctrl-C to sto
 
 ```powershell
 # PowerShell equivalent (same shell that runs the client)
-$env:EPICS_CA_ADDR_LIST = "192.168.6.14"
+$env:EPICS_CA_ADDR_LIST = "192.168.6.22"
 $env:EPICS_CA_AUTO_ADDR_LIST = "NO"
 caproto-get undulator:cagateway:version
 ```
@@ -276,7 +280,7 @@ other infrastructure addresses instead of in every shell:
 ```ini
 # ~/.config/geecs_python_api/config.ini
 [epics]
-ca_addr_list = 192.168.6.14
+ca_addr_list = 192.168.6.22
 # ca_auto_addr_list = NO    # optional; defaults to NO when applied from here
 ```
 
@@ -304,22 +308,22 @@ queue client (`geecs_bluesky.qs_client`).
 ### Tiled — reading scan data back
 
 Every Bluesky scan's documents (start/stop metadata plus the per-shot
-scalar event table) land in the Tiled catalog on the same host,
-`http://192.168.6.14:8000`. Client needs: `pip install "tiled[client]"`
+scalar event table) land in the Tiled catalog on the services box,
+`http://192.168.6.22:8000`. Client needs: `pip install "tiled[client]"`
 and the API key — ask the gateway operator; the key is deliberately not in
 this public repo.
 
 ```ini
 # ~/.config/geecs_python_api/config.ini — the scanner reads this same section
 [tiled]
-uri = http://192.168.6.14:8000
+uri = http://192.168.6.22:8000
 api_key = <ask>
 ```
 
 ```python
 from tiled.client import from_uri
 
-c = from_uri("http://192.168.6.14:8000", api_key="<key>")
+c = from_uri("http://192.168.6.22:8000", api_key="<key>")
 run = c.values().last()        # most recent scan
 run.metadata["start"]          # scan number, device list, mode, applied defaults…
 from geecs_data_utils.tiled_catalog import read_primary_scalars
@@ -333,7 +337,7 @@ their dimensions — a two-camera run took the worker host down, #834.
 `read_primary_scalars` reads the `internal` table part only, which is how
 the repo's own readers get the per-shot table.)
 
-A generic web catalog browser is served at `http://192.168.6.14:8000/ui`
+A generic web catalog browser is served at `http://192.168.6.22:8000/ui`
 (first visit: `/ui?api_key=<key>` — the server moves the key into a cookie
 and strips the URL). `GeecsBluesky/TILED_SETUP.md` is the canonical Tiled
 reference — the client recipe as well as server-side state and upgrade
@@ -370,7 +374,7 @@ the Data Portal's.
   UDP, so name resolution can still fail with this green):
 
   ```powershell
-  Test-NetConnection 192.168.6.14 -Port 5064
+  Test-NetConnection 192.168.6.22 -Port 5064
   ```
 
 ---
@@ -567,3 +571,58 @@ not in the value deadband**, which must stay 0.0 (suppressing real
 sub-tolerance motion from live monitors was a shipped production bug). The full
 plan, including the `DBE_LOG`-gated-by-DB-tolerance option, is in `DESIGN.md`
 → "Honest gaps / next steps" → *Archive-rate control*.
+
+## 6. Troubleshooting
+
+Two failures seen live, each with a check that tells it from a device that
+is simply off (§4 step 2).
+
+### A device has no PVs
+
+The served set is enumerated **once, at startup**:
+`GatewayConfig.from_geecs_experiment` reads the DB when the process starts
+and never again. A device added to the experiment, or enabled, after that
+has no PVs — a name search times out and a client shows it not connected —
+until the gateway restarts (`systemctl restart geecs-ca-gateway` or the
+`cagateway:restart` PV, §5). Compare `[experiment:]cagateway:uptime` with
+when the DB row changed; the startup line `built N/M device spec(s)`
+(§5 log expectations) counts what the running process enumerated.
+
+Rule out a spelling before chasing connectivity. The variable name in a
+scan-variable target must match the device type's DB spelling, and
+families differ by a character: an ESP301 axis is `Position.Axis 1` (a
+space), an Aerotech axis `Position.Axis1` (no space). The scanner's
+submit preflight now refuses a reference the worker's device tree lacks,
+naming it with "check the spelling"
+(`geecs_bluesky.qs_client.submit_preflight`); the original symptom — a
+`NotConnectedError` on `position_axis1` against the served
+`position_axis_1` — predates that check. (Both causes observed
+2026-09-02, live incident, one masking the other.)
+
+A device with no `get='yes'` rows serves its settable variables only —
+§1, *Experiment selection and `subscribed_only` semantics*.
+
+### Readbacks frozen while `:SP` writes work
+
+Symptom: a device's readbacks stop updating while `:SP` writes still work
+and the hardware moves, with no alarm. Diagnosis: monitor the readback
+(`caproto-monitor` / `camonitor`) while wiggling `:SP` — `:SP` events
+arrive and the readback stays silent across a real excursion ⇒ the
+gateway's GEECS TCP subscription to that device app is half-open (the
+device app restarted without a FIN; the usual cause on a gateway up for
+weeks). A quiet readback alone is not the tell: GEECS pushes on change, so
+a static value produces no events; and `[experiment:]cagateway:heartbeat`
+ticking proves CA delivery to the client works.
+
+Since 0.20.0 (#611) TCP keepalive resets the dead peer within about a
+minute and the ordinary drop path takes over (INVALID readbacks,
+`:connected` MAJOR, supervised reconnect). If it does not heal, restart
+the gateway — `caproto-put [experiment:]cagateway:restart Restart`
+rebuilds every subscription at the cost of a few seconds of CA disconnect
+fleet-wide; monitors reconnect on their own. A `:SP` that still shows the
+old value does not rule this out: after a put through the gateway the
+device itself read the new value while both the readback and its `:SP`
+PV showed the old one for minutes, so verify the device's state with a
+direct GEECS read, never the gateway alone. (Observed 2026-08-17, live
+incident, cleared by the restart the same day; the `:SP` nuance on the
+test stand, 2026-10-14.)

@@ -132,7 +132,7 @@ class ScanPaths:
                 )
             folder = self.get_scan_folder_path(tag, base_directory=base_directory)
 
-        self._initialize_folders(folder, read_mode)
+        self._initialize_folders(folder, read_mode, base_directory=base_directory)
 
     @classmethod
     def reload_paths_config(
@@ -160,7 +160,12 @@ class ScanPaths:
             logger.error("Configuration Error in ScanData: %s", e)  # noqa: TRY400 — expected config state
             cls.paths_config = None
 
-    def _initialize_folders(self, folder: Path, read_mode: bool):
+    def _initialize_folders(
+        self,
+        folder: Path,
+        read_mode: bool,
+        base_directory: Union[Path, str, None] = None,
+    ):
         """
         Initialize and validate folder paths for the scan.
 
@@ -170,6 +175,10 @@ class ScanPaths:
             Folder path for the scan.
         read_mode : bool
             If True, raise an error if the folder does not exist.
+        base_directory : Path or str, optional
+            The data root the folder was built under, when the caller gave
+            one: a scan directly in it belongs to the configured
+            ``data_root_experiment``.
 
         Raises
         ------
@@ -224,11 +233,43 @@ class ScanPaths:
             self._tag_date.month,
             self._tag_date.day,
             parse_scan_folder_name(scan_folder_name),
-            experiment=exp_name,
+            experiment=self.experiment_from_folder(folder.parents[4], base_directory),
         )
 
         # Assign folder attributes
         self._folder = folder
+
+    @staticmethod
+    def experiment_from_folder(
+        experiment_folder: Path,
+        base_directory: Union[Path, str, None] = None,
+    ) -> str:
+        """The experiment a scan's ``experiment_folder`` belongs to.
+
+        The folder's own name (the GEECS convention), except that the data
+        root itself belongs to the configured ``data_root_experiment``. The
+        comparison is lexical: the same root under another spelling (a UNC
+        path against a drive letter) reads as an ordinary folder.
+
+        Parameters
+        ----------
+        experiment_folder : Path
+            The folder above a scan's ``Y{YYYY}`` folder.
+        base_directory : Path or str, optional
+            The data root the folder was found under; defaults to the
+            configured one.
+
+        Returns
+        -------
+        str
+            The experiment name.
+        """
+        config = ScanPaths.paths_config
+        if config is not None and config.data_root_experiment:
+            root = base_directory if base_directory is not None else config.base_path
+            if root is not None and _same_path(experiment_folder, Path(root)):
+                return config.data_root_experiment
+        return experiment_folder.name
 
     @staticmethod
     def get_scan_tag(
@@ -313,7 +354,8 @@ class ScanPaths:
                 experiment=experiment,
             )
 
-        folder = Path(base) / tag.experiment if tag.experiment else Path(base)
+        in_root = not tag.experiment or _is_data_root_experiment(tag.experiment)
+        folder = Path(base) if in_root else Path(base) / tag.experiment
         folder = (
             folder / f"Y{tag.year}" / f"{tag.month:02d}-{cal.month_name[tag.month][:3]}"
         )
@@ -906,6 +948,53 @@ def current_paths_config(
                 _config_retry_at = now + CONFIG_RETRY_S
                 ScanPaths.reload_paths_config()
     return ScanPaths.paths_config
+
+
+def _is_data_root_experiment(experiment: Optional[str]) -> bool:
+    """Whether *experiment*'s ``Y{YYYY}`` folders sit directly in the data root."""
+    config = ScanPaths.paths_config
+    return (
+        config is not None
+        and bool(experiment)
+        and experiment == config.data_root_experiment
+    )
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    """Whether two paths name the same folder, lexically (no filesystem access)."""
+    return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(
+        os.path.normpath(str(b))
+    )
+
+
+def experiment_dir_present(experiment_dir: Path, experiment: Optional[str]) -> bool:
+    """Whether *experiment*'s data folder is really there — the "share is mounted" sentinel.
+
+    A conventional experiment folder is absent when the share is down. The
+    ``data_root_experiment``'s folder is the data root itself, which may be a bare mount point that exists while the
+    share is down — so for it the folder must also be non-empty.
+
+    Parameters
+    ----------
+    experiment_dir : Path
+        The folder above the experiment's ``Y{YYYY}`` folders.
+    experiment : str or None
+        GEECS experiment name.
+
+    Returns
+    -------
+    bool
+        True when the folder exists (and, for the ``data_root_experiment``,
+        holds anything).
+    """
+    try:
+        if not experiment_dir.is_dir():
+            return False
+        if _is_data_root_experiment(experiment):
+            return next(experiment_dir.iterdir(), None) is not None
+    except OSError:
+        return False
+    return True
 
 
 def daily_scan_folder(

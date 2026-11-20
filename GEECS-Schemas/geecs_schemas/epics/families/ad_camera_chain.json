@@ -2,7 +2,7 @@
   "schema_version": 1,
   "template": "ad_camera_chain",
   "kind": "aravis_camera",
-  "description": "The areaDetector camera chain every camera IOC runs (geecs-epics runbook, 'Display and analysis chain'): cam1, STAT, STAT0, ROI1, PROC1, TRANS1, OVER1, MJPG1, HDF1 and the run lock.",
+  "description": "The areaDetector camera chain every camera IOC runs (geecs-epics runbook, 'Display and analysis chain'): cam1, STAT, STAT0, ROI1, PROC1, TRANS1, OVER1, PROC2 (the 8-bit scaling in front of MJPG1, display only), MJPG1, HDF1, the run lock and FullScale (the count a saturated pixel reads, after the driver shift).",
   "roles": [
     {"name": "state", "suffix": "cam1:DetectorState_RBV", "type": "enum", "label": "detector"},
     {"name": "rate", "suffix": "cam1:ArrayRate_RBV", "type": "readback", "label": "frame rate", "units": "Hz"},
@@ -16,6 +16,11 @@
     {"name": "mean", "suffix": "STAT:MeanValue_RBV", "type": "readback", "label": "mean", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
     {"name": "total", "suffix": "STAT:Total_RBV", "type": "readback", "label": "total", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
     {"name": "raw_max", "suffix": "STAT0:MaxValue_RBV", "type": "readback", "label": "raw max", "fresh_by": "stat0_counter", "computed_by": "raw_compute_statistics"},
+    {"name": "full_scale", "suffix": "FullScale", "type": "readback", "label": "full scale", "level": "expert", "read": "once"},
+    {"name": "raw_frame", "suffix": "ARR:ArrayData", "type": "array", "label": "raw frame", "level": "expert", "read": "never"},
+    {"name": "raw_width", "suffix": "ARR:ArraySize0_RBV", "type": "readback", "label": "raw frame width", "level": "expert", "read": "on_request", "units": "px"},
+    {"name": "raw_height", "suffix": "ARR:ArraySize1_RBV", "type": "readback", "label": "raw frame height", "level": "expert", "read": "on_request", "units": "px"},
+    {"name": "raw_counter", "suffix": "ARR:ArrayCounter_RBV", "type": "counter", "label": "raw frames", "level": "expert", "read": "on_request"},
     {"name": "compute_centroid", "suffix": "STAT:ComputeCentroid", "type": "bit", "label": "centroid computed", "level": "expert"},
     {"name": "compute_statistics", "suffix": "STAT:ComputeStatistics", "type": "bit", "label": "statistics computed", "level": "expert"},
     {"name": "raw_compute_statistics", "suffix": "STAT0:ComputeStatistics", "type": "bit", "label": "raw statistics computed", "level": "expert"},
@@ -75,7 +80,6 @@
     {"name": "owner", "suffix": "RUN:Owner", "type": "readback", "label": "run lock owner", "text": "string"},
     {"name": "capture", "suffix": "HDF1:Capture_RBV", "type": "enum", "label": "file capture"},
     {"name": "period", "suffix": "cam1:AcquirePeriod_RBV", "type": "setpoint", "label": "acquire period", "writable": true, "write": "cam1:AcquirePeriod", "units": "s", "limits": [0, 3600], "locked": true, "archive": true, "autosaved": true},
-    {"name": "frame_rate", "suffix": "cam1:FrameRate_RBV", "type": "readback", "label": "camera frame rate", "units": "Hz", "archive": true},
     {"name": "gain", "suffix": "cam1:Gain_RBV", "type": "setpoint", "label": "gain", "writable": true, "write": "cam1:Gain", "limits": [0, 100], "locked": true, "archive": true},
     {"name": "trigger_mode", "suffix": "cam1:TriggerMode_RBV", "type": "enum", "label": "trigger mode", "writable": true, "write": "cam1:TriggerMode", "choices": ["Off", "On"], "locked": true, "archive": true},
     {"name": "trigger_source", "suffix": "cam1:TriggerSource_RBV", "type": "enum", "label": "trigger source", "archive": true},
@@ -86,5 +90,14 @@
     {"name": "size_y", "suffix": "cam1:SizeY_RBV", "type": "setpoint", "label": "camera ROI height", "writable": true, "write": "cam1:SizeY", "level": "expert", "limits": [1, 65535], "integer": true, "units": "px", "locked": true, "archive": true, "autosaved": true},
     {"name": "max_x", "suffix": "cam1:MaxSizeX_RBV", "type": "readback", "label": "sensor width", "units": "px", "level": "expert"},
     {"name": "max_y", "suffix": "cam1:MaxSizeY_RBV", "type": "readback", "label": "sensor height", "units": "px", "level": "expert"}
-  ]
+  ],
+  "panel": {
+    "rail": [
+      {"title": "Acquisition", "roles": ["acquire", "exposure", "period", "gain", "trigger_mode"]},
+      {"title": "Crosshairs", "roles": ["crosshair1_use", "crosshair2_use", "crosshair1_x", "crosshair1_y", "crosshair2_x", "crosshair2_y"]},
+      {"title": "Analysis ROI", "roles": ["roi_minx", "roi_miny", "roi_sizex", "roi_sizey"]}
+    ],
+    "readings": ["state", "rate", "pixel_format", "cx", "cy", "sx", "sy", "max", "mean", "total", "raw_max", "capture", "lock", "owner"],
+    "buttons": {"acquire": ["Stop", "Start"]}
+  }
 }

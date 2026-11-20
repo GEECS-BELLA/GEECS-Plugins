@@ -21,7 +21,6 @@ geecs_data_utils/
                                #   home the portal, logbook, ScanAnalysis and
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
-  data/curve_fit.py            # fit_curve → CurveFit: Gaussian, SuperGaussian, polynomial
   data/scan_merge.py           # merge_scan_frames: several scans' frames as one
                                #   (GEECSplotter's "merge s files"): rows tagged
                                #   `scan` / `day`, the union of columns (NaN where
@@ -33,17 +32,6 @@ geecs_data_utils/
                                #   X, the same setting pooled within a tolerance,
                                #   default half the smallest step) as the
                                #   in-memory `Bin # (merged)`
-  data/image_prep.py           # subtract_background (image less a background
-                               #   average, same size or a ValueError);
-                               #   ImagePrep: one camera image's clean-ups, before
-                               #   it is drawn or averaged — X-ray hits out
-                               #   (remove_hits: median 3×3/5×5, or "hot": only a
-                               #   pixel far above neighbours that sit at the
-                               #   background, so a sharp focal spot survives),
-                               #   then beam_centre (centre of mass above a
-                               #   threshold: counts at 1 or more, else a fraction
-                               #   of the peak) and centre_on (whole-pixel shift,
-                               #   the median shifted in)
   analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
@@ -120,6 +108,11 @@ geecs_data_utils/
                                #   vendor / unrenderable), the row joins
                                #   (row_acq_timestamp refuses a shot the
                                #   device missed: never a neighbour's image;
+                               #   a derived folder's stack, <device>-<suffix>
+                               #   with no column of its own, joins on its
+                               #   device's column — stack_parent_device over
+                               #   tiled_schema.derived_folder_parent; derived
+                               #   per-shot files keep the order fallback;
                                #   row_file_shot), load_shot_array /
                                #   load_shot_image, load_row_array (a
                                #   row of the WHOLE table → its file) and
@@ -243,6 +236,20 @@ Resolves the GEECS data root and experiment name. Reading order:
 
 Also provides optional paths for config repos and FROG DLL.
 
+`[Paths] data_root_experiment = <name>` names the one experiment whose
+`Y{YYYY}` folders sit directly in the base path (a site whose data tree
+predates the convention); one key, so only one experiment can own the root.
+`ScanPaths.get_daily_scan_folder` builds without the experiment segment for
+it, and `ScanPaths.experiment_from_folder` reads the data root back as that
+experiment, so the tag keeps the name and the path round-trips. The
+comparison is lexical: the same root under another spelling (UNC against a
+drive letter) is tagged with the root folder's name. Every other
+experiment, and a config without the key, follows the convention unchanged.
+The "share is mounted" sentinel is `scan_paths.experiment_dir_present`: the
+root experiment's folder is the data root, which a bare mount point
+satisfies by existing, so it must also be non-empty (the logbook's mirror
+and calendar use it). Pinned by `tests/test_data_root_experiment.py`.
+
 ## GEECS Folder Convention
 
 ```
@@ -311,19 +318,6 @@ deltas vs the pre-0.23.0 implementation (see CHANGELOG): `Shotnumber`
 is excluded from the default value columns, the bin key is excluded
 from the dropna row policy (NA-bin-labelled rows aggregate into their
 own row), and all-NaN columns never cause drops.
-
-## Curve fits (`data/curve_fit.py`)
-
-`fit_curve(x, y, model, order=)` → `CurveFit`: GEECSplotter's Fit menu as
-one pure call over the finite `(x, y)` pairs, unweighted, standard errors
-from the residual-scaled covariance. Models: `gaussian` (σ; derived
-`fwhm`), `supergaussian` (`A·exp(-(|x−x0|/w)^p)+C`, `p` fitted within
-`POWER_BOUNDS`; derived `fwhm = 2w·(ln 2)^(1/p)`), each with a
-`_no_offset` kind, and `polynomial` (`c0 … cN`, ascending powers,
-`numpy.polyfit`). A fit that cannot be made is a `CurveFit` with `error`
-set, never an exception; `evaluate(x)` / `curve(points)` redraw it.
-scipy is imported inside the call. The rest of LabVIEW's menu (Lorentzian,
-Boltzmann, Exp Growth, Extreme, Lorentzian w slope) is a model added here.
 
 ## Config Directory Management
 
@@ -508,9 +502,9 @@ this package and must never depend on GeecsBluesky or a GUI package).
 - **`shot_join`** — the one home of the rule that joins a run's per-frame
   stream columns onto its shot rows (`FrameColumns`,
   `join_frames_to_shots`, `row_windows`, `shot_clock_column`,
-  `frame_columns_from_attributes`, `SHOTS_STREAM`) — and a non-essential
+  `frame_columns_from_attributes`, `SHOTS_STREAM`) — and a streamed
   device's **event** stream onto them the same way
-  (`frame_columns_from_events`, `non_essential_stream`: one event per stamp
+  (`frame_columns_from_events`, `device_stream`: one event per stamp
   a triggered device without a plugin published, NaN on the rows it
   missed).  Pure arithmetic over
   arrays — no I/O, no Bluesky, no pandas — because two callers must agree
@@ -528,14 +522,38 @@ this package and must never depend on GeecsBluesky or a GUI package).
   invariant to window arithmetic, which two rows published a fraction of a
   millisecond apart defeated.  A frame no row claims is
   an **orphan**: it stays in the stack and in Tiled and is left out of the
-  s-file — one s-file row per essential shot, always.
+  s-file — one s-file row per row of the run, always.
+- **`shot_table`** — the shared reader helper of both run layouts
+  (`GeecsBluesky/EVENT_SCHEMA.md`): `shot_table(start, rows,
+  devices)` assigns each per-shot device's records (`DeviceRecords`) to
+  the rows and flags them; `frame_for(table, device, shot)` gives
+  `(stream, index)` or `None`. Both layouts: an old run (no `layout` key)
+  reproduces today's s-file join (strict `primary` stacks positional,
+  everything else through `shot_join`); a `shot-table/1` run is timed on
+  `witness_stamp` (or `fire_stamp` intervals when unwitnessed), counters
+  and the witness attribute only audit. Plain inputs, no I/O; the
+  adapters are the readers' (`tiled_export.read_device_records` for a
+  Tiled run, GeecsBluesky's callback buffer for the live one, both through
+  `device_records`: `stream_meta`, the counter, `WitnessCount`). The
+  Tiled reader takes a stream's bare `NDArrayUniqueId` / `WitnessCount`
+  parts, an attribute stream's or an event stream's (a native camera's)
+  alike; the live readers get them from the stack file.  Which parts a
+  native's HDF writer publishes is the worker's (the stock data logic
+  declares only the NDAttributes of an inline XML); a plugin stack has no
+  per-frame counter at all. And
+  `per_shot_event_streams(start)` is the one event-stream gate
+  (`per_shot_streams`, or a recorded gated or earlier strict run's
+  `non_essential`; gated was deleted on 2026-11-14, its runs stay readable).
+  `shot_join.to_labview_epoch` is the one Unix → LabVIEW conversion of a
+  row clock, and `shot_join.clock_stamps(rows, column)` the stamps every
+  `shot_clock_column` caller times against.
 - **`tiled_export`** — the legacy scalar files of a Bluesky run, live
   (`write_scalar_files` from the documents, what the worker calls) or
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s
   events when it has them and the per-shot `shots` events otherwise (a
-  gated run), and `join_frame_columns` appends every datum-only stream's
-  per-frame columns (and every non-essential event stream's, named by the
-  start document's `non_essential`) before `geecs_scalar_headers` renames and orders them
+  gated run recorded before the mode's 2026-11-14 deletion), and `join_frame_columns` appends, through `shot_table`,
+  every datum-only stream's per-frame columns (and every per-shot event
+  stream's, `per_shot_event_streams`) before `geecs_scalar_headers` renames and orders them
   — one projection for both shapes of run.  `read_frame_columns` reads a
   stream's 1-D attribute arrays **by name** and never the frame stack
   itself (the #834/#836 lesson).

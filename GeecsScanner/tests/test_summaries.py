@@ -17,11 +17,11 @@ def test_scan_triplet_with_trailing_num() -> None:
             "scan",
             [["UC_A", "U_ICT.scalars"], "U_S1H.current", 0, 2, 11],
             shots_per_step=10,
-            acquisition="gated",
+            acquisition="fly",
             trigger_profile="standard_1hz",
         )
     )
-    assert s.text == "scan U_S1H.current 0 → 2 · 11 steps · 10 shots/step · gated"
+    assert s.text == "scan U_S1H.current 0 → 2 · 11 steps · 10 shots/step · fly"
     assert s.steps == 11 and s.shots_per_step == 10 and s.planned_shots == 110
     assert (
         s.detectors == ["UC_A", "U_ICT.scalars"] and s.trigger_profile == "standard_1hz"
@@ -95,8 +95,8 @@ def test_non_scan_items_and_unknown_shapes_never_raise() -> None:
         == "move U_S1H.current → 0.5"
     )
     assert (
-        summarize_item(_item("run_action", ["close_shutters"])).text
-        == "action close_shutters"
+        summarize_item(_item("apply_setup", ["shutters_closed"])).text
+        == "setup shutters_closed"
     )
     assert (
         summarize_item({"name": "spiral", "args": [["UC_A"], "a", "b"]}).text

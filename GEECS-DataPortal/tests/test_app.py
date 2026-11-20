@@ -207,7 +207,7 @@ class TestRunView:
         assert "/static/plotly-cartesian-" not in response.text
 
     def test_vendored_plotly_is_served(self):
-        response = _client().get("/static/plotly-cartesian-3.1.1.min.js")
+        response = _client().get("/theme/plotly-cartesian-3.1.1.min.js")
         assert response.status_code == 200
         assert "plotly.js" in response.text[:200]
 
@@ -969,7 +969,7 @@ class TestReverseProxy:
         # from this constant.
         assert 'const ROOT = "/portal";' in response.text
         assert '"/portal/run/uid-001?' in response.text  # prev-scan stepper
-        assert 'src="/static/' not in response.text
+        assert 'src="/theme/' not in response.text
 
     def test_index_and_go_redirects_carry_the_prefix(self):
         response = _client().get("/", headers=self.PREFIX, follow_redirects=False)

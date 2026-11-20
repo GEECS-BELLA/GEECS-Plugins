@@ -1,0 +1,32 @@
+# GEECS Logbook, per-experiment instance — systemd unit TEMPLATE, on
+# GEECS_LOGBOOK_PORT, with its own notes store.
+#
+# One instance per experiment: `systemctl enable --now <unit>@<Instance>`.
+# Render with deploy/render_units.sh (or bootstrap_host.sh --experiment);
+# @PLACEHOLDER@ holes are filled at render time. Runtime values come from
+# site.env and THEN the instance file @EXPERIMENTS_DIR@/<Instance>.env, which
+# overrides it (the experiment, ports, CA addressing — keys in
+# deploy/experiments.env.example). Per-instance state lives under
+# /var/lib/geecs-experiments/<Instance>/. The non-templated unit of the same
+# name is the main experiment's and stays as it is.
+
+[Unit]
+Description=GEECS Logbook (experiment instance %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/portal-checkout/GeecsLogbook
+ExecStart=@POETRY@ run geecs-logbook --experiment ${GEECS_EXPERIMENT} --port ${GEECS_LOGBOOK_PORT} --templates-dir "${GEECS_CONFIGS_ROOT}/logbook_templates" $GEECS_LOGBOOK_EXTRA_ARGS
+StateDirectory=geecs-experiments/%i/logbook
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=geecs-logbook@%i
+
+[Install]
+WantedBy=multi-user.target

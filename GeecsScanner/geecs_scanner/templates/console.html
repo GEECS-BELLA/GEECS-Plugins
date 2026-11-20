@@ -23,7 +23,7 @@
    absolute http:// URL is a mixed-content block. #}
 <link rel="stylesheet" href="{{ url_for('scanner_static', path='scanner.css').path }}">
 </head>
-<body class="kit" data-root="{{ root }}" data-experiment="{{ experiment }}" data-identity="{{ identity }}" data-portal="{{ portal }}">
+<body class="kit" data-root="{{ root }}" data-experiment="{{ experiment }}" data-identity="{{ identity }}" data-portal="{{ portal }}" data-configurator="{{ configurator }}">
 
 <header class="topbar">
   <div class="topbar-in">
@@ -32,6 +32,7 @@
       <span class="chip" data-state="unknown" id="chip-manager" title="RE Manager: not polled yet">manager</span>
       <span class="chip" data-state="unknown" id="chip-docs" title="Document stream: not heard yet">doc stream</span>
       <span class="chip" data-state="unknown" id="chip-writer" title="Tiled writer: not read yet">tiled writer</span>
+      <span class="chip" data-state="unknown" id="chip-gate" title="Shot gate: not read yet" hidden>shot gate</span>
     </div>
     <a class="btn ghost sm" href="https://geecs-plugins.readthedocs.io/en/latest/web_services/scanner/" target="_blank" rel="noopener" title="How to use the scanner (opens the docs)">Docs</a>
     <label class="who">operator <input id="operator" placeholder="your name" aria-label="Operator name"></label>
@@ -46,11 +47,11 @@
     <div>
       <h4>Scanner</h4>
       <nav class="picklist">
-        <a href="#now" aria-current="page">Now</a>
+        <a href="#now" aria-current="page">Current</a>
         <a href="#submit">New scan</a>
         <a href="#queue">Queue</a>
         <a href="#devices">Devices</a>
-        <a href="#actions">Actions</a>
+        <a href="#setups">Setups</a>
         <a href="#calib">Calibration</a>
       </nav>
     </div>
@@ -71,7 +72,7 @@
     {# ============================ NOW ============================ #}
     <section id="now" class="panel" aria-labelledby="now-h">
       <header>
-        <span class="eyebrow" id="now-h">now</span>
+        <span class="eyebrow" id="now-h">current</span>
         <span class="chip lg" data-state="unknown" id="now-chip">connecting</span>
       </header>
       <div class="body">
@@ -137,8 +138,7 @@
           <button type="button" data-mode="optimize" aria-pressed="false" disabled title="No compatible optimizer configs available">Optimize</button>
         </div>
         <div class="seg" role="group" aria-label="Acquisition" id="acq">
-          <button type="button" data-acq="strict" aria-pressed="true" title="Fire between trigger and wait; one row per shot">strict</button>
-          <button type="button" data-acq="gated" title="Box in SCAN, cameras count a batch; one shots row per shot">gated</button>
+          <button type="button" data-acq="strict" aria-pressed="true" title="One fire per shot; one shot-table row per fire, refires included">strict</button>
         </div>
       </header>
       <div class="body">
@@ -164,11 +164,10 @@
             </div>
             <div class="tscroll">
               <table class="devtable">
-                <thead><tr><th>device</th><th>save images</th><th>essential</th><th></th></tr></thead>
+                <thead><tr><th>device</th><th>save images</th><th>required</th><th></th></tr></thead>
                 <tbody id="devs"><tr><td class="dim" colspan="4">No devices — add one.</td></tr></tbody>
               </table>
             </div>
-            <span class="dim note">A gated run needs at least one essential triggered device.</span>
           </div>
         </div>
 
@@ -228,7 +227,10 @@
           <span class="dim note" id="preset-name"></span>
           <span class="dim note" id="presets-note"></span>
           <select id="preset" class="preset-load" aria-label="Load a preset"><option value="" disabled selected>Loading presets…</option></select>
+          {% if configurator %}<button class="btn" type="button" id="btn-edit-preset" disabled title="Load a preset to edit its settings in the configurator">Edit preset…</button>{% endif %}
           <button class="btn" type="button" data-drawer-open="drw-preset" id="btn-save-preset" disabled>Save as preset…</button>
+          <label class="dim note" title="Ask for the scan title (the description) before each Start; remembered in this browser"><input type="checkbox" id="confirm-title" checked> confirm title</label>
+          <button class="btn" type="button" id="btn-append" disabled title="Append to the end of the queue; no title dialog">Add to Queue</button>
           <button class="btn primary" type="button" id="btn-start" disabled>Start</button>
         </div>
       </footer>
@@ -240,15 +242,23 @@
         <span class="eyebrow" id="q-h">queue</span>
         <span class="dim note" id="q-summary">—</span>
       </header>
-      <div class="tscroll sticky">
-        <table>
-          <thead><tr><th>state</th><th>item</th><th>by</th><th>detail</th></tr></thead>
-          <tbody id="qbody"><tr><td class="dim" colspan="4">Waiting for the manager.</td></tr></tbody>
-        </table>
+      <div class="body">
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-run-h">Ongoing</summary>
+          <table><tbody id="q-run"><tr><td class="dim">Waiting for the manager.</td></tr></tbody></table>
+        </details>
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-wait-h">Waiting</summary>
+          <table><tbody id="q-wait"></tbody></table>
+        </details>
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-done-h">History</summary>
+          <div class="tscroll"><table><tbody id="q-done"></tbody></table></div>
+        </details>
       </div>
       <footer>
         <div class="row">
-          <span class="dim note">The manager runs one item behind the running one; a new submission replaces the waiting item after you say so.</span>
+          <span class="dim note">Add to Queue appends behind a started queue; Start replaces a waiting item after you say so. In a stopped queue with items waiting, Add to Queue refuses until they are removed or cleared.</span>
           <span class="spacer"></span>
           <button class="btn danger sm" type="button" data-dialog-open="dlg-clear" id="btn-clear" disabled>Clear queue…</button>
         </div>
@@ -278,30 +288,30 @@
         <footer class="eyebrow">readback = what the device reports over the gateway, not the setpoint · the request stores the canonical Device:Variable</footer>
       </section>
 
-      <section id="actions" class="panel" aria-labelledby="a-h">
+      <section id="setups" class="panel" aria-labelledby="a-h">
         <header>
-          <span class="eyebrow" id="a-h">actions</span>
-          <span class="chip" data-state="unknown" id="act-chip">disarmed</span>
+          <span class="eyebrow" id="a-h">setups</span>
+          <span class="chip" data-state="unknown" id="setup-chip">disarmed</span>
         </header>
         <div class="body">
           <div class="fields">
-            <div class="field wide"><label for="action">action plan</label><select id="action"></select><span class="hint" id="actions-note">Loading the action library…</span></div>
+            <div class="field wide"><label for="setup">setup</label><select id="setup"></select><span class="hint" id="setups-note">Loading the setups…</span></div>
           </div>
-          <div class="group" id="action-preview-group" hidden>
+          <div class="group" id="setup-preview-group" hidden>
             <div class="row">
-              <span class="eyebrow" id="action-preview-title">preview</span>
+              <span class="eyebrow" id="setup-preview-title">preview</span>
               <span class="spacer"></span>
-              <span class="dim note" id="action-writes"></span>
+              <span class="dim note" id="setup-writes"></span>
             </div>
-            <ol class="well steps" id="action-steps"></ol>
+            <ol class="well steps" id="setup-steps"></ol>
           </div>
         </div>
         <footer>
           <div class="row">
-            <span class="dim note">Arm, then Run — a <code>run_action</code> queue item, idle only. Arming is never remembered.</span>
+            <span class="dim note">Arm, then Apply — an <code>apply_setup</code> queue item, idle only; its writes and hazard steps are confirmed first. Arming is never remembered.</span>
             <span class="spacer"></span>
-            <button class="btn sm" type="button" id="act-arm" disabled>Arm</button>
-            <button class="btn sm primary" type="button" id="act-run" disabled>Run</button>
+            <button class="btn sm" type="button" id="setup-arm" disabled>Arm</button>
+            <button class="btn sm primary" type="button" id="setup-apply" disabled>Apply</button>
           </div>
         </footer>
       </section>
@@ -381,7 +391,7 @@
       <span class="dim note">click to select · shift-click for a range</span>
     </div>
     <nav class="picklist" id="devlist" aria-label="Devices"></nav>
-    <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are essential until you say otherwise.</span>
+    <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are required until you say otherwise.</span>
   </div>
 </aside>
 
@@ -432,6 +442,14 @@
   </div>
 </dialog>
 
+<dialog id="dlg-title" aria-labelledby="dlg-title-h">
+  <div class="body">
+    <h4 id="dlg-title-h">Scan title</h4>
+    <div class="field"><label for="title-box">description</label><input id="title-box" placeholder="what this scan is for" autofocus></div>
+    <div class="row end"><button class="btn" type="button" data-dialog-close>Cancel</button><button class="btn primary" type="button" id="do-title">Confirm</button></div>
+  </div>
+</dialog>
+
 <dialog id="dlg-stop" aria-labelledby="dlg-stop-title">
   <div class="body">
     <h4 id="dlg-stop-title">Stop <span id="dlg-stop-scan">the running scan</span>?</h4>
@@ -451,7 +469,7 @@
 <dialog id="dlg-pending" aria-labelledby="dlg-pending-title">
   <div class="body">
     <h4 id="dlg-pending-title">An item is already waiting</h4>
-    <p id="dlg-pending-text">The manager runs one item behind the running one. Replace the waiting item with this scan?</p>
+    <p id="dlg-pending-text">Replacing clears every waiting item, then queues this scan. Add to Queue appends instead.</p>
     <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep it</button><button class="btn primary" type="button" id="do-replace">Replace and queue</button></div>
   </div>
 </dialog>
@@ -475,10 +493,10 @@
 <dialog id="dlg-ack" class="ack" aria-labelledby="dlg-ack-title">
   <div class="body">
     <h4 id="dlg-ack-title">Preflight found things to acknowledge</h4>
-    <p>The request is valid and the worker is ready. Each item is a question, not a refusal; tick it to continue with it on record.</p>
+    <p>Each item is a question, not a refusal; tick it to continue with it on record.</p>
     <ul class="qs" id="ack-list"></ul>
-    <p class="dim note">Acknowledged checks are stamped <code>continued</code> in the submission record that rides with the run.</p>
-    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-submit" disabled>Submit to queue</button></div>
+    <p class="dim note">Acknowledged checks are stamped <code>continued</code> in the submission record that rides with the queue item.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-submit" disabled>Queue it</button></div>
   </div>
 </dialog>
 
@@ -488,5 +506,8 @@
 <script src="{{ url_for('scanner_static', path='sweep-composer.js').path }}" defer></script>
 <script src="{{ url_for('scanner_static', path='scanner.js').path }}" defer></script>
 <script src="{{ url_for('scanner_static', path='scan-log-list.js').path }}" defer></script>
+{% if configurator %}{# the embedded editor (the configurator's mount contract): the theme's form.js from this process, embed.js from the configurator #}
+<script src="{{ root }}/theme/form.js" defer></script>
+<script src="{{ configurator }}/static/embed.js" defer></script>{% endif %}
 </body>
 </html>

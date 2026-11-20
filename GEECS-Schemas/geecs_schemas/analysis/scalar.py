@@ -43,17 +43,17 @@ comparisons ``< <= > >= == !=`` (chains like ``a <= x <= b`` included),
 :data:`SCALAR_REDUCTIONS` (one input each, over all the scan's shots, a
 missing shot skipped: ``x - mean(x)``) — never attribute access, imports or
 any other Python.  A comparison is 1 where it holds and 0 where it does not.  The syntax is checked here, when the file is loaded, so
-a typo fails in the editor and the catalog rather than at run time.
+a typo fails in the configurator's form and the catalog rather than at run time.
 """
 
 from __future__ import annotations
 
 import ast
-from typing import Literal, Optional
+from typing import Any, ClassVar, Literal, Optional
 
-from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.restricted_expr import (
     ExpressionWhitelist,
     ExpressionWhitelistError,
@@ -194,32 +194,6 @@ class ScalarCase(SchemaModel):
 class ScalarColumn(SchemaModel):
     """One new s-file column: a formula, or condition rules, over existing columns."""
 
-    # A form hint (the config editor's ``x-choice``): a column is one of
-    # two kinds, each owning its fields — the editor shows a switch and
-    # only the chosen kind's fields, and writes only those.
-    model_config = ConfigDict(
-        json_schema_extra={
-            "x-choice": {
-                "label": "kind",
-                "options": [
-                    {
-                        "title": "formula",
-                        "keys": ["expr"],
-                        "help": "A number per shot from a formula over the inputs.",
-                    },
-                    {
-                        "title": "condition",
-                        "keys": ["cases", "otherwise"],
-                        "help": (
-                            "A label per shot: rules checked in order, the first "
-                            "that holds wins; the s-file stores the rule's number."
-                        ),
-                    },
-                ],
-            }
-        }
-    )
-
     name: str = Field(
         ...,
         min_length=1,
@@ -237,15 +211,6 @@ class ScalarColumn(SchemaModel):
             "Both kinds use them: a formula's expr and a condition's rules name "
             "the symbols. A column made earlier in this job may be used by its name."
         ),
-        # the config editor's row words (x-rows): one empty row on a new column
-        json_schema_extra={
-            "x-rows": {
-                "key": "symbol, e.g. x",
-                "value": "s-file column",
-                "add": "+ input",
-                "start": True,
-            }
-        },
     )
     expr: Optional[str] = Field(
         None,
@@ -279,6 +244,12 @@ class ScalarColumn(SchemaModel):
         ),
     )
     description: Optional[str] = Field(None, description="Free-text note.")
+
+    @field_validator("expr", "otherwise", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: Any) -> Any:  # Any: the raw field, before its type
+        """An emptied box is no formula (no label): a form clears a field to ``""``, so a column can change kind."""
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("inputs")
     @classmethod
@@ -349,6 +320,8 @@ class ScalarJob(VersionedSchemaModel):
     under ``analysis/ScanNNN/`` it writes only its scalar sidecar and, for
     condition columns, their labels.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     schema_version: int = Field(
         1,
@@ -432,7 +405,24 @@ class ScalarJob(VersionedSchemaModel):
         return False
 
 
+#: The column a blank job's one formula reads: a placeholder no s-file has,
+#: so a run of an unedited blank is refused by name, never a silent column.
+BLANK_INPUT = "an s-file column"
+
+
+def blank_scalar_job(name: str) -> dict[str, Any]:  # Any: a document as JSON
+    """A new job's starting draft: one formula column to edit, valid as it stands."""
+    document = {
+        "kind": "scalar_columns",
+        "output_name": name,
+        "columns": [{"name": name, "expr": "x", "inputs": {"x": BLANK_INPUT}}],
+    }
+    ScalarJob.model_validate(document)
+    return document
+
+
 __all__ = [
+    "BLANK_INPUT",
     "SCALAR_CONSTANTS",
     "SCALAR_FUNCTIONS",
     "SCALAR_REDUCTIONS",
@@ -440,5 +430,6 @@ __all__ = [
     "ScalarColumn",
     "ScalarJob",
     "ScalarJobRuntime",
+    "blank_scalar_job",
     "scalar_whitelist",
 ]

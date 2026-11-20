@@ -866,6 +866,7 @@
     "device",
     "input"
   ],
+  "tier": "operator",
   "title": "AnalysisRecipe",
   "type": "object"
 }

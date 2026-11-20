@@ -767,7 +767,7 @@ class TestProcessingSelector:
         (they passed in #737's extra-less CI — the guard must not
         retire that real coverage).
         """
-        pytest.importorskip("geecs_analysis")
+        pytest.importorskip("scan_analysis")
 
     @pytest.fixture()
     def configs_tree(self, tmp_path):
@@ -960,7 +960,7 @@ class TestProcessingSelector:
         import sys
 
         # Simulate the required analysis runtime missing, even with a cached router.
-        monkeypatch.setitem(sys.modules, "geecs_analysis.engine.compiled", None)
+        monkeypatch.setitem(sys.modules, "scan_analysis.core_preview", None)
         client = self._client(scan_folder, configs_tree)
         page = client.get("/run/uid-002", params={"device": "cam", "tab": "images"})
         assert page.status_code == 200

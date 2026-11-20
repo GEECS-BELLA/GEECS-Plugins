@@ -6,6 +6,79 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.118.0] - 2026-11-14
+
+### Added
+
+- Fly mode (`acquisition="fly"`): a soft tick clocks the rows and the
+  trigger box is never driven; presets only (#1296).
+- The witness, a hardware count of the trigger box's edges: optional, and
+  with one registered each strict row carries its count and two audits run,
+  counters against rows and a clock-step check (#1296).
+- Native and gateway cameras may be required together in a strict count or
+  sweep (#1296).
+
+### Changed
+
+- A strict run is a shot table: `primary` holds one row per fire and every
+  per-shot device records into its own stream, its records assigned to
+  the rows by time rather than by position (#1296).
+- A shot a required device missed keeps its flagged row and is fired again
+  on a new row instead of rewound; two exhausted shots in a row pause the
+  run (#1296).
+- Pauses never end a run: a required device that reads down, or a camera
+  that counts extra frames two fires in a row, pauses it by name, and
+  extra frames are recorded in an `extra_frames` column (#1296).
+- `required` replaces `essential` on preset devices outside gated runs; a
+  preset naming `essential` is refused by name (#1296).
+- `sweep`, `optimize` and `strict_plan` annotate their device-list and `md`
+  arguments, so the queue manager no longer turns a preset or description
+  named like a device or plan into that object; non-plain `md` is refused
+  by name before the scan number is claimed (#1318).
+
+### Fixed
+
+- A native camera's stream declares the HDF writer's built-in per-frame
+  attributes (the EPICS stamp pair and the unique id), so its frames are
+  timed in Tiled and served by the portal (#1334).
+
+## [0.117.0] - 2026-11-04
+
+### Added
+
+- The `setpoint_device` kind: a supply's plain records as confirm-on-readback
+  settables (#1270).
+- `QueueClient.remove_item(uid)`, and `append=True` on `submit_plan` /
+  `submit_preset`: add behind the waiting items of a started queue; a
+  stopped queue with items waiting still refuses with `pending_items` (#1285).
+- Native cameras: `trigger_source line0` (#1129); a run holds the IOC's run
+  lock from its first prepare until the camera is restored (#1136); the
+  `epics_motor` kind, a positioner's motor records as a native noun (#1142);
+  the registry pass that feeds the archive set (#1237); the design notes for
+  the kinds beyond the camera and for gated runs (#1140, #1121).
+- A shared scan-log list stamped into every scan's ScanInfo (#1125).
+- Per-instance Redis prefix, plan list and manager addresses from the
+  environment; a second experiment as `<unit>@<Instance>` (#1227, #1235).
+
+### Fixed
+
+- Strict scans name a free-running camera instead of failing on a
+  datum-width error (#1276, #1277).
+- A gated batch whose gate read fails turns the box off and keeps its shots
+  (#1123).
+- A camera resting in trigger mode is the usual case, not a warning (#1246).
+- A native camera's refused run shape is named at preset expansion (#1122).
+
+### Changed
+
+- The config.ini EPICS address bootstrap moved to GEECS-Core (#1130); the
+  action-step library moved to GEECS-Schemas with Canopy push 3 (#1214).
+
+### Deploy
+
+- Pull the queueserver checkout and restart `geecs-qserver`; its ready unit
+  re-opens the environment. Not while a scan runs: the restart ends it.
+
 ## [0.116.0] - 2026-10-22
 
 ### Added

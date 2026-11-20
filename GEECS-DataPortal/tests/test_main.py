@@ -132,3 +132,37 @@ def test_ctrl_c_exits_quietly(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None
     argv = ["geecs-data-portal", "--browser", "none", "--settings-dir", str(tmp_path)]
     monkeypatch.setattr(launcher.sys, "argv", argv)
     launcher.main()  # returns instead of raising
+
+
+def test_the_default_opens_no_browser(
+    browsers: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """With no --browser the portal serves and opens nothing."""
+    import uvicorn
+
+    asked: list[str] = []
+
+    class _Server:
+        started = True
+        should_exit = False
+
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def run(self) -> None:
+            pass
+
+    def record(started, stopping, url, browser, **kwargs):
+        asked.append(browser)
+        return real(started, stopping, url, browser, **kwargs)
+
+    real = launcher.open_when_started
+    monkeypatch.setattr(launcher, "open_when_started", record)
+    monkeypatch.setattr(uvicorn, "Server", _Server)
+    monkeypatch.setattr(uvicorn, "Config", lambda *a, **k: None)
+    argv = ["geecs-data-portal", "--settings-dir", str(tmp_path)]
+    monkeypatch.setattr(launcher.sys, "argv", argv)
+    launcher.main()
+    assert asked == ["none"]
+    assert real(lambda: True, lambda: False, "http://x/", asked[0]) is None
+    assert all(not b.opened for b in browsers.values())

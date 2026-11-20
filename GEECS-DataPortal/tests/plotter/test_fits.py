@@ -15,7 +15,7 @@ from typing import get_args
 
 import pytest
 from fastapi.testclient import TestClient
-from geecs_data_utils.data.curve_fit import FitModel
+from geecs_analysis.algorithms.curve_fit import FitModel
 
 from geecs_portal.plotter import figures
 from geecs_portal.plotter.routes.api import plus_minus
@@ -152,7 +152,7 @@ class TestApi:
 
 
 def test_a_shifted_polynomial_says_so_in_its_formula() -> None:
-    from geecs_data_utils.data.curve_fit import fit_curve
+    from geecs_analysis.algorithms.curve_fit import fit_curve
 
     from geecs_portal.plotter.routes.api import fit_result
 

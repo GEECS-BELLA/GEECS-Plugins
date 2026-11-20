@@ -1,0 +1,115 @@
+{#
+  The camera page (GeecsControlRoom/CLAUDE.md § "The device pages"): device.html with the
+  camera's component in `kind_component`, every role's table folded below.
+  The frame is pulled one at a time from this server's frame proxy
+  (/api/devices/<name>/frame.jpg: the JPEG the IOC's MJPEG server holds, at
+  the URL the module names for role `image`), or with Raw on, the driver's
+  16-bit frame (/api/devices/<name>/frame.raw, before TRANS1 and PROC1) at
+  2 Hz, rotated / flipped here by role `transform`; colour map, levels and
+  scale are this viewer's own, per mode. Crosshairs, the analysis ROI and the acquisition
+  controls are family roles, each written through the module's put route
+  with the operator's name, sent once; a run-locked role is refused by the
+  module while a run holds the camera (its outcome says so). The lineouts
+  and histogram are the on-request arrays (/api/devices/<name>/arrays), read
+  only while the plots are open. Every word is the module's verdict. The
+  rail and the readings strip are the family's `panel` (acquisition,
+  crosshairs, the analysis ROI; _panel.html, device_rail.js: the device
+  pages' one control set); the camera ROI (one draft of four fields applied
+  behind its dialog: it changes what scans save) and the display (this
+  viewer's own) are the camera's own.
+#}{% extends "device.html" %}{% import "_panel.html" as P %}
+{% macro roi(role, label) -%}
+<div class="field coord"><label for="c-{{ role }}">{{ label }}</label><input type="number" id="c-{{ role }}" data-roi-role="{{ role }}" step="1" disabled></div>
+{%- endmacro %}
+{% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
+{% block kind_component %}
+<div class="camera" id="camera" data-frame-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.jpg" data-raw-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.raw" data-arrays-url="{{ root }}/api/devices/{{ name | urlencode }}/arrays">
+  <aside class="rail panel-rail">
+    {{ P.rail(panel, specs) }}
+    <section class="group roi-tools">
+      <div class="row">
+        <button class="btn sm" type="button" id="roi-full" disabled>Analysis ROI: full frame</button>
+        <label class="dim"><input type="checkbox" id="roi-show" checked> show it</label>
+      </div>
+      <div class="hint dim">Drag a crosshair's centre or the analysis ROI's edges on the image.</div>
+    </section>
+    <section class="group">
+      <h4>Camera ROI</h4>
+      <div class="row">{{ roi("min_x", "x") }}{{ roi("min_y", "y") }}</div>
+      <div class="row">{{ roi("size_x", "width") }}{{ roi("size_y", "height") }}</div>
+      <div class="row">
+        <button class="btn sm" type="button" id="cam-roi-apply" disabled>Apply…</button>
+        <button class="btn sm ghost" type="button" id="cam-roi-full" disabled>Full sensor</button>
+        <button class="btn sm ghost" type="button" id="cam-roi-revert" hidden>Revert</button>
+      </div>
+      <div class="hint dim">The camera ROI changes what scans save; the analysis ROI does not. Camera writes are refused while a run holds the camera.</div>
+    </section>
+
+    <section class="group">
+      <h4>Display</h4>
+      <div class="row">
+        <div class="field"><label for="cmap">Colour map</label>
+          <select id="cmap">{% for m in ("grey", "viridis", "inferno", "jet") %}<option>{{ m }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="scale">Scale</label>
+          <select id="scale"><option value="linear">linear</option><option value="sqrt">square root</option><option value="log">log</option></select></div>
+      </div>
+      <div class="row">
+        <div class="field levels"><label for="level-lo">Black</label><input id="level-lo" type="number" min="0" max="254" value="0"></div>
+        <div class="field levels"><label for="level-hi">White</label><input id="level-hi" type="number" min="1" max="255" value="255"></div>
+      </div>
+      <div class="row">
+        <button class="btn sm" type="button" id="auto-once">Auto levels</button>
+        <label class="dim"><input type="checkbox" id="auto-live"> every frame</label>
+        <button class="btn sm ghost" type="button" id="reset-levels">Reset</button>
+      </div>
+      <div class="hint dim" id="levels-hint">The 8-bit stream, stretched in this browser: nothing is written to the camera.</div>
+    </section>
+    <div class="out" id="write-out" data-state="unknown" role="status"></div>
+  </aside>
+
+  <div class="pane">
+    {{ P.readings(panel, specs) }}
+    <div class="alarms" id="alarms"></div>
+
+    <article class="panel image">
+      <header>
+        <span class="eyebrow">image</span>
+        <label class="dim raw-toggle" title="the camera's 16-bit frame instead of the 8-bit stream, at most 2 frames/s"><input type="checkbox" id="raw-mode" autocomplete="off"> Raw</label>
+        <span class="mono dim" id="raw-note"></span>
+        <span class="mono dim" id="cursor"></span>
+        <span class="mono dim" id="zoom-level"></span>
+        <button class="btn sm ghost" type="button" id="zoom-fit">Fit</button>
+        <button class="btn sm ghost" type="button" id="zoom-one">1:1</button>
+        <span class="chip" id="image-state" data-state="unknown">image unknown</span>
+        <span class="mono dim" id="fps"></span>
+      </header>
+      <div class="viewport" id="viewport"><canvas id="image" aria-label="live camera image"></canvas></div>
+      <div class="state" data-state="error" id="image-error" hidden><div class="t">No frame</div><div class="m mono" id="image-error-text"></div></div>
+    </article>
+
+    <details class="disc plots" id="plots">
+      <summary>Lineouts and histogram <span class="dim">click the image to move the lineout cursor</span></summary>
+      <div class="dbody">
+        <div class="plot"><div class="plot-head"><span class="eyebrow">x lineout</span><span class="key t1">ROI average</span><span class="key t2">through cursor</span></div><canvas id="plot-x"></canvas></div>
+        <div class="plot"><div class="plot-head"><span class="eyebrow">y lineout</span><span class="key t1">ROI average</span><span class="key t2">through cursor</span></div><canvas id="plot-y"></canvas></div>
+        <div class="plot"><div class="plot-head"><span class="eyebrow">histogram</span><label class="dim"><input type="checkbox" id="hist-log" checked> log</label></div><canvas id="plot-hist"></canvas></div>
+        <div class="dim" id="plots-note" role="status"></div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<dialog id="roi-dialog" aria-labelledby="roi-dialog-title">
+  <div class="body">
+    <h4 id="roi-dialog-title">Change the camera ROI?</h4>
+    <p>This changes what every scan with this camera saves, from its next frame.</p>
+    <p class="mono" id="roi-dialog-text"></p>
+    <p id="roi-dialog-hazard"></p>
+    <div class="row end">
+      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
+      <button class="btn primary" type="button" value="apply">Apply</button>
+    </div>
+  </div>
+</dialog>
+{% endblock %}
+{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/static/camera.js" defer></script><script src="{{ root }}/static/camera_controls.js" defer></script>{% endif %}{% endblock %}

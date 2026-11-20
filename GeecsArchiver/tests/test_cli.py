@@ -6,18 +6,29 @@ import httpx
 import pytest
 
 from geecs_archiver import cli
-from geecs_archiver.archive_set import ArchiveCandidate
+from geecs_archiver.archive_set import ArchiveCandidate, ArchiveSet
+from geecs_archiver.native import RegistryPass
+
+BASE_SET = [
+    ArchiveCandidate(
+        "undulator:u_s1h:current", "U_S1H", "Current", "readback", "float"
+    ),
+    ArchiveCandidate(
+        "undulator:u_s1h:connected", "U_S1H", "connected", "status", "enum"
+    ),
+]
 
 
-def fake_build(experiment, *, policy, derived=None, enabled_only=True):
-    return [
-        ArchiveCandidate(
-            "undulator:u_s1h:current", "U_S1H", "Current", "readback", "float"
-        ),
-        ArchiveCandidate(
-            "undulator:u_s1h:connected", "U_S1H", "connected", "status", "enum"
-        ),
-    ]
+@pytest.fixture(autouse=True)
+def empty_configs_checkout(tmp_path_factory, monkeypatch):
+    """An experiment folder with no registry: the CLI refuses an unresolvable one."""
+    root = tmp_path_factory.mktemp("configs")
+    (root / "Undulator").mkdir()
+    monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(root))
+
+
+def fake_build(experiment, *, policy, extra=(), registry=None, **_):
+    return ArchiveSet([*BASE_SET, *extra], RegistryPass())
 
 
 class Appliance:
@@ -26,15 +37,20 @@ class Appliance:
         self.never_connected = []
         self.requests = []
         self.paused = []
+        self.aborted = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:  # noqa: C901, PLR0912
         path = request.url.path
         if path.endswith("/getAllPVs"):
             return httpx.Response(200, json=sorted(self.archived))
         if path.endswith("/getPVStatus"):
+            # As the real appliance: one comma-separated ``pv``; a repeated
+            # ``pv`` parameter is read as its first value only.
             rows = []
-            for pv in request.url.params.get_list("pv"):
-                if pv in self.archived:
+            for pv in request.url.params.get("pv", "").split(","):
+                if pv in self.paused:
+                    rows.append({"pvName": pv, "status": "Paused"})
+                elif pv in self.archived:
                     rows.append(
                         {
                             "pvName": pv,
@@ -66,6 +82,10 @@ class Appliance:
             )
         if path.endswith("/pauseArchivingPV"):
             self.paused.append(request.url.params["pv"])
+            return httpx.Response(200, json={"status": "ok"})
+        if path.endswith("/abortArchivingPV"):
+            self.aborted.append(request.url.params["pv"])
+            self.never_connected.remove(request.url.params["pv"])
             return httpx.Response(200, json={"status": "ok"})
         if path.endswith("/getNeverConnectedPVs"):
             return httpx.Response(
@@ -101,8 +121,7 @@ def appliance(monkeypatch):
 
     monkeypatch.setattr(cli.MgmtClient, "__init__", patched_init)
     monkeypatch.setenv("GEECS_ARCHIVER_URL", "http://fake:17665")
-    monkeypatch.delenv("GEECS_SCANNER_CONFIG_DIR", raising=False)
-    monkeypatch.setenv("GEECS_PLUGINS_CONFIGS", "/nonexistent")
+    # The configs repository is the autouse empty checkout, never the user's.
     return app
 
 
@@ -129,21 +148,28 @@ def test_onboard_applies_and_verifies(appliance, capsys):
 
 
 def test_onboard_no_pause_keeps_strays(appliance):
+    appliance.never_connected.append("undulator:cam:gone")
     assert (
         cli.main(["onboard", "--experiment", "Undulator", "--no-pause", "--wait", "0"])
         == 0
     )
-    assert appliance.paused == []
+    assert appliance.paused == [] and appliance.aborted == []
+    assert "undulator:cam:gone" in appliance.never_connected  # the request is kept
 
 
 def test_onboard_reports_a_stuck_request_on_every_run(appliance, monkeypatch, capsys):
     monkeypatch.setattr(
         cli,
         "build_archive_set",
-        lambda *a, **k: fake_build(*a, **k)
-        + [
-            ArchiveCandidate("undulator:u_ghost:x", "U_Ghost", "x", "readback", "float")
-        ],
+        lambda *a, **k: fake_build(
+            *a,
+            extra=[
+                ArchiveCandidate(
+                    "undulator:u_ghost:x", "U_Ghost", "x", "readback", "float"
+                )
+            ],
+            **k,
+        ),
     )
     # first run (no wait): the ghost is submitted and this run returns before the
     # appliance's type probe can list it as never-connected (verify, or the next run,
@@ -181,6 +207,39 @@ def test_mass_pause_needs_yes(appliance, capsys):
         cli.main(["onboard", "--experiment", "Undulator", "--wait", "0", "--yes"]) == 0
     )
     assert len(appliance.paused) == cli.PAUSE_GUARD + 2
+
+
+def test_converged_appliance_plans_no_pause(appliance, capsys):
+    """2026-11-03: after a mass pause, the next dry run still planned every pause again."""
+    appliance.archived |= {f"undulator:stray:{i}" for i in range(cli.PAUSE_GUARD + 1)}
+    assert (
+        cli.main(["onboard", "--experiment", "Undulator", "--wait", "0", "--yes"]) == 0
+    )
+    capsys.readouterr()
+    assert cli.main(["onboard", "--experiment", "Undulator", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "pause 0," in out and f"paused {cli.PAUSE_GUARD + 2}" in out
+    assert "- pause" not in out
+
+
+def test_never_connected_strays_are_aborted_under_the_guard(appliance, capsys):
+    """#1248: a retired device's requests are aborted, dry-run first, then with --yes."""
+    gone = [f"undulator:cam:gone{i}" for i in range(cli.PAUSE_GUARD)]
+    appliance.never_connected += gone
+    # with the stray pause, one over the guard: printed, refused without --yes
+    rc = cli.main(["onboard", "--experiment", "Undulator", "--dry-run"])
+    captured = capsys.readouterr()
+    assert rc == cli.EXIT_USAGE and "x abort  undulator:cam:gone0" in captured.out
+    assert "refusing to pause or abort 11" in captured.err
+    assert (
+        cli.main(["onboard", "--experiment", "Undulator", "--wait", "0"])
+        == cli.EXIT_USAGE
+    )
+    assert appliance.aborted == [] and appliance.paused == []
+    assert (
+        cli.main(["onboard", "--experiment", "Undulator", "--wait", "0", "--yes"]) == 0
+    )
+    assert appliance.aborted == gone and appliance.never_connected == []
 
 
 def test_status_and_export(appliance, capsys, tmp_path):
@@ -223,7 +282,7 @@ def test_malformed_or_missing_policy_is_a_usage_exit(appliance, tmp_path, capsys
         cli.main(["list", "--experiment", "Undulator", "--policy", str(bad)])
         == cli.EXIT_USAGE
     )
-    assert "cannot load the configuration overlay" in capsys.readouterr().err
+    assert "cannot load a configuration document" in capsys.readouterr().err
     assert (
         cli.main(
             [
@@ -236,3 +295,141 @@ def test_malformed_or_missing_policy_is_a_usage_exit(appliance, tmp_path, capsys
         )
         == cli.EXIT_USAGE
     )
+
+
+def configs_checkout(tmp_path, monkeypatch, *, native, panels=""):
+    folder = tmp_path / "Undulator"
+    folder.mkdir()
+    (folder / "native_devices.yaml").write_text(native)
+    if panels:
+        (folder / "panel_devices.yaml").write_text(panels)
+    monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(tmp_path))
+
+
+def test_list_no_db_derives_the_registry_offline(tmp_path, monkeypatch, capsys):
+    from geecs_core.db import geecs_db
+
+    def refuse(*_a, **_k):
+        raise AssertionError("the DB was read")
+
+    monkeypatch.setattr(
+        geecs_db.GeecsDb, "get_experiment_devices", staticmethod(refuse)
+    )
+    configs_checkout(
+        tmp_path,
+        monkeypatch,
+        native="devices:\n  ADTEST_CAM1: {kind: aravis_camera, trigger_source: software}\n",
+        panels="devices:\n  ADTEST_CAM1: {family: ad_camera_chain, ioc: adtest-cam1}\n",
+    )
+    assert cli.main(["list", "--experiment", "Undulator", "--no-db"]) == 0
+    captured = capsys.readouterr()
+    assert "undulator:adtest_cam1:cam1:Gain_RBV" in captured.out
+    assert "ADTEST-CAM1:HEARTBEAT" in captured.out
+    assert "registry" in captured.out.splitlines()[0]
+    assert "db 0, registry 14 (DB not read" in captured.err
+
+
+def test_list_json_carries_the_source(tmp_path, monkeypatch, capsys):
+    configs_checkout(
+        tmp_path, monkeypatch, native="devices:\n  M: {kind: epics_motor, axes: [x]}\n"
+    )
+    assert cli.main(["list", "--experiment", "Undulator", "--no-db", "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert {r["source"] for r in rows} == {"registry"} and len(rows) == 5
+
+
+def test_a_device_both_passes_own_is_a_drift_exit(tmp_path, monkeypatch, capsys):
+    from geecs_core.db import geecs_db
+
+    for name, value in (
+        ("get_experiment_devices", {"M": ("h", 1)}),
+        ("get_experiment_device_variables", {"M": []}),
+        ("get_subscribed_variables", {}),
+    ):
+        monkeypatch.setattr(
+            geecs_db.GeecsDb,
+            name,
+            staticmethod(lambda e, enabled_only=True, value=value: value),
+        )
+    configs_checkout(
+        tmp_path, monkeypatch, native="devices:\n  M: {kind: epics_motor, axes: [x]}\n"
+    )
+    assert cli.main(["list", "--experiment", "Undulator"]) == cli.EXIT_DRIFT
+    err = capsys.readouterr().err
+    assert "! conflict: M:" in err and "db 0, registry 0" in err
+
+
+def test_never_connected_names_the_source(appliance, monkeypatch, capsys):
+    ghost = ArchiveCandidate(
+        "undulator:m:x.RBV", "M", "x:rbv", "readback", "float", "registry"
+    )
+    monkeypatch.setattr(
+        cli, "build_archive_set", lambda *a, **k: fake_build(*a, extra=[ghost], **k)
+    )
+    appliance.never_connected.append(ghost.pv)
+    rc = cli.main(["onboard", "--experiment", "Undulator", "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == cli.EXIT_DRIFT
+    assert (
+        "never connected: undulator:m:x.RBV  [registry] (the rule wants it; its IOC"
+        in out
+    )
+    assert "+ undulator:m:x.RBV  [registry]" not in out  # pending, not resent
+    assert "db 2, registry 1" in out
+
+
+def test_an_unresolved_registry_device_is_a_drift_exit(tmp_path, monkeypatch, capsys):
+    configs_checkout(
+        tmp_path,
+        monkeypatch,
+        native="devices:\n  CAM: {kind: aravis_camera, trigger_source: line0}\n",
+        panels="devices:\n  CAM: {family: motor_record, axes: [x]}\n",
+    )
+    assert cli.main(["list", "--experiment", "Undulator", "--no-db"]) == cli.EXIT_DRIFT
+    assert "! unresolved: CAM" in capsys.readouterr().err
+
+
+def test_a_registry_file_that_is_not_yaml_is_a_usage_exit(
+    tmp_path, monkeypatch, capsys
+):
+    configs_checkout(tmp_path, monkeypatch, native="devices: [unclosed\n")
+    assert cli.main(["list", "--experiment", "Undulator", "--no-db"]) == cli.EXIT_USAGE
+    assert "cannot load a configuration document" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("where", ["unset", "absent"])
+def test_an_unresolvable_configs_folder_is_a_usage_exit_never_an_empty_registry(
+    appliance, tmp_path, monkeypatch, capsys, where
+):
+    # An unmounted share must not read as "no native devices": onboard
+    # would then pause every native PV's history.
+    appliance.archived.add("undulator:m:x.RBV")
+    monkeypatch.delenv("GEECS_SCANNER_CONFIG_DIR")
+    if where == "absent":
+        monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(tmp_path / "unmounted"))
+    else:
+        monkeypatch.delenv("GEECS_PLUGINS_CONFIGS", raising=False)
+        monkeypatch.setattr(cli.config, "scanner_configs_base", lambda: None)
+    rc = cli.main(["onboard", "--experiment", "Undulator", "--yes"])
+    assert rc == cli.EXIT_USAGE
+    assert "configs repository" in capsys.readouterr().err
+    assert appliance.paused == []
+
+
+def test_an_unresolved_registry_device_changes_nothing_on_the_appliance(
+    appliance, monkeypatch, capsys
+):
+    """Review #1237: an unresolved device's existing history is never paused."""
+    native_pv = "undulator:cam:cam1:Gain_RBV"
+    appliance.archived.add(native_pv)
+
+    def unresolved_build(experiment, *, policy, **_):
+        return ArchiveSet(
+            list(BASE_SET), RegistryPass(unresolved=["CAM: panel prefix bench:cam:"])
+        )
+
+    monkeypatch.setattr(cli, "build_archive_set", unresolved_build)
+    rc = cli.main(["onboard", "--experiment", "Undulator", "--yes", "--wait", "0"])
+    assert rc == cli.EXIT_DRIFT
+    assert appliance.paused == [] and appliance.requests == []
+    assert "refusing to change the appliance" in capsys.readouterr().err

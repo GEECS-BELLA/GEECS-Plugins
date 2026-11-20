@@ -1590,7 +1590,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-analysis"
-version = "0.29.0"
+version = "0.29.1"
 description = "Pure frame processing and unified GEECS analysis"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1613,7 +1613,7 @@ url = "../GEECS-Analysis"
 
 [[package]]
 name = "geecs-bluesky"
-version = "0.116.0"
+version = "0.117.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1647,7 +1647,7 @@ name = "geecs-core"
 version = "0.14.0"
 description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 optional = false
-python-versions = ">=3.11,<3.12"
+python-versions = ">=3.11,<3.13"
 groups = ["dev"]
 files = []
 develop = true
@@ -1751,7 +1751,7 @@ url = "../GeecsLogbook"
 
 [[package]]
 name = "geecs-scanner"
-version = "0.14.7"
+version = "0.15.0"
 description = "The web scanner console: submit, watch and stop GEECS scans from a browser — a FastAPI service over the queueserver client"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1777,9 +1777,9 @@ url = "../GeecsScanner"
 [[package]]
 name = "geecs-schemas"
 version = "0.45.0"
-description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
+description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, setups) plus legacy-YAML converters."
 optional = false
-python-versions = ">=3.11,<3.12"
+python-versions = ">=3.11,<3.13"
 groups = ["dev"]
 files = []
 develop = true
@@ -1794,7 +1794,7 @@ url = "../GEECS-Schemas"
 
 [[package]]
 name = "geecs-web-theme"
-version = "0.6.1"
+version = "0.7.0"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -5603,9 +5603,6 @@ h5py = "^3.8.0"
 matplotlib = "^3.9.2"
 pandas = "^2.2.3"
 pyyaml = "^6.0.2"
-
-[package.extras]
-editor = ["fastapi (>=0.110)", "geecs-web-theme @ file:///GEECS-Plugins/GeecsWebTheme", "jinja2 (>=3.1)"]
 
 [package.source]
 type = "directory"

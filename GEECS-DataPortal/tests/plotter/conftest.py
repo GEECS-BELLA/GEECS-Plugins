@@ -67,7 +67,7 @@ def share(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def settings_dir(tmp_path: Path) -> Path:
-    """The app's settings folder: never the real user data folder."""
+    """The app's settings folder: never this machine's own state folder."""
     return tmp_path / "plotter-settings"
 
 

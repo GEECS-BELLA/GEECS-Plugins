@@ -1,12 +1,13 @@
 """ArchivePolicy — the per-experiment curation overlay for the Archiver Appliance.
 
 The archive set itself is *derived*: ``geecs-archiver onboard`` enumerates the
-experiment's monitored (``get='yes'``) readbacks, the settable variables'
-``:SP`` setpoints, every device's ``connected`` status PV and the gateway's
-derived channels from the GEECS database, exactly as the CA gateway serves
-them.  This document is the small, optional, committed set of *exceptions*:
-PV globs to leave out, PVs to add, sampling for the few PVs that need a rate
-other than the default, and the switches for the three optional classes.
+readback of every variable the CA gateway serves (monitored ``get='yes'``
+and settable alike), the settable variables' ``:SP`` setpoints, every
+device's ``connected`` status PV and the gateway's derived channels from the
+GEECS database, exactly as the CA gateway serves them.  This document is
+the small, optional, committed set of *exceptions*: PV globs to leave out,
+PVs to add, sampling for the few PVs that need a rate other than the
+default, and the switches for the three optional classes.
 
 It lives in the configs repository beside the gateway's own overlay::
 
@@ -21,11 +22,12 @@ paused on the next run unless it is listed in ``include``.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import Field, field_validator, model_validator
+from pydantic.config import JsonDict
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
 SamplingMethod = Literal["MONITOR", "SCAN"]
 
@@ -33,6 +35,11 @@ SamplingMethod = Literal["MONITOR", "SCAN"]
 #: ``scanner_configs/experiments/<Experiment>/archiver/archive_policy.yaml``.
 ARCHIVER_CONFIG_FOLDER = "archiver"
 ARCHIVE_POLICY_FILENAME = "archive_policy.yaml"
+
+#: The archive set's membership rules (the include and exclude lists and the
+#: three derived-rule switches) are the maintainer's: they decide what the
+#: facility records at all. The sampling settings are the operator's.
+_MAINTAINER: JsonDict = {"tier": "maintainer"}
 
 
 class SamplingOverride(SchemaModel):
@@ -77,8 +84,11 @@ class SamplingOverride(SchemaModel):
 class ArchivePolicy(VersionedSchemaModel):
     """The experiment's archive-set exceptions and sampling defaults."""
 
+    tier: ClassVar[Tier] = "operator"
+
     exclude: list[str] = Field(
         default_factory=list,
+        json_schema_extra=_MAINTAINER,
         description=(
             "fnmatch globs over full lowercase PV names that the derived rule "
             "would include but this experiment does not archive."
@@ -86,6 +96,7 @@ class ArchivePolicy(VersionedSchemaModel):
     )
     include: list[str] = Field(
         default_factory=list,
+        json_schema_extra=_MAINTAINER,
         description=(
             "Full PV names to archive beyond what the rule derives (e.g. a "
             "gateway diagnostic such as 'undulator:cagateway:uptime'). "
@@ -112,6 +123,7 @@ class ArchivePolicy(VersionedSchemaModel):
 
     include_setpoints: bool = Field(
         default=True,
+        json_schema_extra=_MAINTAINER,
         description=(
             "Archive the ':SP' setpoint PV of every settable variable. They "
             "change only on puts and carry the operator's intent and the "
@@ -120,6 +132,7 @@ class ArchivePolicy(VersionedSchemaModel):
     )
     include_status: bool = Field(
         default=True,
+        json_schema_extra=_MAINTAINER,
         description=(
             "Archive every device's 'connected' status PV (state changes only) "
             "and the gateway's own heartbeat and devices_connected."
@@ -127,6 +140,7 @@ class ArchivePolicy(VersionedSchemaModel):
     )
     include_derived: bool = Field(
         default=True,
+        json_schema_extra=_MAINTAINER,
         description=(
             "Archive the gateway's derived channels declared in the experiment's "
             "gateway/derived_channels.yaml."

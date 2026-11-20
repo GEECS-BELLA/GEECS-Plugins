@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ShotGateSpec": {
+      "additionalProperties": false,
+      "description": "A software interlock server the worker waits on before every shot.\n\nThe server broadcasts its interlocks' verdict one way over TCP, a frame\non connect and then every ~0.1 s.  Every SINGLESHOT waits for a safe\nverdict on data taken after the previous fire (each interlock's\n``data_stamp``); a verdict carrying no data stamp counts once it is\nreceived after the fire.  The server accepts more than one client (the\nworker and the web scanner's chip each hold a connection).",
+      "properties": {
+        "host": {
+          "description": "The service's host name or IP address on the facility network.",
+          "minLength": 1,
+          "title": "Host",
+          "type": "string"
+        },
+        "port": {
+          "description": "The service's TCP port.",
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "hold_pause_s": {
+          "default": 60.0,
+          "description": "Seconds a shot waits for permission before the scan pauses with the service's reason (resuming waits again; a pause never fires).",
+          "exclusiveMinimum": 0,
+          "title": "Hold Pause S",
+          "type": "number"
+        },
+        "holdoff_s": {
+          "default": 0.0,
+          "description": "Seconds added to the time a shot is fired before a safe verdict counts as the next shot's permission: its data must be taken that much after the fire (or, for a verdict with no data stamp, received that much after it). Covers a device clock ahead of the worker's, and, for interlocks with no data stamp, the time the server takes to see a shot. A device clock behind the worker's cannot be covered here: the clocks must agree.",
+          "minimum": 0,
+          "title": "Holdoff S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "host",
+        "port"
+      ],
+      "title": "ShotGateSpec",
+      "type": "object"
+    },
+    "TriggerState": {
+      "description": "The named states the machine trigger can be driven to.\n\nThese names survived from the legacy system because they match how\noperators think about the machine.\n\nAttributes\n----------\nOFF : str\n    Trigger fully stopped (used e.g. before timing synchronization).\nSTANDBY : str\n    Between-steps idle: trigger free-runs but data-taking output (e.g.\n    the gas jet) is off.\nSCAN : str\n    Taking data: trigger running with data-taking output on.\nSINGLESHOT : str\n    Fire exactly one shot (strict acquisition).\nARMED : str\n    Ready for single shots: data-taking output on, trigger switched to\n    single-shot source, waiting for SINGLESHOT commands.",
+      "enum": [
+        "OFF",
+        "STANDBY",
+        "SCAN",
+        "SINGLESHOT",
+        "ARMED"
+      ],
+      "title": "TriggerState",
+      "type": "string"
+    },
+    "TriggerWrite": {
+      "additionalProperties": false,
+      "description": "One device variable set during a state transition.\n\nA transition is an ordered list of these; they are sent top to bottom.",
+      "properties": {
+        "device": {
+          "description": "The device to write to, e.g. 'U_DG645_ShotControl' or a gas-jet controller \u2014 any settable device can take part in a transition.",
+          "minLength": 1,
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "Which variable on the device to set, e.g. 'Trigger.Source'.",
+          "minLength": 1,
+          "title": "Variable",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to send, exactly as the device expects it \u2014 a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges').",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device",
+        "variable",
+        "value"
+      ],
+      "title": "TriggerWrite",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The device writes that drive the machine through its trigger states.\n\nFor each state (OFF, STANDBY, SCAN, SINGLESHOT, ARMED) list the writes \u2014\npossibly to several devices \u2014 that put the machine into it, **in the\norder they should be sent**.  Edit it when timing hardware or its\nsettings change; make a separate profile for a different operating\ncondition (e.g. laser off).\n\nNotes\n-----\nValues are sent verbatim over the GEECS wire protocol.  Use\n:meth:`writes_for` / :meth:`defines_state` instead of digging the lists \u2014\nthey implement the \"state with no writes is not defined\" rule.\n:attr:`devices` lists every device the profile touches.\n\nFormat v2 removed the v1 ``variants`` overlay (see the module\ndocstring); a before-validator drops an empty v1 block, refuses a\npopulated one, and normalizes ``schema_version`` \u2264 1 to 2.",
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "description": "Format version of this config file. Leave at 2 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "description": "The name scans use to refer to this trigger profile.",
+      "title": "Name",
+      "type": "string"
+    },
+    "states": {
+      "additionalProperties": {
+        "items": {
+          "$ref": "#/$defs/TriggerWrite"
+        },
+        "type": "array"
+      },
+      "description": "For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched.",
+      "propertyNames": {
+        "$ref": "#/$defs/TriggerState"
+      },
+      "title": "States",
+      "type": "object"
+    },
+    "description": {
+      "default": "",
+      "description": "Optional note about what setup this profile is for.",
+      "title": "Description",
+      "type": "string"
+    },
+    "use_scan_mode": {
+      "default": false,
+      "description": "Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a fly run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case \u2014 the shot message is the only trigger.",
+      "title": "Use Scan Mode",
+      "type": "boolean"
+    },
+    "shot_gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ShotGateSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "A permission-to-fire service the worker waits on before every shot: a 'safe' received after the previous shot permits the next; unreachable or not safe holds it, and a long hold pauses the scan. Leave empty for no gate."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "tier": "operator",
+  "title": "TriggerProfile",
+  "type": "object"
+}

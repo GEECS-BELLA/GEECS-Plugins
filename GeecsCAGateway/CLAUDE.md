@@ -4,7 +4,7 @@ The caproto **Channel Access soft-IOC** that mirrors GEECS devices as EPICS
 PVs (readback + `:SP` setpoints), built on the GEECS access library
 **GEECS-Core** (`geecs_core`: UDP/TCP transport, experiment DB, PV naming,
 exceptions — extracted from this package 2026-08-20). Every EPICS-ecosystem consumer — GeecsBluesky's ophyd-async
-devices, Phoebus displays, the planned Archiver Appliance — talks to GEECS
+devices, Phoebus displays, the Archiver Appliance — talks to GEECS
 through these PVs instead of growing its own bespoke bridge.
 
 ```
@@ -20,8 +20,8 @@ externally observable behavior as a contract — the three deep references are:
   (naming, types, timestamps + the frame-ordering guarantee, alarm policy,
   collision and failure semantics). Behavior changes that touch it must update
   it and its pinned tests in the same PR.
-- **`DEPLOYMENT.md`** — launch/CLI, config resolution, the current dev
-  deployment on 192.168.6.14 and its risks, the client-side recipe (Windows
+- **`DEPLOYMENT.md`** — launch/CLI, config resolution, the deployment
+  on the services box (192.168.6.22, since 2026-11-15) and its risks, the client-side recipe (Windows
   included), smoke tests, target systemd shape.
 - **`DESIGN.md`** — why this exists (Path A vs B), the caproto decision,
   regime fitness, foundational decisions, honest gaps.
@@ -216,3 +216,5 @@ config builder applies (`variabletype='choice'` + `choices='image'` is an image;
 `audit_subscribed_variables()` is a pure function over plain dicts (no DB —
 unit-tested in `test_audit.py`); DB access is lazy.
 **Read-only: it never DELETEs or modifies** — `--sql` only prints.
+
+**Experiment instances.** One gateway per experiment, each on its own CA server port given to that process alone (`EPICS_CA_SERVER_PORT` from `GEECS_CA_SERVER_PORT` in `geecs-ca-gateway@.service`) — the gateway has no port option and the code is unchanged.

@@ -16,7 +16,7 @@ from typing import Any, Callable, Optional, Sequence, Union
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from geecs_data_utils.data.curve_fit import CurveFit
+from geecs_analysis.algorithms.curve_fit import CurveFit
 from geecs_data_utils.data.row_filters import RowFilters, apply_filters
 from geecs_data_utils.data.scan_merge import merge_scan_frames
 from geecs_data_utils.scan_grid import grid_scan
@@ -71,7 +71,6 @@ class SetsResponse(BaseModel):
     """The settings folder and the sets saved in it."""
 
     folder: str
-    origin: str
     sets: list[str]
 
 
@@ -526,7 +525,7 @@ def register(router: APIRouter, ctx: Context) -> None:
         picks = scans.columns(frame)
         body = ColumnsResponse(
             columns=picks,
-            default_x=scans.default_x(run, picks),
+            default_x=analysis.default_x(run.start_doc, picks),
             shots=len(frame),
         )
         return _json(body)
@@ -679,9 +678,7 @@ def _register_settings(router: APIRouter, ctx: Context) -> None:
     def api_sets() -> JSONResponse:
         """Where sets are saved, and their names."""
         store = ctx.store
-        body = SetsResponse(
-            folder=str(store.folder), origin=store.origin, sets=store.names()
-        )
+        body = SetsResponse(folder=str(store.folder), sets=store.names())
         return _json(body)
 
     @router.get("/api/settings/{name}", response_model=PlotterSettings)

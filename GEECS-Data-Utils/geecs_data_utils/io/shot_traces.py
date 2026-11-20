@@ -288,7 +288,7 @@ def load_row_trace(
         return ShotTrace(kind="missing", reason=f"{device} records no traces")
     if frame is not None and not 1 <= row <= len(frame):
         return ShotTrace(kind="missing", reason=f"no shot {row} in this scan")
-    stamp, present = row_acq_timestamp(frame, device, row)
+    stamp, present = row_acq_timestamp(frame, device, row, scan_folder)
     if present and stamp is None:
         return ShotTrace(kind="missing", reason="the device missed this shot")
     if probe.kind == "stack":

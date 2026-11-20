@@ -7,10 +7,10 @@ data share's scan folders (``FolderScanCatalog``), read directly; with
 does not claim beside it, which is what the lab service runs.  The service is read-only except explicit analysis
 runs; see the package ``CLAUDE.md``.
 
-Once the server is up, the portal opens in a browser, as GEECSplotter
-opens its window: the system default, ``--browser chrome`` (any name
-Python's :mod:`webbrowser` knows), or ``--browser none`` (what the
-service unit passes). A Linux host with no display opens nothing either
+The portal opens nothing by default. ``--browser default`` opens it in
+the system browser once the server is up, as GEECSplotter opens its
+window, and ``--browser chrome`` (any name Python's :mod:`webbrowser`
+knows) in that one. A Linux host with no display opens nothing either
 way.
 """
 
@@ -119,9 +119,10 @@ def main() -> None:
         "--settings-dir",
         default=None,
         help=(
-            "where the Plot tab's named settings sets are saved (default: "
-            "config.ini [Paths] geecs_data/DataPortal/settings, else "
-            "user data/DataPortal/settings in the main checkout)"
+            "where the Plot tab's named settings sets are saved: the service "
+            "unit passes its state directory (default: the user's state "
+            "folder, ~/.local/state/geecs-data-portal/settings or "
+            "%%LOCALAPPDATA%%\\geecs-data-portal\\settings)"
         ),
     )
     parser.add_argument(
@@ -145,12 +146,13 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--config-editor",
-        action="store_true",
+        "--configurator-browser-url",
+        default="",
         help=(
-            "mount the analysis config editor at /configs over the "
-            "--processing-configs tree (a WRITE verb: saves YAML into that "
-            "tree; live preview on the scan page). Needs the analysis extra."
+            "the configurator as the browser reaches it (a site value, e.g. "
+            "http://<services host>:8800): the Analysis tab's edit opens the "
+            "document in its embedded editor, with this portal's preview; the "
+            "configurator lists this portal's origin in its CORS origins"
         ),
     )
     parser.add_argument(
@@ -158,8 +160,8 @@ def main() -> None:
         default="",
         help=(
             "URL prefix the portal is mounted under behind a PREFIX-PRESERVING "
-            "reverse proxy (e.g. /portal): the /static and /theme mounts then "
-            "answer at the prefixed path only. A proxy that strips the prefix "
+            "reverse proxy (e.g. /portal): the /theme mount then "
+            "answers at the prefixed path only. A proxy that strips the prefix "
             "must send X-Forwarded-Prefix instead, which overrides this per "
             "request (DEPLOYMENT.md § Behind a reverse proxy)"
         ),
@@ -176,31 +178,33 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--logbook-browser-url",
+        default="",
+        help=(
+            "the logbook as the browser reaches it, when that differs from "
+            "--logbook-url (a site value, e.g. https://<front door>/<experiment>/logbook): "
+            "every link uses it, while the plot send keeps posting to "
+            "--logbook-url, an address this process dials; empty = links use "
+            "--logbook-url. Absolute only (a path would take this portal's own "
+            "prefix)"
+        ),
+    )
+    parser.add_argument(
         "--analysis-worker-url",
         default="",
         help=(
             "the analysis worker's base URL (scan-analysis-worker, its own "
-            "service; a site value, e.g. http://127.0.0.1:8800): the day "
+            "service; a site value, e.g. http://127.0.0.1:8900): the day "
             "page's 'Analyze this day' panel runs analysis groups over a day "
             "through it. Empty hides the panel"
         ),
     )
     parser.add_argument(
-        "--analysis-worker-autostart",
-        action="store_true",
-        help=(
-            "development: when the worker URL is this host's and nothing "
-            "answers, start one (python -m scan_analysis.worker over "
-            "--processing-configs, left running when the portal stops). A "
-            "deployment runs the worker as its own unit instead"
-        ),
-    )
-    parser.add_argument(
         "--browser",
-        default="default",
-        help="open the portal once the server is up: 'default' (the system "
-        "browser), a name such as 'chrome', 'safari' or 'firefox', or 'none' "
-        "(what the service unit passes)",
+        default="none",
+        help="open the portal once the server is up: 'none' (the default: "
+        "open nothing), 'default' (the system browser), or a name such as "
+        "'chrome', 'safari' or 'firefox'",
     )
     args = parser.parse_args()
 
@@ -231,21 +235,15 @@ def main() -> None:
     catalog = CachingScanCatalog(source)
     worker = None
     if args.analysis_worker_url:
-        from geecs_portal.batch import AutoStart, WorkerLink
+        from geecs_portal.batch import WorkerLink
 
-        autostart = None
-        if args.analysis_worker_autostart:
-            if not args.processing_configs:
-                parser.error("--analysis-worker-autostart needs --processing-configs")
-            autostart = AutoStart(Path(args.processing_configs), args.experiment)
-        worker = WorkerLink(args.analysis_worker_url, autostart=autostart)
+        worker = WorkerLink(args.analysis_worker_url)
     app = create_app(
         catalog,
         default_experiment=args.experiment,
         processing_config_dir=(
             Path(args.processing_configs) if args.processing_configs else None
         ),
-        config_editor=args.config_editor,
         logbook_url=args.logbook_url,
         worker=worker,
         plotter=create_plotter(
@@ -254,6 +252,8 @@ def main() -> None:
             mount="/plot",
             logbook_url=args.logbook_url,
         ),
+        logbook_browser_url=args.logbook_browser_url,
+        configurator_url=args.configurator_browser_url,
     )
     server = uvicorn.Server(
         uvicorn.Config(

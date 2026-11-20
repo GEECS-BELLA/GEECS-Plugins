@@ -39,6 +39,11 @@ sent to the client IP **at the device's own command-port number**, twice
 replies, deduplicated.  A device that never acknowledges never entered scan
 mode — observed live: its start values stay unapplied and every fire fails
 — so a caller waits for every device it needs before firing.
+A missed acknowledgement is a lost datagram, not a device ignoring the
+command: in a packet-capture soak every ``ScanStart`` that reached a
+captured host was acknowledged by all of its devices (the figures and
+the worker's recovery — ``ScanEnd`` to the devices that entered, then one
+fresh ``ScanStart`` — are in ``docs/acquisition/scan_mode.md``).
 
 **The path channel** (TCP): after ``ScanStart`` every device connects to
 the client IP on port :data:`SCAN_MODE_TCP_PORT` (a framework constant) and

@@ -1,10 +1,9 @@
 """Freshness, judged continuously from the module's internal Hare subscription.
 
 Verdicts claim no more than the evidence (``Planning/operator_surfaces.md``
-§3) and keep Appendix A of ``Planning/epics_estate.md``: the producing
-counter's advance is freshness, a changing value never is, a ``Compute*``
-flag off reads ``off`` (rule 1); disconnected is not stale, a known fault
-outranks a dropped field (rule 9); NaN travels as null (rule 10). ``tsNs``
+§3): the producing counter's advance is freshness, a changing value never
+is, a ``Compute*`` flag off reads ``off``; disconnected is not stale, a
+known fault outranks a dropped field; NaN travels as null. ``tsNs``
 is never read: a quiet live record looks old by it.
 """
 
@@ -15,7 +14,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE
+from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE, ioc_heartbeat_pv
 from geecs_schemas import Role
 
 from geecs_canopy.hare import Wire
@@ -28,10 +27,8 @@ from geecs_canopy.native import Resolved
 _NOT_ANSWERING, _UDF = frozenset({1, 9, 10}), 17
 
 
-# The same rule is geecs_core.pv_naming.ioc_heartbeat_pv on feat/web-estate: use it once both meet.
-def heartbeat_pv(ioc: str) -> str:
-    """An IOC's devIocStats heartbeat, ``<IOC_NAME upper-cased>:HEARTBEAT`` (geecs-epics' iocAdminSoft)."""
-    return f"{ioc.strip().upper()}:HEARTBEAT"
+#: An IOC's devIocStats heartbeat: GEECS-Core's rule, the one the archiver keeps.
+heartbeat_pv = ioc_heartbeat_pv
 
 
 def is_number(value: Any) -> bool:
@@ -40,7 +37,7 @@ def is_number(value: Any) -> bool:
 
 
 def json_safe(value: Any) -> Any:
-    """Turn NaN and infinities into ``None``, inside lists too (rule 10): JSON has no NaN."""
+    """Turn NaN and infinities into ``None``, inside lists too: JSON has no NaN."""
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, list):
@@ -105,7 +102,7 @@ def judge(
 
 
 def device_state(verdicts: list[str], faulted: bool, heartbeat: str | None) -> str:
-    """The device's one word: a tripped fault first (rule 9), then the worst evidence."""
+    """The device's one word: a tripped fault first, then the worst evidence."""
     if faulted:
         return "error"
     if heartbeat == "unreachable" or (verdicts and set(verdicts) == {"unreachable"}):
@@ -116,7 +113,7 @@ def device_state(verdicts: list[str], faulted: bool, heartbeat: str | None) -> s
         if word in verdicts:
             return word
     if "unreachable" in verdicts or "unknown" in verdicts:
-        return "unknown"  # a dropped field is not a stale device (rule 9)
+        return "unknown"  # a dropped field is not a stale device
     return "stale" if "stale" in verdicts else "live"
 
 
@@ -179,7 +176,7 @@ def view(device: Resolved, tracker: Tracker, stale_after_s: float) -> dict[str, 
                     verdicts.append(verdict)
             faulted |= bool(role.fault and wire.get("connected") and wire.get("value"))
             entry = {"role": role.name, "axis": axis, "read": role.read_mode}
-            entry |= role.model_dump(include={"label", "type", "confirm", "locked"})
+            entry |= role.model_dump(include={"label", "type", "units", "text", "confirm", "locked", "tolerance"})  # fmt: skip
             entry["pv"] = device.pv(role, axis)
             entry["writePv"] = (
                 role.writable and device.pv(role, axis, write=True) or None

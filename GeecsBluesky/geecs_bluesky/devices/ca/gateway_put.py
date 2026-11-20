@@ -20,7 +20,7 @@ Wire-value conventions (``coerce``), each hardware-proven; do not unify
 them without live verification:
 
 - ``str`` — everything stringified (shot control).
-- :func:`wire_value` — native numerics, strings otherwise (action plans);
+- :func:`wire_value` — native numerics, strings otherwise (a setup's words);
   ``None`` — untouched (the typed-signal motor path).
 """
 

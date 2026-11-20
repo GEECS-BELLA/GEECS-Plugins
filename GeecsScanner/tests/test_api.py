@@ -73,8 +73,12 @@ def test_preflight_expands_and_asks(client: TestClient, preset_doc: dict) -> Non
         out["plan"]["kwargs"]["sweep"]["trajectory"]["axes"][0]["axis"]
         in out["plan"]["references"]
     )
-    assert out["plan"]["args"][0] == ["UC_ALineEBeam3", "U_ICT.scalars"]
-    assert out["plan"]["kwargs"]["non_essential"] == ["UC_TC_Phosphor"]
+    assert out["plan"]["args"][0] == [
+        "UC_ALineEBeam3",
+        "UC_TC_Phosphor",
+        "U_ICT.scalars",
+    ]
+    assert out["plan"]["kwargs"]["required"] == ["UC_ALineEBeam3", "U_ICT.scalars"]
     assert out["planned_shots"] == 70
     assert "7 steps" in out["summary"] and "strict" in out["summary"]
 
@@ -111,6 +115,17 @@ def test_submit_invalid_document_is_400(client: TestClient) -> None:
     assert r.json()["error"]["errors"]
 
 
+def test_a_row_names_the_operator_else_the_identity(
+    client: TestClient, preset_doc: dict
+) -> None:
+    """The user column is who pressed Start; without one, the process identity."""
+    r = client.post(
+        "/api/submit", json={"preset": preset_doc, "acknowledged": ["gateway_liveness"]}
+    )
+    assert r.status_code == 200, r.text
+    assert client.get("/api/queue").json()["running"]["user"] == "geecs-scanner test"
+
+
 def test_submit_then_run_pause_resume_stop(
     client: TestClient, preset_doc: dict, manager: DemoQueueClient
 ) -> None:
@@ -128,9 +143,7 @@ def test_submit_then_run_pause_resume_stop(
     assert body["submitted_as"] == "geecs-scanner test"
 
     q = client.get("/api/queue").json()
-    assert (
-        q["running"]["plan"] == "sweep" and q["running"]["user"] == "geecs-scanner test"
-    )
+    assert q["running"]["plan"] == "sweep" and q["running"]["user"] == "sam"
     assert q["running"]["state"] == "running" and q["summary"].startswith("Running")
     assert client.get("/api/status").json()["re_state"] == "running"
 
@@ -264,30 +277,19 @@ def test_theme_is_served_from_this_origin(client: TestClient) -> None:
     assert client.get("/theme/kit.html").status_code == 200
 
 
-def test_a_gated_native_camera_is_refused_for_the_true_reason(
+def test_a_gated_preset_is_refused_as_retired(
     manager: DemoQueueClient, streams, tmp_path
 ) -> None:
-    """The worker's strict-only sentence, from the real preflight; nothing queued.
-
-    The preflight's device rules read a native EPICS camera as a device with
-    no ``acq_timestamp``, so a gated preset of one was refused as "no
-    essential triggered device" (the expansion now says the true reason).
-    """
-    from types import SimpleNamespace
-
+    """The deleted gated mode, from the real preflight, in its own words; nothing queued."""
     from geecs_bluesky.qs_client import run_submit_preflight
 
     from geecs_scanner.service import ScannerService
     from geecs_scanner.service.demo import DemoResolver
     from geecs_scanner.web import create_app
 
-    class NativeResolver(DemoResolver):
-        def resolve_native_devices(self):
-            return SimpleNamespace(devices={"ADTEST_CAM1": None})
-
     service = ScannerService(
         manager,
-        NativeResolver(),
+        DemoResolver(),
         experiment="Demo",
         identity="geecs-scanner test",
         streams=streams,
@@ -296,17 +298,42 @@ def test_a_gated_native_camera_is_refused_for_the_true_reason(
     )
     client = TestClient(create_app(service))
     preset = {
-        "name": "native_gated",
-        "devices": [{"device": "ADTEST_CAM1"}],
+        "name": "old_gated",
+        "devices": [{"device": "UC_Cam"}],
         "plan": {"name": "count", "kwargs": {"num": 10, "acquisition": "gated"}},
     }
-    expected = (
-        "ADTEST_CAM1: native EPICS cameras run in strict scans only for now "
-        "— not in a gated batch"
-    )
-    assert client.post("/api/preflight", json=preset).json()["refusal"] == expected
+    refusal = client.post("/api/preflight", json=preset).json()["refusal"]
+    assert "acquisition='gated' is retired" in refusal
+    assert "use acquisition='strict'" in refusal
     r = client.post("/api/submit", json={"preset": preset})
     assert r.status_code == 400
-    assert r.json()["error"]["message"] == expected
+    assert r.json()["error"]["message"] == refusal
     queue = client.get("/api/queue").json()
     assert queue["running"] is None and queue["waiting"] == []
+
+
+def test_append_queues_in_order_and_remove_drops_only_a_waiting_item(
+    client: TestClient, service
+) -> None:
+    """#1281: Add to Queue appends behind a started queue; Remove takes one waiting item."""
+    ack = ["gateway_liveness"]
+    first, second = service.preset("eb_align_1hz"), service.preset("background_dark")
+    for doc, append in ((first, False), (second, False), (first, True)):
+        body = {"preset": doc, "acknowledged": ack, "append": append}
+        assert client.post("/api/submit", json=body).status_code == 200
+    q = client.get("/api/queue").json()
+    assert [w["position"] for w in q["waiting"]] == [1, 2]
+    assert q["waiting"][0]["summary"].startswith("background")
+    assert not q["waiting"][1]["summary"].startswith("background")
+    # an unacknowledged question still refuses an append
+    r = client.post("/api/submit", json={"preset": first, "append": True})
+    assert r.status_code == 409 and "needs_acknowledgement" in r.json()["error"]
+    r = client.delete(f"/api/queue/{q['waiting'][0]['item_uid']}")
+    assert r.status_code == 200 and r.json()["ok"] is True
+    after = client.get("/api/queue").json()
+    assert [w["item_uid"] for w in after["waiting"]] == [q["waiting"][1]["item_uid"]]
+    r = client.delete(f"/api/queue/{q['running']['item_uid']}")
+    assert r.status_code == 409 and r.json()["error"]["kind"] == "policy_refusal"
+    assert client.get("/api/queue").json()["running"] == q["running"]
+    r = client.delete("/api/queue/no-such-uid")
+    assert r.status_code == 404 and r.json()["error"]["kind"] == "not_found"

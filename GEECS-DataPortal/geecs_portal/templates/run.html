@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Scan {{ summary.scan_number or uid[:8] }} — GEECS Data Portal{% endblock %}
 {% block head %}
-{% if config_editor %}<link rel="stylesheet" href="{{ root }}/configs/static/editor.css?v={{ portal_version | urlencode }}">{% endif %}
 {% endblock %}
 {% block shell %}
 <div class="shell wide">
@@ -75,7 +74,7 @@
           columns into the s-file (existing columns are overwritten); the Plot page picks
           them up on reload.</span>
         <span class="spacer"></span>
-        {% if config_editor %}<a class="btn sm" href="{{ root }}/configs/{% if run_day and scan_number is not none %}?day={{ run_day }}&amp;scan={{ scan_number }}{% endif %}" target="_blank" title="the full editor: browse, create and edit diagnostics and groups (a scalar-columns form lists this scan's s-file columns)">edit configs ↗</a>{% endif %}
+        {% if configurator %}<a class="btn sm" href="{{ configurator }}/?kind=analysis_recipe" target="_blank" rel="noopener" title="the configurator: browse, create and edit recipes, jobs and groups">configurator ↗</a>{% endif %}
         <button class="btn sm" type="button" onclick="refreshAnalysis(true)">refresh</button>
       </div>
       <div id="analysisList" class="group"><div class="state" data-state="loading"><div class="t">Loading analyzers…</div></div></div>
@@ -101,21 +100,6 @@
 
 <div class="scrim"></div>
 
-{% if config_editor %}
-<!-- config editor drawer: edit a diagnostic next to the scan, preview on the current shot -->
-<aside class="drawer cedrawer" id="cedrawer" role="dialog" aria-modal="false" aria-labelledby="cetitle" aria-hidden="true" data-open="false">
-  <header>
-    <span class="eyebrow" id="cetitle">edit recipe</span>
-    <label class="dim">recipe
-      <select class="btn sm" id="cediag" title="switch the recipe under edit; recipes for this scan's devices are listed first"></select></label>
-    <span class="row"><input class="btn sm" id="cedup" placeholder="new id" title="copy the open recipe under this id (same namespace, same device); the copy's output_name is set to the new id so the two write distinct columns and folders; Save then writes it (a read-only .himg job cannot be copied here)"><button class="btn sm" type="button" onclick="ceDuplicate()">duplicate as</button></span>
-    <label class="dim" title="the preview reads this shot of the recipe's own device">shot <input class="btn sm" type="number" id="ceshot" min="1" value="{{ shot }}"></label>
-    <a class="btn sm" href="{{ root }}/configs/{% if run_day and scan_number is not none %}?day={{ run_day }}&amp;scan={{ scan_number }}{% endif %}" target="_blank">full editor ↗</a>
-    <button class="btn sm" type="button" onclick="closeConfigEditor()">Close</button>
-  </header>
-  <div class="body"><div id="ceditor"></div></div>
-</aside>
-{% endif %}
 
 <script>
 "use strict";
@@ -178,97 +162,111 @@ function api(path, params) {
 
 // ---------------- the analysis tab (ScanAnalysis runs) ----------------
 const ANALYSIS_ENABLED = {{ analysis_enabled | tojson }};
-const CONFIG_EDITOR = {{ config_editor | tojson }};
+const SHOT = {{ shot | tojson }};
+const AUTHOR_KEY = "geecs-portal:author";
+/** localStorage, treated as a convenience that may not be there. */
+function remembered(key) {
+  try { return localStorage.getItem(key) || ""; } catch (err) { return ""; }
+}
+function remember(key, value) {
+  try { localStorage.setItem(key, value); } catch (err) { /* private window */ }
+}
 
-// ---------------- config editor drawer ----------------
-// The editor script (served by the mounted router) renders the form; this
-// page supplies the preview parameters — this scan and the drawer's shot;
-// the device is the recipe's own, never picked here — and refreshes the
-// analyzer list / shot image after a save.
-let CE = null;
-const CE_TITLE = "edit recipe";
-function cePreviewParams() {
-  const shot = document.getElementById("ceshot");
-  return { uid: UID, day: DAY, shot: Number(shot.value) || 1 };
+// ---------------- the configurator's embedded editor ----------------
+// The configurator owns the document and its save (the operator as git
+// author, its tier, its dry run — this portal's /api/analysis/validate);
+// this page passes the operator (the logbook dialog's remembered name), a
+// shot number for the preview, and the preview itself: the unsaved recipe
+// drawn on this scan through /api/analysis/preview, as a run draws it, and
+// each of its summaries over the scan's first shots. Its scripts load on the
+// first edit: the theme's kit.js and form.js from this portal, embed.js from
+// the configurator (the mount contract).
+const CONFIGURATOR = {{ configurator | tojson }};
+let CFG_READY = null, CFG_TOOLBAR = null;
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve;
+    s.onerror = () => reject(new Error(`${src} did not load`));
+    document.head.appendChild(s);
+  });
 }
-function openConfigEditor(id) {
-  if (!CONFIG_EDITOR) return;
-  const drawer = GeecsKit.drawer(document.getElementById("cedrawer"));
-  // Esc and the scrim close a kit drawer without asking, and the editor's
-  // edits survive that (the drawer only hides). So reopening the recipe
-  // under edit keeps them, and opening another asks first: CE.open reloads
-  // from the server and would drop them silently.
-  if (CE && CE.isDirty()) {
-    if (CE.current().id === id) { drawer.open(); return; }
-    if (!confirm("Discard unsaved changes in the config editor?")) { drawer.open(); return; }
-  }
-  drawer.open();
-  const ensure = CE ? Promise.resolve() : new Promise((resolve, reject) => {
-    if (window.ConfigEditor) return resolve();
-    const script = document.createElement("script");
-    script.src = `${ROOT}/configs/static/editor.js?v=${encodeURIComponent(VERSION)}`;
-    script.onload = resolve; script.onerror = () => reject(new Error("editor script failed to load"));
-    document.head.appendChild(script);
-  }).then(() => {
-    CE = ConfigEditor.mount(document.getElementById("ceditor"), {
-      base: `${ROOT}/configs`,
-      layout: "drawer",
-      preview: { params: cePreviewParams, label: "preview (unsaved document, current shot)" },
-      onSaved: () => {
-        refreshAnalysis(true);
-        CE.reloadListing().then(ceFillDiagnostics);
-        document.getElementById("cetitle").textContent = CE_TITLE;
-      },
+function cfgToolbar() {
+  if (CFG_TOOLBAR) return CFG_TOOLBAR;
+  CFG_TOOLBAR = document.createElement("span");
+  CFG_TOOLBAR.className = "row";
+  CFG_TOOLBAR.innerHTML = `<label class="dim" title="the preview reads this shot of the recipe's own device">shot <input class="btn sm" type="number" id="cfgshot" min="1" style="width:5rem"></label>
+    <label class="dim" title="the git author of a save (remembered in this browser, as the logbook's)">name <input class="btn sm" id="cfgname" autocomplete="name" placeholder="your name" style="width:9rem"></label>`;
+  CFG_TOOLBAR.querySelector("#cfgshot").value = String(SHOT);
+  CFG_TOOLBAR.querySelector("#cfgname").value = remembered(AUTHOR_KEY);
+  return CFG_TOOLBAR;
+}
+function cfgOperator() {
+  const name = (document.getElementById("cfgname") || {}).value || "";
+  if (name.trim()) remember(AUTHOR_KEY, name.trim());
+  return name.trim();
+}
+// One preview request: a PNG as an object URL, or the portal's refusal as an Error.
+function cfgPng(path, body) {
+  return fetch(`${ROOT}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(async (r) => {
+      if (r.ok) return URL.createObjectURL(await r.blob());
+      const text = await r.text();
+      let why = text;
+      try {
+        const b = JSON.parse(text);
+        why = b.errors ? b.errors.map((e) => `${(e.loc || []).join(".") || "(the document)"}: ${e.msg}`).join("; ") : (typeof b.detail === "string" ? b.detail : JSON.stringify(b.detail));
+      } catch (e) { /* plain text */ }
+      throw new Error(why);
     });
-    document.getElementById("ceshot").addEventListener("change", () => CE && CE.refreshPreview());
-    document.getElementById("cediag").addEventListener("change", (e) => ceSwitch(e.target.value));
-  });
-  ensure.then(() => { document.getElementById("cetitle").textContent = CE_TITLE; return CE.open("analyzer", id); })
-        .then(() => CE.ready.then(() => ceFillDiagnostics(CE.listing())))
-        .catch((e) => { document.getElementById("ceditor").innerHTML = paneState("error", e.message); });
 }
-// The drawer's recipe switcher: every loadable recipe, the ones whose data
-// device recorded in this scan first (the Analysis tab's applicability
-// test), the rest below — several recipes per device is the normal case.
-function ceFillDiagnostics(listing) {
-  const sel = document.getElementById("cediag");
-  if (!sel || !listing) return;
-  const current = CE && CE.current().id;
-  const mine = listing.analyzers.filter(a => SCAN_DEVICES.has(a.device));
-  const others = listing.analyzers.filter(a => !SCAN_DEVICES.has(a.device));
-  sel.innerHTML = "";
-  const group = (label, items) => {
-    if (!items.length) return;
-    const og = document.createElement("optgroup"); og.label = label;
-    for (const a of items) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.valid ? a.id : `${a.id} (invalid)`; og.appendChild(o); }
-    sel.appendChild(og);
-  };
-  group("in this scan", mine);
-  group("other devices", others);
-  if (current) sel.value = current;
+function cfgFigure(caption, got) {
+  const fig = document.createElement("figure");
+  fig.style.cssText = "margin:0;flex:1 1 300px;max-width:460px";
+  if (got instanceof Error) fig.innerHTML = `<p class="err">${esc(got.message)}</p>`;
+  else fig.innerHTML = `<img class="plot" alt="${escAttr(caption)}" src="${escAttr(got)}">`;
+  fig.insertAdjacentHTML("beforeend", `<figcaption class="dim">${esc(caption)}</figcaption>`);
+  return fig;
 }
-function ceSwitch(id) {
-  if (!CE || !id || id === CE.current().id) return;
-  if (CE.isDirty() && !confirm("Discard unsaved changes and open " + id + "?")) { document.getElementById("cediag").value = CE.current().id; return; }
-  document.getElementById("cetitle").textContent = CE_TITLE;
-  CE.open("analyzer", id).then(() => ceFillDiagnostics(CE.listing()));
-}
-function ceDuplicate() {
-  const input = document.getElementById("cedup");
-  const id = (input.value || "").trim();
-  if (!CE || !id) return;
-  const cur = CE.current();
-  // a variant recipe for the same device (the editor gives the copy its
-  // own output_name); retarget it by editing its device field
-  CE.duplicate(cur.namespace, id).then((copied) => {
-    if (!copied) return;  // a read-only document (a .himg job): nothing was copied
-    document.getElementById("cetitle").textContent = `${id} (new — Save to create)`;
-    input.value = "";
+function cfgPreview(doc) {
+  const shot = Number((document.getElementById("cfgshot") || {}).value) || 1;
+  const params = { uid: UID, day: DAY };
+  const settle = (p) => p.then((u) => u, (e) => e);
+  const frame = settle(cfgPng("/api/analysis/preview", { document: doc, params: { ...params, shot } }));
+  const sums = (doc.summaries || []).map((s, i) => settle(cfgPng("/api/analysis/preview/summary", { document: doc, params: { ...params, shots: 4 }, index: i })));
+  return Promise.all([frame, ...sums]).then(([f, ...rest]) => {
+    const box = document.createElement("div");
+    box.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start";
+    box.appendChild(cfgFigure(`shot ${shot}, the unsaved recipe as a run draws it`, f));
+    rest.forEach((got, i) => box.appendChild(cfgFigure(`summary ${i + 1} (${doc.summaries[i].kind}) over shots 1-4`, got)));
+    return box;
   });
 }
-function closeConfigEditor() {
-  if (CE && CE.isDirty() && !confirm("Discard unsaved changes in the config editor?")) return;
-  GeecsKit.closeDrawer();
+function openInConfigurator(id, kind) {
+  if (!CONFIGURATOR) return;
+  if (!CFG_READY) {
+    const v = encodeURIComponent(VERSION);
+    // this page is on the kit, so kit.js is already here
+    CFG_READY = loadScript(`${ROOT}/theme/form.js?v=${v}`)
+      .then(() => loadScript(`${CONFIGURATOR}/static/embed.js`))
+      .catch((e) => { CFG_READY = null; throw e; });
+  }
+  const recipe = kind !== "job" && kind !== "scalar";
+  CFG_READY.then(() => GeecsConfigurator.open({
+    api: CONFIGURATOR,
+    kind: recipe ? "analysis_recipe" : kind === "scalar" ? "scalar_job" : "himg_job",
+    experiment: "",
+    id,
+    operator: cfgOperator,
+    toolbar: cfgToolbar(),
+    preview: recipe ? cfgPreview : undefined,
+    onSaved: () => {
+      refreshAnalysis(true);
+      // the Images tab's processed view keys the diagnostic by name: re-fetch the shot image if it shows this one
+      const img = document.getElementById("shotimg");
+      if (img && S.processing === id) img.src = img.src.replace(/([&?])_=\d+/, "") + `&_=${Date.now()}`;
+    },
+  })).catch((e) => alert(`The configurator's editor did not load (${CONFIGURATOR}): ${e.message}`));
 }
 let ANALYSIS_TIMER = null;   // poll handle while a run is active
 let ANALYSIS_OPEN = {};      // analyzer id -> log <details> open state (survives re-render)
@@ -378,7 +376,7 @@ function renderAnalyzer(a, anyRunning) {
   // Ids reach the handlers through data- attributes, never interpolated
   // into JS-in-attribute source (a quote in the id would end the
   // attribute — the #765 review's dead-button finding).
-  const edit = CONFIG_EDITOR ? `<button class="btn sm" data-id="${escAttr(a.id)}" onclick="openConfigEditor(this.dataset.id)" title="edit this diagnostic's YAML with a live preview on the current shot">edit</button> ` : "";
+  const edit = CONFIGURATOR ? `<button class="btn sm" data-id="${escAttr(a.id)}" data-kind="${escAttr(a.kind)}" onclick="openInConfigurator(this.dataset.id, this.dataset.kind)" title="edit this document in the configurator (a recipe: with a preview of the unsaved draft on this scan)">edit</button> ` : "";
   const button = `${edit}<button class="btn sm" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}${a.destructive ? "…" : ""}</button>`;
   // the data device only when it says something the recipe id does not
   const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";

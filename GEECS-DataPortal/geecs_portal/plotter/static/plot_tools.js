@@ -393,6 +393,12 @@ window.PlotTools = (function () {
         ? { width: 720, height: 720 - m.l - m.r + m.t + m.b }
         : { width: d.width > 0 ? d.width : 720, height: d.height > 0 ? d.height : 460 };
       const image = await picture(sending, size);
+      // The set as it is now goes with the plot, so the entry keeps the
+      // settings themselves, not the name of a set that will change.
+      const setName = form.elements.set.value;
+      const frozen = await fetch(new URL(`api/settings/${encodeURIComponent(setName)}`, form.action));
+      if (!frozen.ok) throw new Error("the settings set could not be read");
+      const settings = await frozen.json();
       const url = new URL(`${data.portalRoot}/api/run/${encodeURIComponent(data.uid)}/logbook`, location.origin);
       url.searchParams.set("day", data.day);
       const response = await fetch(url, {
@@ -401,6 +407,7 @@ window.PlotTools = (function () {
         body: JSON.stringify({
           author, image, caption: document.getElementById("sl-caption").value,
           source_url: location.href, entry: target === "same" ? remembered(ENTRY_KEY) : "",
+          settings, settings_name: setName,
         }),
       });
       const answer = await response.json().catch(() => ({}));
@@ -412,7 +419,8 @@ window.PlotTools = (function () {
       document.getElementById("sl-open").href = answer.url;
       document.getElementById("sl-doneword").textContent =
         answer.appended ? "Added to this scan's log entry." : "New log entry created for this scan.";
-      toast(answer.appended ? "Added to the scan log entry" : "Scan log entry created");
+      toast((answer.appended ? "Added to the scan log entry" : "Scan log entry created")
+        + (answer.settings_link ? "" : " (without its settings: the logbook did not take them)"));
     } catch (error) {
       toast(`Not sent: ${error.message}`);
     } finally {

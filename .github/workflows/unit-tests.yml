@@ -12,15 +12,26 @@ name: unit-tests
 # every branch push produced two identical full runs (a `push` run and a
 # `pull_request` run at the same SHA), doubling the runner minutes for
 # nothing.
+#
+# `schedule` adds one exhaustive run a week (Monday 06:00 UTC) on master
+# with no ci_select narrowing. The locks pin the Python dependencies, so
+# what it catches is drift outside them: the ubuntu-24.04 runner image, the
+# unpinned `pip install poetry`, setup-python's 3.11 patch release — on legs
+# no PR or merge has selected for weeks.
 on:
   push:
     branches: [master]
   pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 # A new push to the same branch makes the previous run's result irrelevant.
 # Superseded runs used to finish anyway, holding runners for ~10 minutes.
 concurrency:
-  group: unit-tests-${{ github.ref }}
+  # The weekly run gets a group of its own: sharing master's would let a
+  # merge's push run, queued behind it, displace it from the pending slot.
+  group: unit-tests-${{ github.event_name == 'schedule' && 'weekly' || github.ref }}
   # Never cancel a master run: that exhaustive run is the backstop the
   # PR-side narrowing depends on, and two merges in quick succession would
   # otherwise cancel the first one's full matrix.
@@ -49,7 +60,7 @@ jobs:
           # here; deliberately NOT re-fetching it shallow, which would
           # truncate history and break merge-base. If the ref is somehow
           # missing, fall back to the full matrix rather than guess.
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
             ./scripts/ci_select.py --all --github --explain
           elif git rev-parse --verify -q "origin/${{ github.base_ref }}" >/dev/null; then
             ./scripts/ci_select.py \
@@ -98,21 +109,18 @@ jobs:
       # which would have thrashed every other leg's cache out by LRU and
       # made the whole mechanism unreliable.
       #
-      # Caching the downloads is what actually removes the dominant cost:
-      # the `optimize` extra pulls xopt -> botorch -> torch, and on Linux
-      # torch drags the multi-GB nvidia CUDA wheels with it, re-fetched on
-      # every run. The restore-keys prefix means a lock change still reuses
-      # every wheel that did not change rather than starting from empty.
+      # Caching the downloads is what removes the dominant install cost.
+      # The restore-keys prefix means a lock change still reuses every wheel
+      # that did not change rather than starting from empty.
       #
-      # GeecsBluesky is deliberately EXCLUDED. Its download set is 8.4 GB —
-      # torch on Linux drags the nvidia CUDA wheels with it, all dead weight
-      # on a CPU runner — which is 84% of the 10 GB cap on its own. Measured:
-      # with it cached, its entry evicted every other leg's, and the next run
-      # missed on all eleven (`Cache not found for input keys` in each). One
-      # leg that cannot fit must not cost the ten that do. The real fix is a
-      # CPU-only torch for CI, which needs a lock change and is its own PR.
+      # GeecsBluesky is cached like every other leg because its install
+      # step swaps torch for the CPU-only build (below). With the PyPI
+      # torch, Linux pulled the nvidia CUDA wheels: an 8.4 GB download set,
+      # 84% of the 10 GB cap on its own, which evicted every other leg's
+      # entry (all eleven missed on the next run) and once filled the
+      # runner's disk mid-install. The CPU set measured 1.16 GB (a 1.15 GB
+      # cache entry) and a 2.1 GB environment, in line with the other legs.
       - name: Cache Poetry downloads
-        if: matrix.leg != 'GeecsBluesky'
         uses: actions/cache@v6
         with:
           path: |
@@ -158,6 +166,16 @@ jobs:
               # --extras optimize: exercise the native ask/tell plan and
               # live measurement compiler with the real Xopt/GEST
               # generators, not an import skip.
+              #
+              # torch (xopt -> botorch -> torch) comes from the PyTorch CPU
+              # index here: scripts/ci_cpu_torch.py checks the committed
+              # lock is current, re-locks this checkout's working copy with
+              # torch==<locked>+cpu and fails unless no other locked version
+              # moved, so the CUDA wheels (nvidia-*, triton) are never
+              # downloaded. CI only: the committed lock, and so
+              # the lab's optimizer hosts, keep the CUDA-capable torch, and
+              # scripts/check.sh runs whatever the developer's env holds.
+              python ../scripts/ci_cpu_torch.py
               poetry install --with dev --extras qserver --extras qs-client \
                 --extras ca --extras tiled --extras optimize ;;
             GEECS-MCP)

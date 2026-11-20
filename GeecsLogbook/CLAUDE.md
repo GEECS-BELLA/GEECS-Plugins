@@ -82,7 +82,9 @@ monkeypatches `Path.mkdir` across both the markdown and the attachment
 copy to assert every directory made is under `logbook/`. One sentinel
 stands before any `mkdir`: the **experiment directory** must exist,
 because its absence means the share is not mounted, and a tree built on
-the bare mount point would be hidden when the share came back. The first cut put `logbook/`
+the bare mount point would be hidden when the share came back. The
+`[Paths] data_root_experiment`'s directory is the data root,
+which must also be non-empty (`geecs_data_utils.scan_paths.experiment_dir_present`). The first cut put `logbook/`
 inside each day folder and could not create the day; that stranded the
 ops book, which is why it moved (owner ruling 2026-09-11).
 
@@ -492,7 +494,7 @@ is where that is tracked.
 | Off-site reading | The mirror tree is one folder, so a text-only `git push` of it to a private repository is cheap whenever wanted; the Google Doc exporter (blocked on credential rotation) is the route that carries images. Neither is needed for a functional logbook. |
 | The scan index | A month-partitioned scan index (Data-Utils' early Parquet scan catalog was deleted in 0.52.0, superseded by Tiled) with an `update(day)` entry point, the portal as its writer. Parked by the owner (2026-09-11) until the two books are live. |
 | `EntryCreate` (the write shape) lives in `routes/entries.py`, `LogEntry` (the stored shape) in `geecs_schemas` | **Decided 2026-10-17: it stays here.** The planned move beside `LogEntry` "for GEECS-MCP to validate" is moot: GEECS-MCP's `post_logbook_entry` is a thin HTTP client that imports nothing from the repo (its `mcp-is-a-client` import contract) and passes the create shape through as a dict, so this route is the one validator (GEECS-MCP `DESIGN.md` §4.6). Reopen only for a second consumer that imports it. |
-| A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
+| A second private atomic-write helper (`_fs.replace_with`; `task_queue` has its own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
 | One home for the entry-id alphabet | The store mints `uuid4().hex[:12]`; `render._ENTRY_REF` and `editor.js`'s `ENTRY_ID` each re-declare it, and `LogEntry.entry_id` carries no `pattern` (unlike `day`). A pattern in `geecs_schemas` is the real home, but it is a cross-package change for a UX fix. Until then `tests/test_crosslinks.py::TestTheIdAlphabetHasNotDrifted` ties both matchers to a freshly minted id, so a change to the minting fails loudly instead of silently breaking paste-recognition and reference-marking. Raised in the review of #890. |
 | Copy-on-plain-http, twice | `editor.js`'s `copyText` and the portal's `run.html` `copyPlotImage` both work around the absent `navigator.clipboard` on an http host. They are not mergeable as they stand (text into a control's own label vs an image blob into a corner toast), and `GeecsWebTheme/CLAUDE.md` makes the **third** surface the forcing function. When the web console needs a copy button, `kit.js` is the home — not a third copy. Raised in the review of #890. |
 | Whether the topbar measurement must wait for the pickers | `reveal()` measures `.topbar` inline. The review of #890 argued it must wait, because kit.js and theme.js build the theme and density pickers on `DOMContentLoaded` — correct about the ordering. Measured cold at a fragment, at 1380px and at 560px (two rows), inline and deferred place the target identically, so the deferral was deleted. The reviewer's narrower point stands unsettled: the pickers add ~200px of width, so there is in principle a band between those two widths where the static bar fits one row and the full bar needs two, and inside it an inline measure would be a row short. Settle it with a width sweep on the month page (both pickers unbuilt there) comparing the bar's height with and without them, not by adding the deferral back on reasoning. Raised in the review of #890. |
@@ -521,7 +523,10 @@ import edge, no special casing — and two of this package's own rules are
 what shape it: an attachment needs an entry to exist first, and
 `render.py`'s `_IMAGE_RUN` grids only *consecutive* image paragraphs, so
 the sender appends and keeps its link above them. Changing either is a
-change to that caller.
+change to that caller. `ATTACHMENT_TYPES` takes `application/json` for
+the same caller: beside each plot it stores the settings the plot was
+drawn with, linked from one "Plot settings as sent:" line directly above the
+body's first image. The composer links any non-image upload rather than drawing it.
 
 `app.create_app(experiment, *, base_directory, notes_db, templates_dir,
 root_path)` is the one entry point. It takes the shared web glue from
@@ -541,3 +546,5 @@ the top of the configs checkout).
 
 `create_app` takes the experiment explicitly — this package carries no
 facility default, per the "facility values have one home" invariant.
+
+**Experiment instances.** One logbook per experiment instance (`geecs-logbook@<Instance>`, its own port and notes store under `/var/lib/geecs-experiments/<Instance>/logbook`); the experiment name, never the instance name, keys the scan days.

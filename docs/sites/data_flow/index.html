@@ -339,7 +339,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <g class="n" data-id="schemas" tabindex="0" role="button" aria-label="GEECS-Schemas: open details">
     <rect class="node-contract" x="580" y="612" width="600" height="44" rx="6"/>
     <text class="t-title" x="594" y="630">GEECS-Schemas</text>
-    <text class="t-sub" x="594" y="646">the typed contract this half shares: ScanRequest · save sets · scan variables · trigger profiles · action plans · analysis configs</text>
+    <text class="t-sub" x="594" y="646">the typed contract this half shares: ScanRequest · save sets · scan variables · trigger profiles · setups · analysis configs</text>
     <circle class="st st-hardening" cx="1170" cy="622" r="4"/>
   </g>
   <text class="t-sub" x="30" y="630">Two sources of truth, one per half.</text>
@@ -367,7 +367,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <circle class="st st-exploratory" cx="690" cy="700" r="4"/><text class="t-sub" x="698" y="704">exploratory</text>
   <text class="t-sub" x="900" y="704">Click any block for what it does, how it works, status and next steps.</text>
 </svg>
-<figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the current interim deployment: the CA gateway, Tiled, the GEECS DB and all worker-side services share one central server until the dedicated services box arrives.</figcaption>
+<figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the deployment as of 2026-11-15: the GEECS DB on the central server; Tiled and every worker-side service on the services box since 2026-10-30, and the CA gateway beside them since 2026-11-15.</figcaption>
 </figure>
 
 <div class="grid">
@@ -403,7 +403,8 @@ svg.has-sel .step:not(.on){opacity:.25}
   <h2>What runs where today</h2>
   <p class="sub" style="margin:0 0 12px">A sketch. The <a href="../../platform/fleet_map/">Fleet Map</a> is the authoritative table of hosts, ports, health checks and runbooks, and the place drift is reconciled.</p>
   <div class="hosts">
-    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>CA gateway, Tiled, GEECS DB. Interim home of the worker-side services too: queueserver, GEECS-MCP HTTP, Data Portal.</p></div>
+    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>GEECS DB. The CA gateway ran here until 2026-11-15, Tiled and the worker-side services until 2026-10-30.</p></div>
+    <div class="host"><div class="h">Services box</div><div class="ip">192.168.6.22 · Ubuntu 24.04 · systemd</div><p>Tiled and the worker-side services since 2026-10-30: queueserver, Tiled writer, scanner, GEECS-MCP HTTP, Data Portal, logbook, Archiver Appliance; the CA gateway since 2026-11-15. Canopy and the Control Room were set up here after the move.</p></div>
     <div class="host"><div class="h">Camera servers</div><div class="ip">Windows · NSSM service</div><p>One PVA image gateway per host, beside the LabVIEW camera devices. It serves the live frames and writes the scan's HDF5 stacks. Images never transit the central server.</p></div>
     <div class="host"><div class="h">Device hosts</div><div class="ip">Windows · LabVIEW</div><p>GEECS devices as always. Nothing installed for this stack; the gateway speaks their existing UDP/TCP protocol.</p></div>
     <div class="host"><div class="h">Data share</div><div class="ip">NAS · SMB</div><p>The scan folder tree. Written by the engine, the PVA gateways and LabVIEW; read by everyone else.</p></div>
@@ -488,11 +489,11 @@ const INFO = {
   "status": "robust",
   "does": "Mirrors every scalar GEECS variable as an EPICS PV, with a writable `:SP` setpoint PV beside each settable one. Phoebus, Bluesky, a future Archiver and OSPREY's generic EPICS tools all reach GEECS through it with no GEECS-specific code.",
   "how": [
-   "A caproto soft IOC on the central server. At start it pulls the served set, limits and variable types from the GEECS DB for the experiment.",
+   "A caproto soft IOC on the services box (the central server until 2026-11-15). At start it pulls the served set, limits and variable types from the GEECS DB for the experiment.",
    "A TCP subscription per device feeds the readback PVs; a `caput` on a `:SP` becomes a blocking UDP set to the device.",
    "Per-device supervisors reconnect with backoff and mark readbacks INVALID while a device is down. A client-writable `cagateway:restart` PV makes systemd relaunch it and re-sync from the DB."
   ],
-  "now": "In daily use on the central server, serving about 99 devices. The half-open-socket blind spot that froze readbacks was closed in 0.20.0 (2026-08-24) with TCP keepalive plus supervised reconnect.",
+  "now": "In daily use on the services box since 2026-11-15 (the central server before), serving the experiment's devices — 86 on the day it moved. The half-open-socket blind spot that froze readbacks was closed in 0.20.0 (2026-08-24) with TCP keepalive plus supervised reconnect.",
   "next": [
    "Sharding across several processes under systemd for fault isolation when the served set grows.",
    "Archive deadbands (MDEL/ADEL split) when the Archiver Appliance lands.",
@@ -562,12 +563,11 @@ const INFO = {
    "Two acquisition modes: free-run time sync, where the first sync device paces and every other device fills its row with a derived shot id; and strict shot control (arm, confirm quiescent, fire, await all). Both emit the same versioned event schema.",
    "Devices are ophyd-async objects over the CA gateway. Redis holds the queue; a doc-stream proxy on port 5568 republishes documents to any panel."
   ],
-  "now": "The DAQ since the legacy scanner was retired on 2026-08-20. Runs as `geecs-qserver` under systemd on the interim host with a readiness oneshot that asserts the plan list after every start.",
+  "now": "The DAQ since the legacy scanner was retired on 2026-08-20. Runs as `geecs-qserver` under systemd on the services box (since 2026-10-30) with a readiness oneshot that asserts the plan list after every start.",
   "next": [
    "Named operator-shaped plans (noscan, 1D, optimize) as schemas that UIs can render, all still executing the one shared prologue.",
    "Requested rep-rate throttling: strict shots slower than the external rate, free-run every-Nth subsampling.",
-   "Not yet exercised live: hard pause, pause during optimize mode, a live failed-move policy trigger.",
-   "Move to the dedicated services box."
+   "Not yet exercised live: hard pause, pause during optimize mode, a live failed-move policy trigger."
   ],
   "vision": "One engine for everything that acquires: operator scans, agent scans and optimization loops, with `shot_id` the universal join key so later event-builder or flyer designs are a mechanical migration.",
   "meta": [
@@ -583,11 +583,11 @@ const INFO = {
   "status": "hardening",
   "does": "Every run's start document, per-shot events and stop document, searchable over HTTP. This is where 'what did scan 12 record' is answered without opening files.",
   "how": [
-   "The RunEngine spools each run's documents to a per-run file on the worker; the geecs-tiled-writer service registers the run in the catalog on the central server (port 8000, web UI at /ui) at its close, off the engine thread.",
+   "The RunEngine spools each run's documents to a per-run file on the worker; the geecs-tiled-writer service registers the run in the catalog on the services box (port 8000, web UI at /ui) at its close, off the engine thread.",
    "One read seam, `ScanCatalog` in GEECS-Data-Utils, serves the Data Portal and GEECS-MCP; column semantics live in one schema module so no consumer reinterprets a name.",
    "The s-file is written from the run's own rows at its close (no Tiled round trip), which keeps the file-based analysis path fed."
   ],
-  "now": "Deployed as a systemd `tiled` service. Scalars and metadata are solid; referenced files are not yet served through it.",
+  "now": "Deployed as a systemd `tiled` service on the services box (since 2026-10-30). Scalars and metadata are solid; referenced files are not yet served through it.",
   "next": [
    "StreamResource migration so Tiled can serve the frame stacks and other referenced assets, not only scalars. First step: pin what the deployed Tiled and TiledWriter actually support.",
    "Decide whether ScanAnalysis grows a Tiled reader or keeps reading exported s-files long-term.",
@@ -603,7 +603,7 @@ const INFO = {
   "name": "GEECS Scanner",
   "role": "The operator front end. A web page on the worker host; replaced the PySide6 GEECS-Console (deleted 2026-09-14).",
   "status": "hardening",
-  "does": "Where an operator picks or composes a scan, submits it to the queue, watches it live, moves a device, runs an action plan, and checks the shot-offset calibration. It owns no engine.",
+  "does": "Where an operator picks or composes a scan, submits it to the queue, watches it live, moves a device, applies a setup, and checks the shot-offset calibration. It owns no engine.",
   "how": [
    "A FastAPI service on port 8300 over `geecs_bluesky.qs_client`: a pure-Python service layer answers every verb as a Pydantic model; a JSON API and a Server-Sent-Events stream sit on top; one Jinja page on the GEECS surface kit renders it.",
    "The submission document is a preset (device group, plan call, trigger profile). The scanner expands it with the same `expand_preset` every client uses and binds no device itself; preflight questions must be acknowledged before a submit.",
@@ -694,13 +694,13 @@ const INFO = {
   "name": "Data Portal",
   "role": "Zero-install scan browsing in any browser on the lab network.",
   "status": "hardening",
-  "does": "Day, then scan, then metadata, scalar plots and images, with an Analysis tab that can run a configured ScanAnalyzer on demand and, when enabled, the analysis config editor mounted at /configs. Read-only otherwise.",
+  "does": "Day, then scan, then metadata, scalar plots and images, with an Analysis tab that can run a configured ScanAnalyzer on demand and opens a recipe in the configurator to edit, with a preview on the scan. Read-only otherwise.",
   "how": [
    "FastAPI with server-rendered templates, no build chain, on port 8200 on the worker host.",
    "Reads through the `ScanCatalog` seam and reads images from the share. A JSON API mirrors every page so scripts and agents can read what a browser shows.",
-   "Its two write paths are explicit opt-ins: an analysis run executes one analyzer on a worker thread without joining the file-based analysis queue, and the config editor edits the configs repo checkout the worker reads."
+   "Its write paths are explicit opt-ins: an analysis run executes one analyzer on a worker thread without joining the file-based analysis queue, and a plot is sent to the logbook. The analysis recipes are saved by the configurator; the portal checks and previews them."
   ],
-  "now": "Deployed and verified 2026-09-03. The browsing JSON API landed 2026-09-02 and the config editor drawer on 2026-09-06.",
+  "now": "Deployed and verified 2026-09-03. The browsing JSON API landed 2026-09-02; recipes are edited in the configurator since its slice 6.",
   "next": [
    "A portal-side cache for full-day listings at a full day's scan count.",
    "Absorb the LabVIEW GEECSplotter features (keep, adapt or drop rulings still pending).",
@@ -738,7 +738,7 @@ const INFO = {
  "name": "GEECS-Schemas",
  "role": "The typed vocabulary for describing a scan and an analysis. Pydantic only, importable from anywhere.",
  "status": "hardening",
- "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, action plans, derived channels, and now the analysis configs. Scanner, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is. (GEECS-MCP no longer imports them: since geecs-mcp 0.10.0 it is an HTTP client of the scanner, the portal and the logbook, and the services validate every document it passes through.)",
+ "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, setups, derived channels, and now the analysis configs. Scanner, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is. (GEECS-MCP no longer imports them: since geecs-mcp 0.10.0 it is an HTTP client of the scanner, the portal and the logbook, and the services validate every document it passes through.)",
  "how": [
   "Configs are schemas; YAML is just their serialization. The configs repo holds the YAML, this package holds the meaning.",
   "Declare intent, derive mechanics. Device facts such as limits, units and enum choices live in the GEECS DB and are never repeated in YAML. Unknown keys fail loudly (`extra=\"forbid\"`).",
@@ -767,7 +767,7 @@ const INFO = {
   "how": [
    "YAML recipes in the configs repo load into the v3 `AnalysisRecipe` model; the core compiles each one and ScanAnalysis runs it over the scan's shots, then folds the results into averages, bins and summary figures.",
    "The data portal runs analysis explicitly. The existing queue retains per-scan status files, claims and heartbeats for MCP compatibility; automatic watching and Google Docs uploads are retired.",
-   "The portal config editor previews unsaved recipes before an explicit save and run."
+   "The portal previews unsaved recipes, edited in the configurator, before an explicit save and run."
   ],
   "now": "Every analysis runs on the GEECS-Analysis core from v3 recipes; the legacy ImageAnalysis wrappers were retired on 2026-10-16. Portal runs are the operational endpoint. A future automatic analysis service is not yet designed.",
   "next": [

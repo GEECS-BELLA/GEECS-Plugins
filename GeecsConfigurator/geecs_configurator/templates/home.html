@@ -1,0 +1,191 @@
+{#
+  The configurator's home: the catalogue in the rail, a kind's documents, and
+  the open document drawn by the theme's form.js. With the commit path on,
+  Save commits (or proposes) the edit as the operator named; off, the page
+  validates and diffs, never saves.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ settings.title }}{% if kind %} — {{ kind }}{% endif %}</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/configurator.css">
+</head>
+<body class="kit" data-root="{{ root }}" data-kind="{{ kind }}" data-experiment="{{ experiment }}" data-id="{{ doc_id }}" data-commits="{{ 'on' if commits else 'off' }}">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="{{ root }}/?experiment={{ experiment | urlencode }}">{{ settings.title }} <span class="sub">{{ experiment or "no experiment" }}</span></a>
+    <form class="row" method="get" action="{{ root }}/">
+      <label class="dim" for="experiment">Experiment</label>
+      <select class="btn sm" id="experiment" name="experiment" onchange="this.form.submit()">
+        {% for e in experiments %}<option value="{{ e }}"{% if e == experiment %} selected{% endif %}>{{ e }}</option>{% endfor %}
+      </select>
+      {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+    </form>
+    <nav class="row"><a class="btn sm" href="{{ root }}/log">Log</a></nav>
+    {% if commits or (kind == "setup" and scanner) %}<label class="dim">Operator <input class="btn sm" id="operator" autocomplete="name" placeholder="your name"></label>{% endif %}
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="rail">
+    {% for storage, heading in [("file", "Configs repo"), ("code", "Package data")] %}
+    <div>
+      <h4>{{ heading }}</h4>
+      <nav class="picklist">
+        {% for k in catalogue if k.storage == storage %}
+        <a href="{{ root }}/?experiment={{ experiment | urlencode }}&amp;kind={{ k.kind }}"{% if k.kind == kind %} aria-current="page"{% endif %}>{{ k.kind }}<span class="tier" data-tier="{{ k.tier }}">{{ k.tier }}</span></a>
+        {% endfor %}
+      </nav>
+    </div>
+    {% endfor %}
+  </aside>
+
+  <main class="pane">
+    {% if not commits %}<div class="banner" data-state="denied"><strong>Read-only.</strong> Edits in this page are validated and diffed against the stored document, never saved: the commit path is not configured.</div>{% endif %}
+    {% if not_owned %}<div class="banner" data-state="denied"><strong>Read-only here.</strong> {{ not_owned }}</div>{% endif %}
+    <div id="stale" hidden></div>
+
+    {% if not kind %}
+    <section class="panel">
+      <header><span class="eyebrow">Every registered kind</span></header>
+      <div class="tscroll"><table>
+        <thead><tr><th>Kind</th><th>Kept</th><th>Tier</th><th>Where, or why not a file</th><th>Read by</th></tr></thead>
+        <tbody>
+        {% for k in catalogue %}
+        <tr><td class="id">{% if k.storage != "not-a-file" %}<a href="{{ root }}/?experiment={{ experiment | urlencode }}&amp;kind={{ k.kind }}">{{ k.kind }}</a>{% else %}{{ k.kind }}{% endif %}</td>
+          <td>{{ k.storage }}</td><td>{% if k.tier %}<span class="tier" data-tier="{{ k.tier }}">{{ k.tier }}</span>{% endif %}</td>
+          <td class="mono">{{ k.path or k.reason }}</td>
+          <td>{% for c in k.consumers %}{{ c.name }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+    {% else %}
+    <section class="panel">
+      <header><span class="eyebrow">{{ kind }}</span><span class="dim">{{ docs | length }} document{{ "" if docs | length == 1 else "s" }}</span>
+        {% if kind == "setup" %}{% set why = "the commit path is not configured" if not commits else ("no scanner configured for " ~ experiment) if not scanner else "not this box's experiment" if not_owned else "" %}
+        <span class="spacer"></span><button class="btn sm" type="button" id="capture-open"{% if why %} disabled title="Capture is off here: {{ why }}"{% else %} data-drawer-open="drw-capture"{% endif %}>Capture from live…</button>{% endif %}
+        {% set info = catalogue | selectattr("kind", "equalto", kind) | first %}{% if commits and info and info.blank %}
+        <span class="spacer"></span><button class="btn sm" type="button" id="new-doc" title="Starts from {{ info.blank }}; nothing is written until Save">New {{ kind | replace("analysis_", "") | replace("_", " ") }}…</button>{% endif %}
+      </header>
+      <div class="body">
+        {% if docs %}
+        <nav class="picklist docs">
+          {% for d in docs %}
+          <a href="{{ root }}/?experiment={{ experiment | urlencode }}&amp;kind={{ kind }}&amp;id={{ d.id | urlencode }}"{% if d.id == doc_id %} aria-current="page"{% endif %}>{{ d.id }}{% if not d.valid %}<span class="sub" title="{{ d.error }}">invalid</span>{% elif d.note %}<span class="sub" title="{{ d.note }}">legacy</span>{% endif %}</a>
+          {% endfor %}
+        </nav>
+        {% else %}
+        <div class="state" data-state="empty"><span class="t">No documents</span><span class="m">Nothing of this kind is in {{ experiment or "the configs root" }}.</span></div>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if doc_id %}
+    <div class="editor">
+      <section class="panel">
+        <header><span class="eyebrow" id="doc-title">{{ doc_id }}</span><span class="mono dim" id="doc-path"></span></header>
+        <div class="body" id="form"><div class="state" data-state="loading"><span class="t">Loading</span><div class="bar"><i></i></div></div></div>
+        <footer><div class="row">
+          <button class="btn primary" type="button" id="validate">Validate</button>
+          <button class="btn" type="button" id="diff">Diff against stored</button>
+          <button class="btn" type="button" id="yaml">YAML</button>
+          <span class="spacer"></span>
+          <button class="btn ghost" type="button" id="reset">Discard edits</button>
+        </div>
+        {% if commits %}<div class="save-row">
+          <button class="btn primary" type="button" id="save" title="The operator (top right) is the git author">Save</button>
+          <span class="spacer"></span>
+          <span class="row" id="copy-delete" hidden>
+            <input class="btn sm" id="copy-name" placeholder="new name" aria-label="the copy's name">
+            <button class="btn" type="button" id="copy" title="A new file beside this one, with the form as it stands">Save as a copy</button>
+            <button class="btn danger" type="button" id="delete" title="Removes the file from main; it stays in git's history">Delete…</button>
+          </span>
+        </div>{% endif %}</footer>
+      </section>
+      <aside class="group">
+        <section class="panel">
+          <header><span class="eyebrow">Tier</span></header>
+          <div class="body" id="tier"></div>
+        </section>
+        <section class="panel">
+          <header><span class="eyebrow">Read by</span></header>
+          <div class="body" id="consumers"></div>
+        </section>
+        <section class="panel">
+          <header><span class="eyebrow">Result</span></header>
+          <div class="body" id="result"><p class="dim">Validate, diff or render the document as edited.</p></div>
+        </section>
+        <section class="panel">
+          <header><span class="eyebrow">YAML as edited</span></header>
+          <div class="body"><pre class="well yaml" id="live-yaml"></pre><p class="dim">A save writes only the lines that changed, keeping the file's own formatting.</p></div>
+        </section>
+      </aside>
+    </div>
+    {% if kind == "setup" %}
+    {# The committed setup against the machine now, and its apply as one scanner queue item (setups.js). #}
+    <section class="panel" id="live" data-scanner="{{ 'on' if scanner else 'off' }}" data-applies="{{ 'yes' if applies else 'no' }}">
+      <header><span class="eyebrow">Live · {{ experiment }}</span><span class="dim" id="live-note">The setup as committed, not your unsaved edit.</span></header>
+      <div class="body" id="live-body">
+        {% if not scanner %}<div class="state" data-state="denied"><span class="t">No scanner</span><span class="m">No scanner is configured for {{ experiment }} (GEECS_CONFIGURATOR_SCANNER_URL): the diff and the apply are the scanner's.</span></div>
+        {% else %}<p class="dim">Diff reads every <code>set</code> step's readback through the scanner; nothing is written.</p>{% endif %}
+      </div>
+      {% if scanner %}<footer><div class="row">
+        <button class="btn" type="button" id="live-diff">Diff against live</button>
+        <span class="spacer"></span>
+        <span class="dim" id="apply-says"></span>
+        <button class="btn primary" type="button" id="live-apply"{% if not applies %} disabled title="Not this box's experiment: its setups are applied from the box that owns it"{% endif %}>Apply…</button>
+      </div></footer>{% endif %}
+    </section>
+    {% endif %}
+    {% endif %}
+  </main>
+</div>
+
+{% if kind == "setup" %}
+<aside class="drawer" id="drw-capture" role="dialog" aria-modal="false" aria-labelledby="drw-capture-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="drw-capture-title">capture a setup from live readbacks</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="cap-name">name<span class="req">*</span></label><input id="cap-name" placeholder="low_power" autocomplete="off"><span class="hint">The file stem: letters, digits, _ - . only.</span></div>
+    <div class="field"><label for="cap-desc">description</label><textarea id="cap-desc" rows="2"></textarea></div>
+    <div class="field"><label for="cap-pick">add a variable</label><input id="cap-pick" list="cap-settables" placeholder="Device:Variable" autocomplete="off"><datalist id="cap-settables"></datalist><span class="hint" id="cap-pick-hint">The scanner's settables, or any Device:Variable.</span></div>
+    <div class="field"><label for="cap-vars">variables, one per line, in step order</label><textarea id="cap-vars" rows="6" spellcheck="false"></textarea></div>
+    <div class="row"><button class="btn" type="button" id="cap-read">Read the readbacks</button><span class="dim">Reads only: nothing is written to a device.</span></div>
+    <div id="cap-result"></div>
+    <div class="row end">
+      <button class="btn" type="button" data-drawer-close>Cancel</button>
+      <button class="btn primary" type="button" id="cap-save" disabled>Save as a new setup</button>
+    </div>
+  </div>
+</aside>
+
+<dialog id="dlg-ack" class="ack" aria-labelledby="dlg-ack-title">
+  <div class="body">
+    <h4 id="dlg-ack-title">The scanner asks</h4>
+    <p>Each item is a question, not a refusal; tick it to apply with it on record.</p>
+    <ul class="qs" id="ack-list"></ul>
+    <p class="dim">The scanner checks every answer against the setup as committed; an edited setup asks again.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-apply" disabled>Apply</button></div>
+  </div>
+</dialog>
+{% endif %}
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ root }}/theme/form.js" defer></script>
+<script src="{{ root }}/static/embed.js" defer></script>
+<script src="{{ root }}/static/configurator.js" defer></script>
+{% if kind == "setup" %}<script src="{{ root }}/static/setups.js" defer></script>{% endif %}
+</body>
+</html>

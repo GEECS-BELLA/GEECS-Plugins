@@ -67,7 +67,7 @@ EXIT = "exit"
 ANNOUNCED_SHOT = "announced_shot"
 #: Master Control's spacing between the multicast ``ScanEnd`` and the frame.
 EXIT_FRAME_DELAY_S = 0.04
-#: The drain after entry: one trigger period plus the gated plan's margin —
+#: The drain after entry: one trigger period (1 s) plus a 0.25 s margin —
 #: a frame an edge put in flight before the devices paused lands within it.
 DEFAULT_DRAIN_S = 1.25
 #: The state file's environment override and per-user default.

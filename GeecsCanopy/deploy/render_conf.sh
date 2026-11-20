@@ -44,6 +44,19 @@ else
     echo "WARNING: no user '$GEECS_SERVICE_USER' here - rendered with uid:gid $SERVICE_UID:$SERVICE_GID (re-render on the service host)" >&2
 fi
 
+# A worktree's .git is a file naming its git dir by absolute path (the
+# configurator's live checkout): mount that dir read-only at the same path, so
+# the container sees the rewrite lock. A plain clone's .git dir is inside the
+# configs mount already; then the hole is a comment.
+CONFIGS_GITDIR_VOLUME="# (the configs checkout's git dir is inside its own mount)"
+if [ -f "$GEECS_CONFIGS_ROOT/.git" ]; then
+    gitdir="$(sed -n 's/^gitdir: *//p' "$GEECS_CONFIGS_ROOT/.git")"
+    case "$gitdir" in
+        /*) CONFIGS_GITDIR_VOLUME="- \"$gitdir:$gitdir:ro\"" ;;
+        *) echo "WARNING: $GEECS_CONFIGS_ROOT/.git names a relative git dir; Canopy's readers will not see its rewrite lock" >&2 ;;
+    esac
+fi
+
 mkdir -p "$OUT_DIR"
 dst="$OUT_DIR/compose.yaml"
 sed -e "s|@CANOPY_IMAGE@|$CANOPY_IMAGE|g" \
@@ -51,6 +64,7 @@ sed -e "s|@CANOPY_IMAGE@|$CANOPY_IMAGE|g" \
     -e "s|@BUILD_CONTEXT@|$REPO_ROOT|g" \
     -e "s|@SERVICE_UID@|$SERVICE_UID|g" \
     -e "s|@SERVICE_GID@|$SERVICE_GID|g" \
+    -e "s|@CONFIGS_GITDIR_VOLUME@|$CONFIGS_GITDIR_VOLUME|g" \
     "$HERE/compose.yaml.in" > "$dst"
 if grep -vE '^[[:space:]]*#' "$dst" | grep -q '@[A-Z_]*@'; then
     echo "unfilled placeholder in $dst:" >&2; grep -vE '^[[:space:]]*#' "$dst" | grep -n '@[A-Z_]*@' >&2; exit 1
@@ -67,6 +81,6 @@ Install (root; review the staged file first; DEPLOYMENT.md has the full runbook)
   sudo install -d -o $GEECS_SERVICE_USER -g $GEECS_SERVICE_USER -m 0700 /var/lib/geecs-canopy/pgdata
   sudo install -d -o 1000 -g $GEECS_SERVICE_USER -m 0750 /var/lib/geecs-canopy/module   # the journal: the image's appuser writes, the service account backs it up
   sudo install -m 0644 "$dst" /etc/geecs/canopy/compose.yaml
-  sudo install -m 0600 -o $GEECS_SERVICE_USER GeecsCanopy/deploy/secrets.env.example /etc/geecs/canopy/secrets.env   # first install only, then fill it
+  sudo install -m 0600 -o $GEECS_SERVICE_USER "$HERE/secrets.env.example" /etc/geecs/canopy/secrets.env   # first install only, then fill it
   # the unit: deploy/render_units.sh SITE_ENV OUT GeecsCanopy/deploy/geecs-canopy.service
 EOT

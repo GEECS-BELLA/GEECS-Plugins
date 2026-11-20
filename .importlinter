@@ -35,9 +35,10 @@ root_packages =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
+    geecs_configurator
+    geecs_analysis_worker
 include_external_packages = True
 exclude_type_checking_imports = True
 
@@ -53,7 +54,7 @@ exclude_type_checking_imports = True
 name = Package layers: edges point down the dependency graph; packages on one layer never import each other
 type = layers
 layers =
-    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook | geecs_panels | geecs_control_room
+    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook | geecs_control_room | geecs_configurator | geecs_analysis_worker
     geecs_bluesky | scan_analysis | geecs_ca_gateway | geecs_pva_gateway | geecs_archiver | geecs_canopy | geecs_log_triage
     geecs_analysis
     geecs_core | geecs_data_utils | geecs_schemas | geecs_web_theme | logmaker_4_googledocs
@@ -85,9 +86,10 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
+    geecs_configurator
+    geecs_analysis_worker
 
 [importlinter:contract:gateways-are-services]
 name = Nothing imports a gateway's code: the gateways are consumed as services (the PVs), never as libraries
@@ -106,9 +108,10 @@ source_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
+    geecs_configurator
+    geecs_analysis_worker
 forbidden_modules =
     geecs_ca_gateway
     geecs_pva_gateway
@@ -131,9 +134,9 @@ source_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
+    geecs_analysis_worker
 forbidden_modules =
     logmaker_4_googledocs
 
@@ -157,7 +160,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 
@@ -184,7 +186,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 
@@ -205,7 +206,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 
@@ -291,14 +291,14 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:portal-edges]
-name = GEECS-DataPortal imports GEECS-Data-Utils, GEECS-Schemas, the analysis packages and the web theme: never the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
+name = GEECS-DataPortal imports GEECS-Data-Utils, GEECS-Schemas, the analysis packages and the web theme: never the analysis worker's HTTP service (reached over HTTP alone), the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
 type = forbidden
 source_modules =
     geecs_portal
 forbidden_modules =
     geecs_scanner
+    geecs_analysis_worker
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
     geecs_bluesky
@@ -339,29 +339,6 @@ forbidden_modules =
     tiled
 allow_indirect_imports = True
 
-[importlinter:contract:panels-edges]
-name = GeecsPanels imports GEECS-Core, GEECS-Schemas and the web theme: never GeecsBluesky, the scanner, the portal, the logbook, the analysis packages or GEECS-Data-Utils
-type = forbidden
-source_modules =
-    geecs_panels
-forbidden_modules =
-    geecs_bluesky
-    geecs_scanner
-    geecs_portal
-    geecs_logbook
-    geecs_control_room
-    geecs_mcp
-    geecs_analysis
-    scan_analysis
-    geecs_data_utils
-    geecs_archiver
-    geecs_log_triage
-    geecs_ca_gateway
-    geecs_pva_gateway
-    bluesky
-    ophyd_async
-allow_indirect_imports = True
-
 [importlinter:contract:scanner-edges]
 name = GeecsScanner imports GeecsBluesky's client side, GEECS-Schemas, GEECS-Core and the web theme: never the portal, the logbook, MCP, the analysis packages, GEECS-Data-Utils or the EPICS side
 type = forbidden
@@ -370,7 +347,6 @@ source_modules =
 forbidden_modules =
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
     geecs_analysis
@@ -389,7 +365,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_core
     geecs_schemas
@@ -413,7 +388,6 @@ forbidden_modules =
     geecs_bluesky.callbacks
     geecs_bluesky.preprocessors
     geecs_bluesky.db_runtime
-    geecs_bluesky.actions.compiler
     geecs_bluesky.optimization.driver
     geecs_bluesky.optimization.generators
     geecs_bluesky.optimization.measurements
@@ -446,11 +420,10 @@ forbidden_modules =
 # ---------------------------------------------------------------------------
 
 [importlinter:contract:bluesky-client-side-is-light]
-name = GeecsBluesky's client-side modules (qs_client, actions.steps, optimization.events, plan_names, native_scope, log_markers, utils) never import bluesky, ophyd-async, aioca or xopt
+name = GeecsBluesky's client-side modules (qs_client, optimization.events, plan_names, native_scope, log_markers, utils) never import bluesky, ophyd-async, aioca or xopt
 type = forbidden
 source_modules =
     geecs_bluesky.qs_client
-    geecs_bluesky.actions.steps
     geecs_bluesky.optimization.events
     geecs_bluesky.plan_names
     geecs_bluesky.native_scope
@@ -483,7 +456,7 @@ forbidden_modules =
     geecs_bluesky.optimization
 
 [importlinter:contract:control-room-edges]
-name = GeecsControlRoom imports GEECS-Schemas and the web theme: never GeecsCanopy (a service), GeecsBluesky, the scanner, the portal, the logbook, the panels, the analysis packages, GEECS-Core or GEECS-Data-Utils
+name = GeecsControlRoom imports GEECS-Schemas and the web theme: never GeecsCanopy (a service), GeecsBluesky, the scanner, the portal, the logbook, the analysis packages, GEECS-Core or GEECS-Data-Utils
 type = forbidden
 source_modules =
     geecs_control_room
@@ -493,7 +466,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_mcp
     geecs_analysis
     scan_analysis
@@ -506,3 +478,68 @@ forbidden_modules =
     bluesky
     ophyd_async
 allow_indirect_imports = True
+
+[importlinter:contract:configurator-edges]
+name = GeecsConfigurator imports GEECS-Schemas, GEECS-Core (configs_repo, never GeecsDb) and the web theme: every other service it asks over HTTP
+type = forbidden
+source_modules =
+    geecs_configurator
+forbidden_modules =
+    geecs_bluesky
+    geecs_analysis
+    scan_analysis
+    geecs_data_utils
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+    geecs_canopy
+    geecs_control_room
+    geecs_archiver
+    geecs_log_triage
+    geecs_ca_gateway
+    geecs_pva_gateway
+    geecs_core.db
+    bluesky
+    ophyd_async
+allow_indirect_imports = True
+
+[importlinter:contract:analysis-worker-edges]
+name = GeecsAnalysisWorker imports ScanAnalysis (the job runner and the group loader) and nothing else in the repo directly: its clients reach it over HTTP
+type = forbidden
+source_modules =
+    geecs_analysis_worker
+forbidden_modules =
+    geecs_analysis
+    geecs_data_utils
+    geecs_schemas
+    geecs_core
+    geecs_web_theme
+    geecs_bluesky
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+    geecs_canopy
+    geecs_control_room
+    geecs_configurator
+    geecs_archiver
+    geecs_log_triage
+    geecs_ca_gateway
+    geecs_pva_gateway
+    bluesky
+    ophyd_async
+allow_indirect_imports = True
+
+# The other half of "ScanAnalysis has no web code": the job runner never
+# reaches a web framework, even indirectly. The HTTP API over it is
+# GeecsAnalysisWorker's.
+[importlinter:contract:scan-analysis-no-web]
+name = ScanAnalysis has no web code: it never imports fastapi, starlette or uvicorn
+type = forbidden
+source_modules =
+    scan_analysis
+forbidden_modules =
+    fastapi
+    starlette
+    uvicorn

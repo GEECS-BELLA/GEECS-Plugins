@@ -77,8 +77,12 @@ What changed, and why it's better:
 - **`geecs_core.testing`** — `FakeGeecsServer`, an in-process server speaking
   the real wire protocol, so your code can be tested with no hardware.
 
-When should you *not* use `GeecsDevice`? For data-taking scans (use the GEECS
-Console / Bluesky engine — scans need numbering, saving, and shot control),
+When should you *not* use `GeecsDevice`? For data-taking scans (use the
+[web scanner](../web_services/scanner.md) over the Bluesky engine, from the
+browser or its HTTP API — scans need numbering, saving, and shot control),
 and for monitoring dashboards at HTU (the [gateway PVs](../geecs_gateway/client_overview.md)
 serve that better). `GeecsDevice` is the right tool for scripts, notebooks,
-feedback loops, and facilities where the EPICS layer is not deployed.
+feedback loops, and facilities where the EPICS layer is not deployed. The
+rule binds an AI agent too: an agent takes data through the scanner
+(GEECS-MCP where it is deployed, the scanner's HTTP API where it is not),
+never by driving devices with `GeecsDevice.set`.

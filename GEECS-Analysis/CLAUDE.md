@@ -1,7 +1,8 @@
 # GEECS-Analysis
 
-The replacement analysis core, developed on `codex/analysis-refactor`.
-Read `../Planning/analysis_refactor.md` for scope, acceptance gates and migration.
+The analysis core: every per-shot recipe (steps, measure, figure, summaries)
+runs through it; the legacy ImageAnalysis package and the scan-analyzer
+wrappers around it were deleted 2026-10-16 (tag `legacy-analysis-final`).
 The optimizer uses this core directly for camera recipes; portal image
 processing, unsaved-document rendering and ScanAnalysis' scan runs all
 compile and run v3 recipes through it.
@@ -76,6 +77,14 @@ compile and run v3 recipes through it.
   folds differing camera axes index-wise — the legacy average's `nanmean`
   over each shot's axis — where every other measure's are refused; while
   none has moved the first result's axes are kept.
+- A frame dimensionality's **default measure** is declared at
+  registration (`@measure(..., default=True)`: `beam` for images, `line`
+  for traces; a second default for an ndim is refused at import), and
+  `registry.default_measure(ndim)` is the one lookup. A new recipe starts
+  from it (`recipe.blank_recipe(input_kind, name=...)`: its input, no
+  steps, that measure, validated and compiled; the input kinds and their
+  ndim are the schema's, `recipe.input_kinds()`), so an editor never lists
+  a measure by hand. Pinned for every input kind by `tests/test_recipe.py`.
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.
@@ -153,7 +162,9 @@ the editor lists it from here — `recipe.recipe_schema()` is the recipe's
 JSON Schema with `steps`/`measure` replaced by the registry's discriminated
 unions, every step/measure/summary variant tagged `x-ndim` and `x-docs`
 (its card in the published reference, `RECIPE_REFERENCE_URL`), every
-measure variant `x-scalars`; give every spec field a `description=`, the
+measure variant `x-scalars`, and a per-dimension pair list `x-axes` (the
+`roi` step's `bounds`: one named row per axis in the form; the theme's
+`form.js` docstring is the hints' contract); give every spec field a `description=`, the
 form shows it as help (pinned), and every scalar a measure can emit a
 one-line `scalar_docs` meaning (pinned both ways by `test_scalar_docs`).
 A new step, measure or summary also needs
@@ -252,6 +263,43 @@ sign convention (τ0 ≥ 0 is the later pulse; the arms are
 indistinguishable from one spectrum) is in the module and in
 `docs/analysis/spectral_interferometry.md`. Numpy only.
 
+## Array-level numerics for viewers (curve fits, image clean-ups)
+
+Two things here are called on plain arrays by the Data Portal's plot
+pages, outside any recipe; they register nothing.
+
+`algorithms.curve_fit.fit_curve(x, y, model, order=)` → `CurveFit`: the
+plotter's Fit menu as one pure call over the finite `(x, y)` pairs,
+unweighted, standard errors from the residual-scaled covariance. Models:
+`gaussian` (σ; derived `fwhm`), `supergaussian`
+(`A·exp(-(|x−x0|/w)^p)+C`, `p` fitted within `POWER_BOUNDS`; derived
+`fwhm = 2w·(ln 2)^(1/p)`), each with a `_no_offset` kind, and
+`polynomial` (`c0 … cN`, ascending powers, `numpy.polyfit`). A fit that
+cannot be made is a `CurveFit` with `error` set, never an exception;
+`evaluate(x)` / `curve(points)` redraw it. scipy is imported inside the
+call. Another model of LabVIEW's menu (Lorentzian, Boltzmann, Exp Growth,
+Extreme, Lorentzian w slope) is added here. It is not the summaries'
+`fit_line` (a line and its zero crossing over bins) nor
+`algorithms.polynomial_fit` (the FROG phase fit, weighted, ported bit
+for bit): neither is folded into it.
+
+`image_prep.ImagePrep(hits=, centre=).apply(image)`: one camera image's
+clean-ups before it is drawn or averaged, composed of what is already
+here. Hits out first (`remove_hits`): `median3` / `median5` are the
+`median` step; `hot` is `algorithms.hot_pixels.remove_hot_pixels`, which
+replaces only a pixel far above neighbours that sit at the background,
+so a sharp focal spot survives. Its noise is the robust deviation of the
+image less its 3×3 median and never less than `noise_floor` (default
+`NOISE_FLOOR`, one count): the median deviation is zero on a dark frame
+with more than half its pixels on one value, and without the floor every
+lone count there is a hit. Then `algorithms.beam_centre.beam_centre`
+(the centre of mass above a threshold — counts at 1 or more, else a
+fraction of the peak — through `compute_center_of_mass` on the two
+projections) and `centre_on` (whole-pixel shift, the median shifted in).
+A background comes off with the `background_frame` step
+(`alignment="samples"`); there is no second subtraction. When these
+become recipe steps, `image_prep` goes.
+
 ## Rendering
 
 `render.single` / `render.waterfall` return matplotlib Figure objects; no
@@ -265,6 +313,9 @@ open-ended and validated by preview rendering, with RenderError at the layout
 boundary. Deep-copy kwargs before passing to matplotlib; normalization objects
 can be mutated by rendering. Preserve geometry rather than accepting arbitrary
 extent overrides. New overlay families must carry data, never render callbacks.
+Recipes never name arbitrary matplotlib calls or carry Python: the fixed
+kwarg groups (`imshow`, `plot`, `colorbar`, ...) and the named overlay kinds are
+the vocabulary, so the editor can list and the preview can validate them.
 
 `render.image_grid` draws image measurements with per-panel coordinates and a
 single palette/colorbar. It accepts titles and a positive column count. Palette

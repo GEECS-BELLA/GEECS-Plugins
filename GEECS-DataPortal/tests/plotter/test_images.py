@@ -79,7 +79,7 @@ class TestPixels:
     def test_a_hit_filter_cleans_each_shot_and_keys_the_store(
         self, share: Path, camera: Path
     ) -> None:
-        from geecs_data_utils.data.image_prep import ImagePrep
+        from geecs_analysis.image_prep import ImagePrep
 
         frame, folder = _opened(share)
         raw = images.kept_tile_array(folder, frame, CAM, (1, 2))
@@ -494,7 +494,7 @@ def test_a_value_two_bins_share_names_the_bins() -> None:
 
 
 def test_every_hit_filter_has_a_label_on_the_rail() -> None:
-    from geecs_data_utils.data.image_prep import HIT_FILTERS
+    from geecs_analysis.image_prep import HIT_FILTERS
 
     assert set(images.HIT_LABELS) == set(HIT_FILTERS)
 

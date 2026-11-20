@@ -16,9 +16,36 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Self
+from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field
+
+#: Who may change a document, or a field inside one, and so what saving it
+#: does: ``operator`` commits to the configs repo's main, ``maintainer`` opens
+#: a pull request for the maintainer's review, ``parameter`` commits to the
+#: IOC instances' repo, ``sudo`` hands the maintainer a command to run, and
+#: ``code`` is read-only (it changes by a PR to GEECS-Plugins).
+Tier = Literal["operator", "maintainer", "parameter", "sudo", "code"]
+
+#: Every tier, least to most restricted: the strictest tier among a save's
+#: changed fields decides what the save does.
+TIERS: tuple[Tier, ...] = ("operator", "maintainer", "parameter", "sudo", "code")
+
+
+def _stamp_tier(
+    schema: dict[str, Any], model: type[BaseModel]
+) -> None:  # Any: a JSON Schema fragment
+    """Put the document's ``tier`` into its JSON Schema, so a form drawn from it sees it.
+
+    ``model_config``'s ``json_schema_extra`` for every document: the one
+    declaration is the class's ``tier`` ClassVar (a bare class attribute
+    reaches neither validation nor the schema), and this copies it into
+    ``model_json_schema()``. A document with no tier (not a file anyone
+    edits) gets no key.
+    """
+    tier = getattr(model, "tier", None)
+    if tier is not None:
+        schema["tier"] = tier
 
 
 class SchemaModel(BaseModel):
@@ -44,12 +71,23 @@ class VersionedSchemaModel(SchemaModel):
     a saved file was written against.  You normally never edit this field;
     tools bump it when the format changes.
 
+    A document that is a file people edit declares its ``tier``
+    (:data:`Tier`) as a ClassVar; the base config stamps it into the JSON
+    Schema. A field stricter than its document carries
+    ``json_schema_extra={"tier": ...}`` on its ``Field``.
+
     Notes
     -----
     Nested sub-models (individual steps, entries, targets) deliberately do
     *not* carry ``schema_version`` — the version of the enclosing document
     governs the whole file.
     """
+
+    model_config = ConfigDict(json_schema_extra=_stamp_tier)
+
+    #: Who may change this document (:data:`Tier`); ``None`` for a kind that
+    #: is not an edited file (a database row, a plan parameter, a sub-document).
+    tier: ClassVar[Tier | None] = None
 
     schema_version: int = Field(
         default=1,

@@ -204,27 +204,6 @@ def columns(frame: pd.DataFrame) -> list[str]:
     return tiled_schema.plottable_columns(frame)
 
 
-def default_x(run: RunDetail, picks: list[str]) -> str:
-    """The default X, GEECSplotter's "autofill par1": the scan variable.
-
-    Parameters
-    ----------
-    run : RunDetail
-        The scan, from :func:`find_scan`.
-    picks : list of str
-        The offered columns; the scan variable must be one of them.
-
-    Returns
-    -------
-    str
-        The column, or ``""`` on a no-scan (the shot number is X then).
-    """
-    if not tiled_schema.is_stepped_scan(run.start_doc):
-        return ""
-    found = tiled_schema.scan_variable_columns(picks, run.start_doc)
-    return found[0] if found else ""
-
-
 def plot_series(frame: pd.DataFrame, names: list[str]) -> dict[str, pd.Series]:
     """Coerce the named columns to floats.
 

@@ -8,6 +8,8 @@
 
 ## `optimizer_config`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/optimizer_configs/<name>.yaml`
+
 ### OptimizerConfig
 
 An optimization: search space, live measurements, derived outputs and generator.
@@ -98,6 +100,8 @@ Run defaults; queue-item arguments may override the iteration and shot budgets.
 
 ## `preset`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/presets/<name>.yaml`
+
 ### Preset
 
 A saved scan: the device group plus the plan call.
@@ -140,7 +144,7 @@ One device of the group: it records every shot of the scan.
 |---|---|---|---|---|
 | `device` | `str` | yes | — | GEECS device name exactly as it appears in the GEECS experiment database (MySQL), e.g. 'UC_ALineEbeam1'. |
 | `save_images` | `bool` | no | True | Save the device's images / non-scalar files (camera frames, traces) beside the scalar data. Off records the device's scalars only — its per-shot readings still land in every row; the frames stay off the disk. Meaningless for a scalar-only device (nothing to save either way). |
-| `essential` | `bool` | no | True | Wait for this device on every shot (on, the default) — a shot is not complete without its reading. Off streams the device for the run's duration instead, at its own rate, joined to the shots by its timestamp: it never holds a shot or aborts the scan, so use it for a slow or unreliable device whose data are welcome but not required. The device needs a shot timestamp (acq_timestamp). |
+| `required` | `bool` | no | True | Wait for this device on every shot (on, the default) and refire a shot it missed — a shot is not complete without its record. Off, the device still records every shot it takes into its own stream, joined to the shots by its timestamp, but never holds a shot or aborts the scan: use it for a slow or unreliable device whose data are welcome but not required. Only a device with a shot timestamp (acq_timestamp) or a native camera can be required; any other device is a condition, read in every row. |
 
 ### PlanCall
 
@@ -154,6 +158,8 @@ The stock plan the preset runs, with its arguments.
 
 ## `scan_request`
 
+Not a file: a plan parameter: built per submit from a preset, never saved
+
 ### ScanRequest
 
 One complete scan, ready to submit: what to do, what to save, how to trigger.
@@ -164,7 +170,6 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 | `mode` | `ScanRequestMode` | yes | — | What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything. |
 | `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan. |
 | `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, trigger_profile=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, the telemetry toggle and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
-| `actions` | `ActionBindings` | no | ActionBindings(setup=[], per_step=[], closeout=[]) | Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout). |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
 
@@ -185,10 +190,6 @@ capture:
   acquisition: free_run
   save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
   trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_ebeam]
-  per_step: []
-  closeout: []
 description: "jet z scan with probe"
 # v1 documents (the capture fields flat at the top level) still validate —
 # they are lifted into this shape automatically.
@@ -233,17 +234,9 @@ How shots are taken and what gets recorded — the capture concern.
 | `background_telemetry` | `bool (optional)` | no | None | Also log every other live experiment device as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger. |
 
-### ActionBindings
-
-Which named action plans run around (and inside) the scan.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `setup` | `list[str]` | no | empty | Plans to run once before the scan starts. |
-| `per_step` | `list[str]` | no | empty | Plans to run between scan steps — after each move, before the shots at that position. |
-| `closeout` | `list[str]` | no | empty | Plans to run once after the scan finishes (even on abort). |
-
 ## `scan_variables`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/scan_devices/scan_variables.yaml`
 
 ### ScanVariables
 
@@ -308,6 +301,8 @@ One device a pseudo variable moves, and the formula for its value.
 
 ## `trigger_profile`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/shot_control_configurations/<name>.yaml`
+
 ### TriggerProfile
 
 The device writes that drive the machine through its trigger states.
@@ -318,7 +313,8 @@ The device writes that drive the machine through its trigger states.
 | `name` | `str` | yes | — | The name scans use to refer to this trigger profile. |
 | `states` | `dict[TriggerState, list[TriggerWrite]]` | no | empty | For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched. |
 | `description` | `str` | no | '' | Optional note about what setup this profile is for. |
-| `use_scan_mode` | `bool` | no | False | Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a gated run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case — the shot message is the only trigger. |
+| `use_scan_mode` | `bool` | no | False | Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a fly run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case — the shot message is the only trigger. |
+| `shot_gate` | `ShotGateSpec (optional)` | no | None | A permission-to-fire service the worker waits on before every shot: a 'safe' received after the previous shot permits the next; unreachable or not safe holds it, and a long hold pauses the scan. Leave empty for no gate. |
 
 Example:
 
@@ -360,108 +356,20 @@ One device variable set during a state transition.
 | `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'Trigger.Source'. |
 | `value` | `str` | yes | — | The value to send, exactly as the device expects it — a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges'). |
 
-## `action_plan`
+### ShotGateSpec
 
-### ActionPlan
-
-An ordered checklist of steps the scanner runs for you.
+A software interlock server the worker waits on before every shot.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `steps` | `list[SetStep \| WaitStep \| CheckStep \| RunPlanStep]` | yes | — | The steps to perform, in order from top to bottom. |
-| `description` | `str` | no | '' | Optional note to your future self about what this plan does and when to use it. |
-
-Example:
-
-```yaml
-schema_version: 1
-description: "Zero the pressure voltage and confirm the PLC output"
-steps:
-  - do: set
-    device: U_HP_Daq
-    variable: AnalogOutput.Channel 1
-    value: 0
-  - do: wait
-    seconds: 3
-  - do: check
-    device: U_148_PLC
-    variable: DI.Ch17
-    expected: "off"
-  - do: run
-    plan: close_gaia_internal_shutters
-```
-
-### SetStep
-
-One step that sets a device variable to a value.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'set'` | yes | — | Step type. 'set' writes a value to a device variable. |
-| `device` | `str` | yes | — | Name of the device to command, e.g. 'U_148_PLC'. |
-| `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'DO.Ch9'. |
-| `value` | `str \| float \| int` | yes | — | The value to write — a number, or a word the device understands such as 'on' or 'off'. |
-| `wait_for_execution` | `bool` | no | True | Wait for the device to confirm the change before moving to the next step. Leave on unless you know the step is fire-and-forget. |
-
-### WaitStep
-
-One step that simply pauses for a number of seconds.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'wait'` | yes | — | Step type. 'wait' pauses the plan for a fixed time. |
-| `seconds` | `float` | yes | — | How long to pause, in seconds (must be greater than 0). |
-
-### CheckStep
-
-One step that reads a device variable and verifies its value.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'check'` | yes | — | Step type. 'check' reads a device variable and stops the plan with an error if the value is not what you expected. |
-| `device` | `str` | yes | — | Name of the device to read, e.g. 'U_GaiaSVEReader'. |
-| `variable` | `str` | yes | — | Which variable on the device to read, e.g. 'InternalShutterA'. |
-| `expected` | `str \| float \| int` | yes | — | The value the reading must match for the plan to continue — a number or a word such as 'on'. |
-
-### RunPlanStep
-
-One step that runs another named action plan.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'run'` | yes | — | Step type. 'run' executes another named plan from the library. |
-| `plan` | `str` | yes | — | Name of the plan to run, as listed in the action library. |
-
-## `action_plan_library`
-
-### ActionPlanLibrary
-
-The collection of all named action plans for an experiment.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `plans` | `dict[str, ActionPlan]` | yes | — | All named plans, keyed by the name used to invoke them. |
-
-Example:
-
-```yaml
-schema_version: 1
-plans:
-  zero_pressure_voltage:
-    steps:
-      - do: set
-        device: U_HP_Daq
-        variable: AnalogOutput.Channel 1
-        value: 0
-  experiment_closeout:
-    steps:
-      - do: run
-        plan: zero_pressure_voltage
-```
+| `host` | `str` | yes | — | The service's host name or IP address on the facility network. |
+| `port` | `int` | yes | — | The service's TCP port. |
+| `hold_pause_s` | `float` | no | 60.0 | Seconds a shot waits for permission before the scan pauses with the service's reason (resuming waits again; a pause never fires). |
+| `holdoff_s` | `float` | no | 0.0 | Seconds added to the time a shot is fired before a safe verdict counts as the next shot's permission: its data must be taken that much after the fire (or, for a verdict with no data stamp, received that much after it). Covers a device clock ahead of the worker's, and, for interlocks with no data stamp, the time the server takes to see a shot. A device clock behind the worker's cannot be covered here: the clocks must agree. |
 
 ## `experiment_defaults`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/experiment_defaults.yaml`
 
 ### ExperimentDefaults
 
@@ -472,7 +380,6 @@ Per-experiment fallbacks applied where a scan request is silent.
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile to use when a scan doesn't name one. Leave unset if scans must always choose explicitly. |
 | `native_image_save` | `bool` | no | True | Whether cameras whose frames the PVA gateway's file plugin captures also write their LabVIEW per-shot files (PNGs) when a scan does not say (the preset's 'native_image_save' unset). On by default: the dual-write is the rollout's parity evidence until PNG retirement (GEECS-Plugins#738). Set false to run the experiment on the plugin's HDF5 stacks alone; a device without a file plugin always keeps its native files. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
-| `actions` | `DefaultActions` | no | DefaultActions(setup=[], closeout=[]) | Action plans every scan runs by default — setup plans run first (before the scan's own), closeout plans run last (after the scan's own). |
 | `apply_db_scan_defaults` | `bool` | no | True | RESERVED AND NOT HONORED. The DB's scan start/end writes (MySQL table expt_device_variable: rows with set='yes', their startvalue/endvalue) are applied by the DEVICE itself on the ScanStart/ScanEnd commands of GEECS scan mode, never by the engine: under a trigger profile with use_scan_mode they take effect exactly as under Master Control, and without one they do not. This flag changes neither. Kept for a possible future engine-side application. This is the set-side only: the get-side 'db_scalars' (standard telemetry) and 'background_telemetry' are separate and remain active. |
 | `background_telemetry` | `bool` | no | True | Read every logged scalar of the experiment that is not in a scan's device group — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — into every row of the scan as well, the way Master Control did: softly, from the gateway's monitor cache, never waited on. A device that does not answer when the scan starts is left out of that scan with a log line (and named in the run's start document), one the gateway marks INVALID reads NaN; nothing here can stall or fail a scan. On by default so no data is silently lost; a preset can override it with its own 'background_telemetry'. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
 | `description` | `str` | no | '' | Optional note about what these defaults are for. |
@@ -481,26 +388,15 @@ Example:
 
 ```yaml
 schema_version: 1
-# applied only where a scan request is silent: defaults run first,
-# then the scan's own
+# applied only where a scan request is silent
 trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_checklist]
-  closeout: [experiment_closeout]
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 ```
 
-### DefaultActions
-
-The action plans every scan of the experiment runs by default.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `setup` | `list[str]` | no | empty | Names of action plans to run before every scan, ahead of any setup plans the scan itself lists. |
-| `closeout` | `list[str]` | no | empty | Names of action plans to run after every scan, after any closeout plans the scan itself lists (teardown mirrors setup: these are the outermost bracket). |
-
 ## `derived_channels`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/gateway/derived_channels.yaml`
 
 ### DerivedChannels
 
@@ -560,6 +456,8 @@ One source variable bound to a symbol in a derived-channel formula.
 
 ## `archive_policy`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/archiver/archive_policy.yaml`
+
 ### ArchivePolicy
 
 The experiment's archive-set exceptions and sampling defaults.
@@ -567,11 +465,11 @@ The experiment's archive-set exceptions and sampling defaults.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `exclude` | `list[str]` | no | empty | fnmatch globs over full lowercase PV names that the derived rule would include but this experiment does not archive. |
-| `include` | `list[str]` | no | empty | Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:uptime'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them. |
-| `include_setpoints` | `bool` | no | True | Archive the ':SP' setpoint PV of every settable variable. They change only on puts and carry the operator's intent and the refused-write alarm history. |
-| `include_status` | `bool` | no | True | Archive every device's 'connected' status PV (state changes only) and the gateway's own heartbeat and devices_connected. |
-| `include_derived` | `bool` | no | True | Archive the gateway's derived channels declared in the experiment's gateway/derived_channels.yaml. |
+| `exclude` | `list[str]` | no | empty | *Tier: maintainer.* fnmatch globs over full lowercase PV names that the derived rule would include but this experiment does not archive. |
+| `include` | `list[str]` | no | empty | *Tier: maintainer.* Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:uptime'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them. |
+| `include_setpoints` | `bool` | no | True | *Tier: maintainer.* Archive the ':SP' setpoint PV of every settable variable. They change only on puts and carry the operator's intent and the refused-write alarm history. |
+| `include_status` | `bool` | no | True | *Tier: maintainer.* Archive every device's 'connected' status PV (state changes only) and the gateway's own heartbeat and devices_connected. |
+| `include_derived` | `bool` | no | True | *Tier: maintainer.* Archive the gateway's derived channels declared in the experiment's gateway/derived_channels.yaml. |
 | `default_sampling_period` | `float` | no | 1.0 | Sampling period (seconds) for PVs no override matches. |
 | `default_sampling_method` | `'MONITOR' \| 'SCAN'` | no | 'MONITOR' | Sampling method for PVs no override matches. |
 | `sampling_overrides` | `list[SamplingOverride]` | no | empty | Per-glob sampling rules; the last matching entry wins per field. |
@@ -580,7 +478,7 @@ Example:
 
 ```yaml
 schema_version: 1
-# the archive set is derived from the DB (monitored readbacks, :SP, connected,
+# the archive set is derived from the DB (served readbacks, :SP, connected,
 # derived channels); this file lists the exceptions
 exclude:
   - "undulator:uc_*:image_size*"
@@ -603,6 +501,8 @@ A sampling rule for the PVs matching one glob.
 | `sampling_method` | `'MONITOR' \| 'SCAN' (optional)` | no | None | MONITOR (store every change the appliance is sent; the period only sizes its buffer) or SCAN (store the latest value once per period). |
 
 ## `shot_offsets`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/shot_offsets.yaml`
 
 ### ShotOffsets
 
@@ -656,6 +556,8 @@ One device's measured edge-to-stamp latency, relative to the reference.
 
 ## `native_devices`
 
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/native_devices.yaml`
+
 ### NativeDevices
 
 The experiment's devices served by native EPICS IOCs, by GEECS device name.
@@ -663,7 +565,7 @@ The experiment's devices served by native EPICS IOCs, by GEECS device name.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `devices` | `dict[str, AravisCamera \| EpicsMotor]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
+| `devices` | `dict[str, AravisCamera \| EpicsMotor \| SetpointDevice \| Witness]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
 
 Example:
 
@@ -677,6 +579,15 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # A supply: each settable is its readback record, written at the family's
+  # setpoint role for it (current:SP) and confirmed on the readback within
+  # the IOC's set tolerance (current:TOL); the timeout is the scan's patience.
+  U_ExampleSupply: {kind: setpoint_device,
+                    settables: {current: {timeout: 10}},
+                    readbacks: [voltage], status: [fault, interlock]}
+  # A witness: the hardware count of one trigger domain's edges (Counter1Counts),
+  # recorded in every strict row; at most one per domain.
+  U_ExampleWitness: {kind: witness, counter: Counter1, domain: main}
   # An entry may name its family ('template', one of its kind's); absent,
   # the kind's default. Older readers refuse the key.
 ```
@@ -701,7 +612,40 @@ A positioner: one device, one EPICS motor record per axis.
 | `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
 | `axes` | `list[str]` | yes | — | The axes, as the motor record names under the device's prefix (e.g. ['x', 'y', 'z'] for '<experiment>:<device>:x' …). Each is a scan axis 'Device:axis'. The record owns the axis's limits, units and deadband. |
 
+### SetpointDevice
+
+A setpoint device: a supply's plain records (``NATIVE_DEVICES.md`` §8).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'setpoint_device'` | yes | — | Device kind: 'setpoint_device' (a supply's plain records: setpoint, readback, status bits). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
+| `settables` | `dict[str, SetpointSettable]` | yes | — | The settables, by readback record name under the device's prefix (e.g. {'current': {timeout: 10}} for '<experiment>:<device>:current', written at the family's setpoint role for it, 'current:SP', and confirmed within the IOC's set tolerance, 'current:TOL'). Each must be a readback the family writes through a setpoint role with a 'tolerance_by'. Each is a scan axis 'Device:record' and a setup's set target. |
+| `readbacks` | `list[str]` | no | empty | Further numeric readback records, read into each row beside the settables' own (e.g. ['voltage']). |
+| `status` | `list[str]` | no | empty | Status bits, two-state records that read 1 when tripped (e.g. ['fault', 'interlock']): a set is refused while one reads 1 and fails if one rises while it waits. |
+
+### SetpointSettable
+
+One settable of a setpoint device: how long a scan waits for its readback.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `timeout` | `float` | no | 10.0 | Seconds the scan worker waits for the readback to arrive within the IOC's set tolerance after the write, before the set fails: the client's patience, not a device fact. Size it for the slowest ramp plus the readback's scan period. The tolerance itself is the IOC's record (the family's tolerance_by role, e.g. current:TOL), never written here. |
+
+### Witness
+
+A trigger domain's witness: a hardware count of its edges, the count's stamp, an epoch.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'witness'` | yes | — | Device kind: 'witness' (a counter of a trigger domain's edges). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
+| `counter` | `str` | no | 'Counter1' | The counter record's name stem under the device's prefix: the count is '<counter>Counts'. It must be the family's count record. |
+| `domain` | `str` | no | 'main' | The trigger domain it counts (a plain word): the edges every synchronous device of that domain sees. One witness per domain; strict runs record the 'main' domain's. |
+
 ## `family_file`
+
+Tier: `code` · Not a file: package data (geecs_schemas/epics/families/): shown read-only as 'code', changed by a PR to GEECS-Plugins
 
 ### FamilyFile
 
@@ -711,11 +655,12 @@ The records of one IOC record template, by role: what every device of the family
 |---|---|---|---|---|
 | `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `template` | `str` | yes | — | The record template's name (the file's stem), e.g. 'motor_record'. |
-| `kind` | `'aravis_camera' \| 'epics_motor' \| 'setpoint_device' \| 'array_detector'` | yes | — | The native-device kind whose devices instantiate the template. |
+| `kind` | `'aravis_camera' \| 'epics_motor' \| 'setpoint_device' \| 'array_detector' \| 'witness'` | yes | — | The native-device kind whose devices instantiate the template. |
 | `description` | `str` | yes | — | One line: what the template is and where it comes from. |
 | `per_axis` | `bool` | no | False | The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names. |
 | `roles` | `list[Role]` | yes | — | The template's records, by role, in the page's order. |
 | `actions` | `dict[str, FamilyAction]` | no | empty | The page's actions and the roles each writes; a device may permit a subset. When there are actions, every writable role belongs to one. Empty: every writable role is its own permission. |
+| `panel` | `Panel (optional)` | no | None | How the kind's device page lays the roles out (the rail's groups, the readings strip); absent: the page's own default. |
 
 Example:
 
@@ -758,6 +703,8 @@ One record of the template, by what it does for a page.
 | `locked` | `bool` | no | False | Refused while a run holds the device (the run lock), or while the lock cannot be read: what a scan saves. |
 | `settled_by` | `str (optional)` | no | None | A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag. |
 | `readback` | `str (optional)` | no | None | A setpoint's readback, shown beside it (a motor's .RBV beside .VAL). |
+| `tolerance` | `float (optional)` | no | None | On a setpoint: how far its measured value may sit from the setpoint, in the role's units, before a page marks them as differing once a write has settled. Absent: 'tolerance_by', else the record's precision (one unit in the last digit shown), else exact. |
+| `tolerance_by` | `str (optional)` | no | None | On a setpoint: the readback whose value is that tolerance, where the IOC keeps one (the motor record's retry deadband, RDBD; a supply's constant <readback>:TOL, read once). It is a tolerance only while connected, not INVALID and above zero; anything else is none, never exact, and a page judges nothing. |
 | `fresh_by` | `str (optional)` | no | None | The counter role whose advance makes this value fresh (the producing plugin's ArrayCounter_RBV): statistics post only on change, so a steady value is judged by its producer. Absent: fresh while connected. |
 | `computed_by` | `str (optional)` | no | None | The flag that must be on for the value to be computed at all (ComputeCentroid): with it off the value reads 'off', not fresh. |
 | `text` | `'string' \| 'char_array' (optional)` | no | None | Read as text: a string record, or a char-array record longer than a string's 40 characters. Enums are read by state name regardless. |
@@ -766,7 +713,9 @@ One record of the template, by what it does for a page.
 | `integer` | `bool` | no | False | A write takes a whole number. |
 | `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
 | `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
-| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL), never (a command's record). |
+| `axis_of` | `list[str] (optional)` | no | None | On an array: the array role (or the list of them) this one is the x axis of, one value per sample of each of its channels (a scope's time axis beside its capture, a spectrometer's wavelengths beside its raw and its processed spectrum). A single name is read as a list of one. All are arrays; an array has one axis at most, and an axis is no array's trace. |
+| `channels_by` | `str (optional)` | no | None | On an array of several channels: the readback that counts them. The array is then [channels, samples], channels fastest (a scope's ARR capture, a disabled channel NaN). Absent: one channel. |
+| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale or a supply's set tolerance: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame). |
 
 ### FamilyAction
 
@@ -778,7 +727,51 @@ One thing a page does to a device of the family, and the roles it writes.
 | `roles` | `list[str]` | yes | — | The writable roles the action writes. |
 | `requires` | `list[str]` | no | empty | Actions a device permitting this one must permit too (a motion needs stop). |
 
+### Panel
+
+How a device page lays out the family's roles: the control rail, the readings strip and the trends.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `rail` | `list[PanelGroup]` | no | empty | The rail's control groups, in order; a role sits in one group at most. |
+| `readings` | `list[str]` | no | empty | The roles of the readings strip, in order, each with its freshness word. |
+| `buttons` | `dict[str, tuple[str, str]]` | no | empty | A two-state rail role drawn as a pair of buttons, its labels for 0 then 1 (an acquire as Stop / Start), in place of its type's control. The role is writable, in the rail, and a bit or a whole number limited to [0, 1]. |
+| `tweak` | `dict[str, TweakHint]` | no | empty | A rail setpoint drawn with its step and step buttons beside it, in place of three separate controls: the key is the setpoint, the hint its step setpoint and its forward and reverse commands, all writable and in the key's rail group. |
+| `show_while` | `dict[str, str]` | no | empty | An array an axis draws, shown by default while a monitored role reads 1 (a processed spectrum while background subtraction is on); otherwise the axis' first array. A viewer's own choice wins. |
+| `trends` | `list[PanelTrend]` | no | empty | The time plots the settables page draws under the readings, in order: each a title, unique in the panel, and the monitored numeric roles it draws against wall-clock time (a loop's value beside its setpoint). Four at most: each is a plot of its own height between the readings and the role tables, redrawn every second (five times a second on a window of 30 s or less). A role may sit in several trends and need not be a reading. A kind whose page has a data pane of its own (a camera's image, a trace's plot) draws no trends. |
+
+### PanelGroup
+
+One titled group of a device page's control rail: the roles it draws, in order.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The group's heading on the rail. |
+| `roles` | `list[str]` | yes | — | The family roles the group draws, in order; the page picks each control by the role's type. |
+| `layout` | `'fields' \| 'grid'` | no | 'fields' | 'fields': one labelled control per row; 'grid': a compact labelled grid of short controls (a PLC's channels), for a group of bits, enums and two-state whole numbers only. |
+
+### TweakHint
+
+A setpoint drawn with a step and a pair of step buttons beside it (the motor record's tweak).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `step` | `str` | yes | — | The setpoint holding the step size (the motor record's 'twv'). |
+| `forward` | `str` | yes | — | The command that steps forward by it ('twf'): the record moves, the page computes nothing. |
+| `reverse` | `str` | yes | — | The command that steps back by it ('twr'). |
+
+### PanelTrend
+
+One time plot under a device page's readings: a few roles' values against wall-clock time.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The plot's heading on the page. |
+| `roles` | `list[str]` | yes | — | The family roles the plot draws, one line each, in order: one to four monitored roles whose value is a number (a readback, a setpoint, a bit or a counter; never text, an enum, a command, an array or an image). The page labels each line by the role's label and the y axis by the roles' unit when they share one. |
+
 ## `panel_devices`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/panel_devices.yaml`
 
 ### PanelDevices
 
@@ -829,6 +822,8 @@ One device's panel data: its family and what differs from it on this device.
 
 ## `operator_policy`
 
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/operator_policy.yaml`
+
 ### OperatorPolicy
 
 Which operators may write what (``<experiment>/operator_policy.yaml``); default deny.
@@ -853,6 +848,8 @@ grants:
   - operators: [A. Operator]
     families: [PLC Digital Output]  # a GEECS DB device type: every DB device of it
     roles: [DO.Ch1, DO.Ch2]         # a DB device's role is its GEECS variable name
+  - operators: ["*"]                # alone: every operator who gives a name
+    families: [scope_contract]
 hazards:                            # the hazard confirm for DB devices' roles
   - devices: [U_ShutterPLC]
     roles: [DO.Ch1]
@@ -866,7 +863,7 @@ Some operators may write some roles of some devices, named or by family.
 |---|---|---|---|---|
 | `families` | `list[str]` | no | [] | Every device of these. |
 | `devices` | `list[str]` | no | [] | These GEECS devices. |
-| `operators` | `list[str]` | yes | — | Operators, by name. |
+| `operators` | `list[str]` | yes | — | Operators, by name; or ["*"] alone: every named operator. |
 | `roles` | `list[str]` | no | [] | Only these; empty: all allowed. |
 
 ### HazardRule
@@ -880,6 +877,8 @@ These roles of these devices need the hazard confirm, as a family role with ``co
 | `roles` | `list[str]` | yes | — | The roles a write confirms. |
 
 ## `journal_entry`
+
+Not a file: a database row: the device module's record of a write attempt
 
 ### JournalEntry
 
@@ -919,6 +918,8 @@ detail: 12.5 is outside the record's limits [0.0, 10.0]
 ```
 
 ## `screen`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/screens/<name>.yaml`
 
 ### Screen
 
@@ -974,11 +975,12 @@ One control: its kind, the label a person reads, and what it is bound to.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'readout' \| 'annotation' \| 'image'` | yes | — | The widget, one of the seven. |
-| `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label. |
+| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'select' \| 'readout' \| 'annotation' \| 'image' \| 'group'` | yes | — | The widget, one of the nine. |
+| `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label (a group's: its title). |
 | `bind` | `Binding (optional)` | no | None | What it shows and writes; none for an annotation or an image. |
 | `indicators` | `list[Binding]` | no | [] | A flipper's in and out indicators, in that order. |
 | `confirm` | `str (optional)` | no | None | A hazard note the operator confirms before the write. |
+| `values` | `ToggleValues (optional)` | no | None | A toggle's or flipper's on and off numbers: with them it binds a numeric setpoint role. |
 | `units` | `str (optional)` | no | None | Units shown, where the record carries none. |
 | `precision` | `int (optional)` | no | None | Digits after the point. |
 | `src` | `str (optional)` | no | None | An image's file name in the screens folder. |
@@ -993,9 +995,21 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `role` | `str (optional)` | no | None | The device family's role; a DB device's GEECS variable name. |
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
 | `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
-| `action` | `str (optional)` | no | None | An action plan's name in the experiment's library: a button runs it. |
+| `action` | `str (optional)` | no | None | A setup's name (its file stem in setups/): a button applies it. |
+| `group` | `str (optional)` | no | None | A rail group's title in the device's family panel, or 'settings' for the automatic layout: a group widget draws it. |
+
+### ToggleValues
+
+The two numbers a toggle writes to a numeric role (a LabVIEW boolean kept as a number).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `on` | `float` | yes | — | Written to switch it on; a readback equal to it reads on. |
+| `off` | `float` | yes | — | Written to switch it off; a readback equal to it reads off. Any other readback reads unknown. |
 
 ## `home_layout`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/home.yaml`
 
 ### HomeLayout
 
@@ -1041,6 +1055,8 @@ A device-page entry: a picker over the roster's devices of these families.
 | `families` | `list[str]` | yes | — | Family file names whose devices the picker lists. |
 
 ## `analysis_recipe`
+
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
 
 ### AnalysisRecipe
 
@@ -1238,6 +1254,8 @@ A straight-line fit of measured scalars against the scan position.
 
 ## `analysis_group`
 
+Tier: `operator` · File: `scan_analysis_configs/groups/**/<name>.yaml`
+
 ### AnalysisGroup
 
 A named set of diagnostics to run after each scan, in priority order.
@@ -1273,6 +1291,8 @@ One diagnostic in a group, optionally disabled or re-prioritised for this group.
 
 ## `himg_job`
 
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
+
 ### HimgJob
 
 One ``.himg`` data-management job over a HASO device folder.
@@ -1305,6 +1325,8 @@ How the job runs among a group's analyses.
 | `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
 
 ## `scalar_job`
+
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
 
 ### ScalarJob
 
@@ -1364,6 +1386,8 @@ How the job runs among a group's analyses.
 | `priority` | `int` | no | 1000 | Run order within a group: lower runs first. The default, 1000, runs after the recipes whose columns a formula may read. |
 
 ## `log_entry`
+
+Not a file: a database row: the logbook's store
 
 ### LogEntry
 
@@ -1453,3 +1477,99 @@ One file uploaded with an entry — a pasted screenshot, a PDF.
 | `content_type` | `str` | yes | — | Media type, e.g. image/png. |
 | `size_bytes` | `int` | yes | — | Stored size in bytes. |
 | `uploaded_at` | `datetime` | yes | — | When the file was stored. |
+
+## `setup`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/setups/<name>.yaml`
+
+### Setup
+
+A named device state: the steps that put the machine in it, in order.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `name` | `str` | yes | — | The setup's name, also its file stem, e.g. 'low_power'. |
+| `description` | `str` | no | '' | What this state is and when to use it. |
+| `steps` | `list[SetupSetStep \| WaitStep \| SetupCheckStep \| SetupApplyStep]` | yes | — | The steps to perform, in order from top to bottom. |
+| `captured` | `SetupCapture (optional)` | no | None | Where the values came from; absent for a hand-written setup. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/setups/low_power.yaml: one setup per file, the file stem its name.
+name: low_power
+description: Amp4 off, the jet at its standby pressure
+steps:
+  - {do: set, device: U_HP_Daq, variable: AnalogOutput.Channel 1, value: 0.5}
+  - {do: wait, seconds: 3}
+  - {do: check, device: U_HP_Daq, variable: AnalogInput.Channel 1, expected: 0.5,
+     tolerance: 0.02}               # a number matches within tolerance, a word exactly
+  - {do: apply, setup: shutters_closed}   # another setup, inlined here; loops refused
+captured:
+  by: A. Operator
+  at: "2026-11-07T18:02:00-08:00"
+  readbacks:
+    - {device: U_HP_Daq, variable: AnalogOutput.Channel 1}
+```
+
+### SetupSetStep
+
+One step that sets a device variable and waits for the device to finish.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'set'` | yes | — | Step type. 'set' writes a value and waits for the device. |
+| `device` | `str` | yes | — | The device, e.g. 'U_S1H'. |
+| `variable` | `str` | yes | — | The variable, e.g. 'Current'. |
+| `value` | `str \| int \| float` | yes | — | The value to write: a number, or a word such as 'on'. |
+
+### WaitStep
+
+One step that simply pauses for a number of seconds.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'wait'` | yes | — | Step type. 'wait' pauses for a fixed time. |
+| `seconds` | `float` | yes | — | How long to pause, in seconds (must be greater than 0). |
+
+### SetupCheckStep
+
+One step that reads a device variable and stops the setup on a mismatch.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'check'` | yes | — | Step type. 'check' reads a variable and stops on a mismatch. |
+| `device` | `str` | yes | — | The device to read. |
+| `variable` | `str` | yes | — | The variable to read. |
+| `expected` | `str \| int \| float` | yes | — | The value the reading must match: a number or a word. |
+| `tolerance` | `float` | no | 0.0 | How far a numeric reading may be from 'expected' and still match. Only for a numeric 'expected'; a word matches exactly. |
+
+### SetupApplyStep
+
+One step that applies another setup, inlined where it sits.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'apply'` | yes | — | Step type. 'apply' runs another setup's steps here. |
+| `setup` | `str` | yes | — | The other setup's name (its file stem). |
+
+### SetupCapture
+
+Where a setup's values came from: who captured them, when, from which readbacks.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `by` | `str` | yes | — | The operator who captured it. |
+| `at` | `datetime` | yes | — | When it was captured. |
+| `readbacks` | `list[CapturedReadback]` | no | empty | The readbacks the values were read from. |
+
+### CapturedReadback
+
+One readback a captured value was read from.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str` | yes | — | The device read. |
+| `variable` | `str` | yes | — | The variable read. |

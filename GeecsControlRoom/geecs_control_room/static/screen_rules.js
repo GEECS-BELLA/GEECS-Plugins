@@ -24,7 +24,7 @@
   // A widget's word. A bare PV has no module verdict: its alarm rules, as
   // GeecsCanopy's freshness.judge has them. A device role: the module's verdict,
   // "unknown" whenever the module or Hare is silent; a role the module does not
-  // judge (a DB device's: verdict null) by the bare PV's rules. A deferred
+  // judge (a DB device's, or a constant read once: verdict null) by the bare PV's rules. A deferred
   // widget: "unknown role" when the module lists none, "wrong kind" on a misfit.
   function judge({ hareUp, frame, bare, view, entry, fits }) {
     if (bare) {
@@ -40,7 +40,7 @@
     if (entry.read === "never") return view.state || "unknown"; // a command: the device's word
     if (!hareUp || !frame) return "unknown";
     if (!frame.connected) return "unreachable";
-    if (entry.verdict === null && entry.read === "monitor") return judge({ hareUp, frame, bare: true });
+    if (entry.verdict === null && ["monitor", "once"].includes(entry.read)) return judge({ hareUp, frame, bare: true });
     return entry.verdict || "unknown";
   }
 
@@ -58,18 +58,6 @@
     const lo = meta.controlLow, hi = meta.controlHigh;
     const set = (x) => typeof x === "number" && Math.abs(x) < 1e300;
     return set(lo) && set(hi) && lo < hi ? `[${lo} … ${hi}]` : "";
-  }
-
-  // Writable only on the module's word, never on a bare PV, never on a misfit, never while a write is in flight.
-  const writable = (entry, bare, busy, fits) => !bare && !!entry && !!entry.writable && !misfit(entry, fits) && !busy;
-
-  // The write asks first: the screen's own note or a family role's hazard, or the module's hazard mark (the policy's).
-  const hazard = (marked, entry) => !!marked || (!!entry && entry.confirm === "hazard");
-
-  // Setpoint and readback disagree at the precision shown (-0.000 is 0.000).
-  function differs(shownSp, shownRb, bothRead) {
-    const same = shownSp === shownRb || (shownSp !== "—" && Number(shownSp) === Number(shownRb));
-    return bothRead && !same;
   }
 
   const outcomeState = (word) => OUT[word] || "unknown";
@@ -98,5 +86,5 @@
   const runState = (run) => RUN[run.state] || "unknown";
   const runEnded = (run) => ["done", "failed", "stopped", "lost"].includes(run.state);
 
-  Object.assign(rules, { key, deviceView, misfit, judge, show, bounds, writable, hazard, differs, outcomeState, sourceLine, runWord, runDetail, runState, runEnded });
+  Object.assign(rules, { key, deviceView, misfit, judge, show, bounds, outcomeState, sourceLine, runWord, runDetail, runState, runEnded });
 })(typeof module === "object" ? module.exports : (window.GeecsScreenRules = {}));
