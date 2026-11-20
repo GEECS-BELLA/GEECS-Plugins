@@ -502,3 +502,126 @@ class TestDisplayPng:
             warnings.simplefilter("error", RuntimeWarning)
             png = to_display_png(np.array([[np.nan, 10.0]]), levels=(0.0, 10.0))
         assert np.asarray(Image.open(io.BytesIO(png))).tolist() == [[0, 255]]
+
+
+def _write_stamped_stack(path, frames, stamps, *, waveform=False):
+    """A capture stack whose frame *k* is stamped ``_LV + stamps[k]``."""
+    frames = np.asarray(frames, dtype=float)
+    prefix = f"{ATTRIBUTES_GROUP}/dev-hdf-var"
+    with h5py.File(path, "w") as handle:
+        handle.attrs["finalized"] = True
+        handle.create_dataset(FRAMES_DATASET, data=frames)
+        handle.create_dataset(
+            f"{prefix}-frame_acq_timestamp",
+            data=_LV + np.asarray(stamps, float) - LABVIEW_EPOCH_OFFSET,
+        )
+        if waveform:
+            for key, value in (("wave_x0", 0.0), ("wave_dx", 1.0), ("wave_samples", 3)):
+                handle.create_dataset(
+                    f"{prefix}-{key}", data=np.full(len(frames), value)
+                )
+
+
+class TestDerivedFolders:
+    """A ``<device>-<suffix>`` folder has no column: its stack joins on its device's.
+
+    The device missed shot 3 of 5, so each derived stack holds four frames,
+    marked with the shot they belong to. By order, rows 3 and 4 would show
+    shots 4 and 5.
+    """
+
+    TRACE = "U_ICT-scopeTrace.Channel1"
+    IMAGE = "UC_Cam-ImageInterp"
+    FILES = "UC_Cam-interp"
+    SHOTS = (1, 2, 4, 5)
+
+    @pytest.fixture()
+    def derived(self, tmp_path):
+        folder = (
+            tmp_path / "Expt" / "Y2026" / "11-Nov" / "26_1114" / "scans" / "Scan002"
+        )
+        for name in (self.TRACE, self.IMAGE, self.FILES):
+            (folder / name).mkdir(parents=True)
+        _write_stamped_stack(
+            folder / self.TRACE / f"{self.TRACE}.h5",
+            [[float(shot)] * 3 for shot in self.SHOTS],
+            self.SHOTS,
+            waveform=True,
+        )
+        _write_stamped_stack(
+            folder / self.IMAGE / f"{self.IMAGE}.h5",
+            [np.full((4, 4), float(shot)) for shot in self.SHOTS],
+            self.SHOTS,
+        )
+        for shot in self.SHOTS:
+            Image.fromarray(np.full((4, 4), shot, dtype=np.uint16)).save(
+                folder / self.FILES / f"{self.FILES}_{_LV + shot:.3f}.png"
+            )
+        return folder
+
+    @pytest.fixture()
+    def rows(self):
+        stamps = [_LV + 1, _LV + 2, float("nan"), _LV + 4, _LV + 5]
+        return pd.DataFrame(
+            {"U_ICT acq_timestamp": stamps, "uc_cam-acq_timestamp": stamps}
+        )
+
+    def test_a_derived_stack_shows_each_row_its_own_frame(self, derived, rows):
+        from geecs_data_utils.io.shot_traces import load_row_trace
+
+        for row in self.SHOTS:
+            trace = load_row_trace(derived, rows, self.TRACE, row)
+            assert trace.result.data[0, 1] == row
+            assert load_row_array(derived, rows, self.IMAGE, row).array[0, 0] == row
+        for found in (
+            load_row_trace(derived, rows, self.TRACE, 3),
+            load_row_array(derived, rows, self.IMAGE, 3),
+        ):
+            assert (found.kind, found.reason) == (
+                "missing",
+                "the device missed this shot",
+            )
+
+    def test_a_stamp_the_stack_lacks_is_refused(self, derived, rows):
+        rows.loc[2, "uc_cam-acq_timestamp"] = _LV + 3  # the camera saw it, no frame
+        found = load_row_array(derived, rows, self.IMAGE, 3)
+        assert (found.kind, found.reason) == ("missing", "no stack frame for this shot")
+
+    def test_the_device_s_valid_flag_refuses_the_derived_stack(self, derived, rows):
+        rows["uc_cam-valid"] = [True, False, True, True, True]
+        assert row_acq_timestamp(rows, self.IMAGE, 2, derived) == (None, True)
+        assert row_acq_timestamp(rows, self.IMAGE, 4, derived) == (_LV + 4, True)
+
+    def test_a_derived_stack_s_own_column_wins(self, derived, rows):
+        # Its own stamps say rows 1..4 are frames 1, 2, 4, 5.
+        rows["u_ict_scopetrace_channel1-acq_timestamp"] = [
+            _LV + 1,
+            _LV + 2,
+            _LV + 4,
+            _LV + 5,
+            float("nan"),
+        ]
+        assert row_acq_timestamp(rows, self.TRACE, 3, derived) == (_LV + 4, True)
+        assert row_acq_timestamp(rows, self.TRACE, 5, derived) == (None, True)
+
+    def test_derived_per_shot_files_still_fall_back_to_order(self, derived, rows):
+        assert row_acq_timestamp(rows, self.FILES, 4, derived) == (None, False)
+        # Unchanged: by order, row 3 is the third file (shot 4's).
+        found = load_row_array(derived, rows, self.FILES, 3)
+        assert (found.kind, found.array[0, 0], found.cacheable) == ("native", 4, False)
+
+    def test_a_prefix_that_names_no_device_behaves_as_before(self, derived, rows):
+        rows = rows.rename(columns={"uc_cam-acq_timestamp": "other-acq_timestamp"})
+        assert row_acq_timestamp(rows, self.IMAGE, 3, derived) == (None, False)
+        # By order: row 3 is frame index 2 (shot 4's).
+        assert load_row_array(derived, rows, self.IMAGE, 3).array[0, 0] == 4
+
+    def test_without_the_folder_nothing_is_joined_on_a_parent(self, derived, rows):
+        assert row_acq_timestamp(rows, self.IMAGE, 4) == (None, False)
+        assert row_acq_timestamp(rows, f"{self.IMAGE}/..", 4, derived) == (None, False)
+
+    def test_reading_leaves_the_tree_untouched(self, derived, rows):
+        before = _tree_snapshot(derived)
+        for device in (self.TRACE, self.IMAGE, self.FILES):
+            load_row_array(derived, rows, device, 4)
+        assert _tree_snapshot(derived) == before

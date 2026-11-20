@@ -414,8 +414,9 @@ is **explicit-opt-in**: `--processing-configs <tree>` /
 `create_app(processing_config_dir=…)` names the configs tree — the
 portal deliberately never falls back to the global config resolution
 (two competing resolution paths exist, so the portal names its tree
-explicitly). The `analysis` extra installs the core runtime. A
-missing config root or core runtime hides the selector and 404s the param.
+explicitly). The `analysis` extra installs ScanAnalysis, whose preview
+runs the recipe (the analysis core itself is a hard dependency). A
+missing config root or extra hides the selector and 404s the param.
 Errors map honestly: unknown diagnostic 404,
 denylisted/miswired 400, analyzer failure 400 — never a 500.
 **Analysis runs** (0.16.0): `GET /api/analysis/catalog` (GEECS-MCP
@@ -541,8 +542,7 @@ thread still releases before any next job starts);
 `no_data` (the worklist runner's own mapping).  The factory seam
 (`create_app(analysis_factory=…)`) is how the tests drive the whole
 ladder without ScanAnalysis; the default is `load_diagnostic` +
-`create_scan_analyzer`, needing the `analysis` extra (which since
-0.16.0 also carries ScanAnalysis).  The factory (and `__main__`,
+`create_scan_analyzer`, needing the `analysis` extra (ScanAnalysis).  The factory (and `__main__`,
 earlier) pins `matplotlib.use("Agg")` before importing ScanAnalysis:
 its base class uses pyplot, and the one worker thread is what
 serialises pyplot *in this process* — never add a second pyplot user
@@ -649,9 +649,10 @@ design rules"). The rules that are the portal's own:
   went (the Images page's bins are the strip's own tiles). Deleting any
   of it is an `/api` change for the owner, not a cleanup.
 - **Accepted debt, for a later PR of the arc:** the other
-  duplicates the move brought in (`plotter/scans.default_x` is
-  `routes/plot_api._default_x`; `scans.display_name` overlaps
-  `_pretty_names`; fold toward the plotter's, which a page uses). That PR also hands the plotter the portal's catalog
+  duplicate the move brought in (`scans.display_name` overlaps
+  `_pretty_names`; fold toward the plotter's, which a page uses). The
+  default X is already one rule, `analysis.default_x`: the one module
+  both the scan page's routes and the plotter import. That PR also hands the plotter the portal's catalog
   (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
   folder-only even under `--tiled`; the folder catalog caches finished
   scans itself), and with it folds the Add-scan drawer's day listing
@@ -672,9 +673,13 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
 - **Numerics are imported, never written here.** Column picks, coercion and
   the shot axis come from `geecs_data_utils.tiled_schema`; the frame from
   `geecs_data_utils.scan_frame` (the s-file alone — no Tiled run). Binning
-  and filters are `geecs_data_utils.data.binning` / `.row_filters`, fits
-  `data.curve_fit.fit_curve`. New math goes into GEECS-Data-Utils first,
-  in its own PR.
+  and filters are `geecs_data_utils.data.binning` / `.row_filters`. Fits
+  (`geecs_analysis.algorithms.curve_fit.fit_curve`) and the image
+  clean-ups (`geecs_analysis.image_prep.ImagePrep`; a background comes
+  off with the `background_frame` step) are GEECS-Analysis's, which is
+  why the portal depends on it outright, not through the `analysis`
+  extra. New table math goes into GEECS-Data-Utils first, new fits and
+  image numerics into GEECS-Analysis, each in its own PR.
 - **Read-only on the share.** A scan not on the share is a 404 or the
   page's error state, never created
   (`tests/plotter/test_app.py::test_a_lookup_never_creates_a_scan_folder`).
@@ -719,7 +724,7 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
 - **Fits** are GEECSplotter's Fit menu, one per Y list (`y_fit`,
   `y2_fit`, `y3_fit`, plus `*_fit_order` for a polynomial; `"none"` by
   default). `plotter.figures.FITS` is the menu (LabVIEW's names, only the
-  models data-utils has), `fit_columns` fits the drawn per-shot points,
+  models GEECS-Analysis has), `fit_columns` fits the drawn per-shot points,
   and `shots_figure(…, fits=)` draws each fit dashed on its slot's axis.
   Binned (the author, 2026-11-12), `fit_bins` fits the bin means drawn,
   unweighted, at their X (`binned_figure(…, fits=)`; in the overlay, each
@@ -727,9 +732,9 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   `/plot/api/figure` returns the numbers as `fits` (each term
   `value ± stderr`, `api.plus_minus`), and the snippet rebuilds them. A
   fit name is stored as a plain string, so a set naming a fit a newer copy
-  added still loads ("not in this version"). A new model is a data-utils
-  PR first (its curve and `CurveFit.formula` live there), then a `FITS`
-  entry.
+  added still loads ("not in this version"). A new model is a
+  GEECS-Analysis PR first (its curve and `CurveFit.formula` live there),
+  then a `FITS` entry.
 - **Several scans** (the XY plot and the Images page; the author's design, 2026-10-29):
   the set's `extra_scans` (`[{day, scan}]`, from any day) beside the
   main `day`/`scan`, which the steppers, the day picker and the 2-D map
@@ -904,7 +909,12 @@ folder catalog loaded no event table — `routes.common._file_shot`;
 convention), vendor-SDK formats (`.himg`/`.has`) as a path card, never
 rendered.  The event column matches through
 `tiled_schema.device_acq_timestamp_column`; a device that missed the
-shot 404s — a missing shot must never render a neighbour's image.  Display rendering is
+shot 404s — a missing shot must never render a neighbour's image.  A
+derived folder's capture stack (`<device>-<suffix>`, no column or record
+of its own) joins on the device it is named after
+(`shot_images.stack_parent_device`; `routes.common._acq_timestamp` asks
+the shot table's record for that device first); a derived folder of
+per-shot files still falls back to order.  Display rendering is
 percentile-windowed (1–99.7) 16-bit → 8-bit PNG.  **Lazy per-shot
 loading is a hard rule** (the NAS pathology is file count) — never
 eager-thumbnail a scan from native files.  Device names are validated

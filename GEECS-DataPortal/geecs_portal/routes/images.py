@@ -58,7 +58,7 @@ def api_run_trace(
         raise HTTPException(
             status_code=404, detail="shot beyond the run's recorded events"
         )
-    acq, column_present = _acq_timestamp(detail, device, shot)
+    acq, column_present = _acq_timestamp(detail, device, shot, folder)
     if column_present and acq is None:
         raise HTTPException(
             status_code=404, detail="device missed this shot (no timestamp)"
@@ -125,7 +125,7 @@ def run_image(
         raise HTTPException(
             status_code=404, detail="shot beyond the run's recorded events"
         )
-    acq, column_present = _acq_timestamp(detail, device, shot)
+    acq, column_present = _acq_timestamp(detail, device, shot, folder)
     if column_present and acq is None:
         raise HTTPException(
             status_code=404, detail="device missed this shot (no timestamp)"

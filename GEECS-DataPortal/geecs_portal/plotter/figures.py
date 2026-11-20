@@ -7,7 +7,7 @@ portal's (``geecs_portal.figures``), imported, so the two cannot drift;
 the layout (no legend, the ladder) is this page's own. The fits (:func:`fit_columns` on the shots, :func:`fit_bins` on the bin
 means; the ``fits`` of :func:`shots_figure` and :func:`binned_figure`) are
 the plotter's own: GEECSplotter's Fit menu, the numbers from
-``geecs_data_utils.data.curve_fit``.
+``geecs_analysis.algorithms.curve_fit``.
 
 The page asks for :data:`THEMED_PALETTE`, whose placeholder hex
 :func:`page_figure` swaps for ``$tok:--name`` sentinels that the browser
@@ -22,7 +22,7 @@ from typing import Mapping, Optional, Sequence, Union
 
 import plotly.graph_objects as go
 import plotly.io as pio
-from geecs_data_utils.data.curve_fit import CurveFit, fit_curve
+from geecs_analysis.algorithms.curve_fit import CurveFit, fit_curve
 
 # One palette, one serializer, one reading of the display cosmetics. The
 # page's palette and serializer are re-exported for this page's routes.
@@ -46,7 +46,7 @@ MAX_Y = 3
 _OUTER_AXIS_GAP = 20
 
 #: GEECSplotter's Fit menu, in its order and with its names, for the models
-#: ``geecs_data_utils.data.curve_fit`` has so far; ``none`` is no fit.
+#: ``geecs_analysis.algorithms.curve_fit`` has so far; ``none`` is no fit.
 FITS: dict[str, str] = {
     "none": "None",
     "gaussian": "Gaussian",

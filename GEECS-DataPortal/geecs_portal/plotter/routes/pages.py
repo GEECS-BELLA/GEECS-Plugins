@@ -32,7 +32,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
-from geecs_data_utils.data.image_prep import ImagePrep
+from geecs_analysis.image_prep import ImagePrep
 from geecs_data_utils.data.scan_merge import (
     SCAN_COLUMN,
     default_bin_tolerance,
@@ -40,6 +40,7 @@ from geecs_data_utils.data.scan_merge import (
 )
 from geecs_data_utils.tiled_catalog import RunDetail
 
+from geecs_portal import analysis
 from geecs_portal.plotter import figures, images, maps, multi, scans
 from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.routes.images import (
@@ -466,8 +467,6 @@ def _page(
 
 def _filter_groups(text: str) -> list[dict]:
     """The shot filters' groups as the rail's chips; none for bad or empty text."""
-    from geecs_portal import analysis
-
     try:
         filters = analysis.parse_filters(text)
     except analysis.BadParam:
@@ -524,7 +523,9 @@ def _fill(
     # scan variable of whichever scan is open. With it off, an unset X is
     # the scan variable too and X "" is the shot number.
     x = settings.x
-    chosen_x = scans.default_x(run, picks) if settings.x_auto or x is None else x
+    chosen_x = (
+        analysis.default_x(run.start_doc, picks) if settings.x_auto or x is None else x
+    )
     page["x"] = chosen_x if chosen_x in picks else ""
     # Default Y: the first measurement, not the bookkeeping.
     others = [

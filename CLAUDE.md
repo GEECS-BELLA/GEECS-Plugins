@@ -244,13 +244,16 @@ GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
 GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         seam + the shared browser helpers; the scan
                         browser of the suite — never imports the scanner
-                        or tiled directly)
-                        (+ GEECS-Analysis + ScanAnalysis +
-                        GEECS-Schemas, optional via
-                        the `analysis` extra — core processing/preview of
-                        recipes, the analysis documents' schema and
-                        validate the configurator asks over HTTP, and the
-                        Analysis tab's direct ScanAnalyzer runs)
+                        or tiled directly),
+                        GEECS-Analysis (the plot pages' numerics: the
+                        curve fits, the image clean-ups and the
+                        background step; and the core that processes
+                        and previews recipes), GEECS-Schemas (the
+                        analysis documents' schema and validate the
+                        configurator asks over HTTP)
+                        (+ ScanAnalysis, optional via the `analysis`
+                        extra — the recipe preview and the Analysis
+                        tab's direct ScanAnalyzer runs),
                         GeecsWebTheme (the shared palette; the portal
                         mounts it at /theme, and the run page's embedded
                         configurator editor loads kit.js and form.js
