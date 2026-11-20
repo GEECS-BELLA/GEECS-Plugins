@@ -1,0 +1,50 @@
+# GeecsAnalysisWorker (scan-analysis-worker) - systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# - see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time; runtime values (GEECS_EXPERIMENT, GEECS_CONFIGS_ROOT, the
+# GEECS_ANALYSIS_WORKER_* keys) reach the process through EnvironmentFile=.
+#
+# Opt-in by site: bootstrap_host.sh deploys it only where site.env sets
+# GEECS_ANALYSIS_WORKER_PORT. The Data Portal reaches it at
+# --analysis-worker-url (GEECS_PORTAL_EXTRA_ARGS); the portal never starts
+# one, so this unit is what owns the process.
+#
+# The worker starts idle. It runs the jobs it is sent, and watches a day for
+# new scans only after an operator starts a watch (the day page's "Watch for
+# new scans"); a watch is held in memory and does not survive a restart.
+#
+# Upgrade:
+#   git -C <checkout> pull && poetry install && sudo systemctl restart geecs-analysis-worker
+
+[Unit]
+Description=GEECS analysis worker (batch-runs analysis groups over a day's scans)
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+# Its own clone: the code that analyses moves with no other service's pull
+# (docs/platform/fleet_map.md, one clone per service).
+WorkingDirectory=@CHECKOUT_ROOT@/analysis-worker-checkout/GeecsAnalysisWorker
+# The bind address and port are read from GEECS_ANALYSIS_WORKER_BIND and
+# GEECS_ANALYSIS_WORKER_PORT by the process (an unset ${VAR} here would be
+# an empty argument). The API is unauthenticated: keep the bind on the
+# loopback unless the portal runs on another host. The quotes matter: a
+# configs root may carry spaces.
+ExecStart=@POETRY@ run scan-analysis-worker --experiment ${GEECS_EXPERIMENT} --configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_ANALYSIS_WORKER_EXTRA_ARGS
+# No StateDirectory: the job list is in memory, and the durable result is
+# each scan's analysis_status/ records on the data share.
+Restart=on-failure
+RestartSec=5
+# A stop waits for the running task; past this the process is killed and
+# the task's claim goes stale, for the next job to take over.
+TimeoutStopSec=60
+SyslogIdentifier=geecs-analysis-worker
+
+[Install]
+WantedBy=multi-user.target

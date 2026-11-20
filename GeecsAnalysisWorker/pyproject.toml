@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "geecs-analysis-worker"
+version = "0.1.0"
+description = "The analysis worker's HTTP service: batch-runs ScanAnalysis groups over a day's scans"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_analysis_worker" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+fastapi = ">=0.110"
+uvicorn = ">=0.29"
+pydantic = ">=2.7"
+# The job runner (scan_analysis.worker: Worker, JobSpec, WatchSpec), the
+# group loader and the task queue. This package adds the HTTP API and the
+# command, nothing else.
+scananalysis = { path = "../ScanAnalysis", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+httpx = ">=0.27"
+
+[tool.poetry.scripts]
+scan-analysis-worker = "geecs_analysis_worker.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

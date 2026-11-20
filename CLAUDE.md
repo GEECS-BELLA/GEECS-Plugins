@@ -9,7 +9,8 @@ tooling. Each subdirectory is an independent Python package with its own
 | Package | Description |
 |---|---|
 | `GEECS-Analysis/` | The pure analysis core: coordinate-aware steps and numpy-free specs; every consumer (ScanAnalysis, the portal, the optimizer) runs recipes through it |
-| `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers, and the analysis worker (`scan-analysis-worker`: batch-runs analysis groups over a day's scans through the task queue; the Data Portal's day page reaches it over HTTP) |
+| `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers, and the analysis worker's job runner (`scan_analysis.worker`: a job is one analysis group over a day's scans, run task by task through the task queue). No web code |
+| `GeecsAnalysisWorker/` | The analysis worker's HTTP service (`scan-analysis-worker`, port 8900): the API and the command over ScanAnalysis' job runner, and its unit template. The Data Portal's day page reaches it over HTTP alone and never starts it; nothing imports it. It starts idle: a watch for a day's new scans runs only once an operator starts one |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, setups, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisRecipe` v3 document — the analysis core's native shape: input, ordered steps, a measure, the per-frame `figure`, the summary kinds — the `HimgJob` document for the `.himg` data-management jobs, `AnalysisGroup`, and `load_analysis_document` reading a top-level `kind` as a job, else a recipe; the v2 `AnalysisDiagnostic` was deleted in #1039) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
 | `GeecsBluesky/` | Bluesky RunEngine backend, rebuilt as a native Bluesky application (#807): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the registered plans: `count`, `sweep`, `optimize`, `mv`, `apply_setup`, the shot-offset calibration), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
@@ -304,7 +305,14 @@ GeecsConfigurator    →  GEECS-Schemas (the registry, the models, the tiers,
 ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, GEECS-Schemas
                         (no web code: the analysis documents are edited
                         in the configurator, checked and previewed by
-                        the portal)
+                        the portal, and the analysis worker's HTTP API
+                        is GeecsAnalysisWorker's)
+GeecsAnalysisWorker  →  ScanAnalysis (the job runner, the group loader
+                        and the task queue: scan_analysis.worker) — the
+                        HTTP API and the scan-analysis-worker command
+                        over it, fastapi + uvicorn. Its clients (the
+                        portal's day page) reach it over HTTP alone;
+                        nothing imports it
 GEECS-MCP            →  (NO runtime intra-repo edge — the
                         `mcp-is-a-client` import contract: an httpx
                         client of GeecsScanner's, GEECS-DataPortal's and
@@ -363,7 +371,11 @@ actively developed analysis packages. `LogMaker4GoogleDocs` is a standalone lega
    (the legacy `Array1D`/`Array2DScanAnalyzer` wrappers around ImageAnalysis
    were retired 2026-10-16 — tag `legacy-analysis-final`)
 5. The **Data Portal** displays saved results; analysis is explicitly requested
-   there. Automatic watching and Google Docs uploads are retired.
+   there, a scan at a time from its Analysis tab or a day at a time
+   through the analysis worker. Nothing watches by default: the worker
+   watches a day for new scans only once an operator starts a watch from
+   the day page, and a restart ends it. LiveWatch and Google Docs uploads
+   are retired.
 
 ## GEECS Data Folder Convention
 
@@ -470,7 +482,8 @@ Every package has a `CHANGELOG.md` following
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
 `GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-MCP/`, `GEECS-DataPortal/`,
 `GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`,
-`GeecsArchiver/`, `GeecsCanopy/`, `GeecsControlRoom/`, `GeecsConfigurator/`
+`GeecsArchiver/`, `GeecsCanopy/`, `GeecsControlRoom/`, `GeecsConfigurator/`,
+`GeecsAnalysisWorker/`
 (`scripts/doc_audit.py` checks this list and the repository map above
 against the packages on disk).
 

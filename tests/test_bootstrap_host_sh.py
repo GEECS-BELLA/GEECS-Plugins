@@ -621,3 +621,17 @@ def test_a_site_without_the_services_host_renders_no_mcp_section(
     )
     assert only.returncode != 0
     assert "GEECS_SERVICES_HOST" in only.stderr + only.stdout
+
+
+def test_the_analysis_worker_is_deployed_only_where_the_site_names_its_port(
+    tmp_path: Path,
+) -> None:
+    """The example names no port: a full run deploys none, and --only says why."""
+    full = _run(tmp_path, "exit 1\n")
+    assert full.returncode == 0, full.stderr
+    assert "analysis-worker" not in full.stdout
+    (tmp_path / "bin" / "systemctl").unlink()
+    (tmp_path / "bin").rmdir()
+    only = _run(tmp_path, "exit 1\n", "--only", "analysis-worker")
+    assert only.returncode != 0
+    assert "GEECS_ANALYSIS_WORKER_PORT" in only.stderr

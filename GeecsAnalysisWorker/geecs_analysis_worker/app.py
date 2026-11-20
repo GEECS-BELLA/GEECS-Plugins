@@ -1,4 +1,4 @@
-"""The analysis worker's HTTP API (FastAPI, the ``worker`` extra).
+"""The analysis worker's HTTP API (FastAPI) over ScanAnalysis' job runner.
 
 ::
 
@@ -16,7 +16,8 @@
     POST /api/watch/stop         stop watching (its queued jobs still run)
 
 Unauthenticated, like the portal's run verb: bind it to the host or the
-lab network only.  Errors: an unknown group or a day with no scans is a
+lab network only.  A watch runs only after a ``POST /api/watch``: nothing
+here or in the command starts one.  Errors: an unknown group or a day with no scans is a
 404, a malformed body a 422.
 """
 

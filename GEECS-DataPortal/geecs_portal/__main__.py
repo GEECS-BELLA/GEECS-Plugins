@@ -7,10 +7,10 @@ data share's scan folders (``FolderScanCatalog``), read directly; with
 does not claim beside it, which is what the lab service runs.  The service is read-only except explicit analysis
 runs; see the package ``CLAUDE.md``.
 
-Once the server is up, the portal opens in a browser, as GEECSplotter
-opens its window: the system default, ``--browser chrome`` (any name
-Python's :mod:`webbrowser` knows), or ``--browser none`` (what the
-service unit passes). A Linux host with no display opens nothing either
+The portal opens nothing by default. ``--browser default`` opens it in
+the system browser once the server is up, as GEECSplotter opens its
+window, and ``--browser chrome`` (any name Python's :mod:`webbrowser`
+knows) in that one. A Linux host with no display opens nothing either
 way.
 """
 
@@ -199,21 +199,11 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--analysis-worker-autostart",
-        action="store_true",
-        help=(
-            "development: when the worker URL is this host's and nothing "
-            "answers, start one (python -m scan_analysis.worker over "
-            "--processing-configs, left running when the portal stops). A "
-            "deployment runs the worker as its own unit instead"
-        ),
-    )
-    parser.add_argument(
         "--browser",
-        default="default",
-        help="open the portal once the server is up: 'default' (the system "
-        "browser), a name such as 'chrome', 'safari' or 'firefox', or 'none' "
-        "(what the service unit passes)",
+        default="none",
+        help="open the portal once the server is up: 'none' (the default: "
+        "open nothing), 'default' (the system browser), or a name such as "
+        "'chrome', 'safari' or 'firefox'",
     )
     args = parser.parse_args()
 
@@ -244,14 +234,9 @@ def main() -> None:
     catalog = CachingScanCatalog(source)
     worker = None
     if args.analysis_worker_url:
-        from geecs_portal.batch import AutoStart, WorkerLink
+        from geecs_portal.batch import WorkerLink
 
-        autostart = None
-        if args.analysis_worker_autostart:
-            if not args.processing_configs:
-                parser.error("--analysis-worker-autostart needs --processing-configs")
-            autostart = AutoStart(Path(args.processing_configs), args.experiment)
-        worker = WorkerLink(args.analysis_worker_url, autostart=autostart)
+        worker = WorkerLink(args.analysis_worker_url)
     app = create_app(
         catalog,
         default_experiment=args.experiment,

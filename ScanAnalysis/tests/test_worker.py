@@ -8,7 +8,6 @@ import time
 from datetime import date
 from pathlib import Path
 
-import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_data_utils.data.sfile import sfile_path_for_scan
 
@@ -278,58 +277,16 @@ def test_a_watch_waits_for_a_day_not_started_yet(tmp_path):
         worker.stop(1)
 
 
-class TestApi:
-    @pytest.fixture()
-    def client(self, tmp_path):
-        pytest.importorskip("fastapi")
-        from fastapi.testclient import TestClient
-
-        from scan_analysis.worker.app import create_worker_app
-
-        build_day(tmp_path)
-        groups = tmp_path / "configs" / "groups" / "PW"
-        groups.mkdir(parents=True)
-        (tmp_path / "configs" / "analyzers").mkdir()
-        (groups / "empty.yaml").write_text("name: empty\nanalyzers: []\n")
-        worker = make_worker(tmp_path, [FakeAnalyzer("A")])
-        with TestClient(create_worker_app(worker)) as c:
-            yield c
-
-    def test_health_groups_plan_submit(self, client):
-        assert client.get("/health").json()["ok"] is True
-        groups = client.get("/api/groups").json()["groups"]
-        assert [g["id"] for g in groups] == ["PW/empty"]
-        body = {"day": "2026-03-10", "group": "PW/empty"}
-        plan = client.post("/api/plan", json=body).json()
-        assert [t["scan"] for t in plan["tasks"]] == [1, 2]
-        assert plan["open_scans"] == [3]
-        job = client.post("/api/jobs", json=body)
-        assert job.status_code == 202
-        job_id = job.json()["id"]
-        for _ in range(200):
-            got = client.get(f"/api/jobs/{job_id}").json()
-            if got["state"] == "done":
-                break
-            time.sleep(0.02)
-        assert got["counts"] == {"done": 2}
-        assert client.get("/api/jobs").json()["jobs"][0]["id"] == job_id
-
-    def test_errors(self, client):
-        bad = {"day": "2026-03-10", "group": "nope"}
-        assert client.post("/api/plan", json=bad).status_code == 404
-        assert client.post("/api/jobs", json=bad).status_code == 404
-        missing = {"day": "2026-03-11", "group": "PW/empty"}
-        assert client.post("/api/plan", json=missing).status_code == 404
-        assert client.post("/api/jobs", json={"group": "x"}).status_code == 422
-        assert client.get("/api/jobs/j999").status_code == 404
-
-    def test_watch_routes(self, client):
-        assert client.get("/api/watch").json() == {"watch": None}
-        body = {"day": "2026-03-10", "group": "PW/empty", "analyzers": ["A"]}
-        watch = client.post("/api/watch", json=body).json()["watch"]
-        assert watch["group"] == "PW/empty" and watch["analyzers"] == ["A"]
-        assert client.get("/api/watch").json()["watch"]["day"] == "2026-03-10"
-        assert client.post("/api/watch/stop").json() == {"watch": None}
-        assert (
-            client.post("/api/watch", json={**body, "group": "nope"}).status_code == 404
-        )
+def test_a_worker_starts_with_no_watch(tmp_path):
+    """Nothing watches until a caller asks: building, starting and running a job start none."""
+    build_day(tmp_path)
+    worker = make_worker(tmp_path, [FakeAnalyzer("A")])
+    assert worker.watching() is None
+    worker.start()
+    try:
+        assert worker.watching() is None
+        wait_finished(worker, worker.submit(spec()).id)
+        assert worker.watching() is None
+        assert worker._watch_thread is None
+    finally:
+        worker.stop(1)
