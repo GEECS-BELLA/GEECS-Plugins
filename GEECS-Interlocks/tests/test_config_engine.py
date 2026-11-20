@@ -68,7 +68,7 @@ class TestLoad:
         from pathlib import Path
 
         example = Path(__file__).parents[1] / "examples" / "demo_interlocks.yaml"
-        assert len(load_interlocks(example)[0].interlocks) == 6
+        assert len(load_interlocks(example)[0].interlocks) == 7
 
 
 def test_device_variables_skips_disabled():
@@ -98,7 +98,7 @@ class TestEngine:
 
     def test_stream_serves_the_engine(self, engine):
         with socket.create_connection(engine.stream.address, timeout=2) as sock:
-            assert read_frame(sock).startswith("WARNING! TRIPPED | TRIPPED: vac")
+            assert read_frame(sock).startswith("WARNING! vac - ")
 
     def test_reload_swaps_and_keeps_the_stream(self, engine):
         write(engine.path, threshold("vac"), threshold("second"))

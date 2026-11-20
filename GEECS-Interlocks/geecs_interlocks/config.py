@@ -11,8 +11,10 @@ client half of the site profile)::
     status_port = 5001
     web_host = 0.0.0.0        # where the web client listens
     web_port = 8600
+    external_host = 0.0.0.0   # where external (UDP) signals are received
+    wire_format = legacy      # or summary (geecs_interlocks.wire)
 
-Every key is optional. Without them both servers listen on ``127.0.0.1``
+Every key is optional. Without them every server listens on ``127.0.0.1``
 only — a laptop running the demo is never reachable from the network until
 its config says so. Command-line flags override the file.
 
@@ -29,6 +31,8 @@ from pathlib import Path
 from geecs_core.configs_repo import read_config_entry, scanner_configs_base
 from geecs_schemas import INTERLOCKS_FOLDER, InterlockSet
 from pydantic import BaseModel, ConfigDict, Field
+
+from geecs_interlocks.wire import DEFAULT_WIRE_FORMAT, WireFormat
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,8 @@ class Settings(BaseModel):
     status_port: int = Field(DEFAULT_STATUS_PORT, ge=0, le=65535)
     web_host: str = LOCAL_HOST
     web_port: int = Field(DEFAULT_WEB_PORT, ge=0, le=65535)
+    external_host: str = LOCAL_HOST
+    wire_format: WireFormat = DEFAULT_WIRE_FORMAT
 
     @classmethod
     def from_config_ini(cls, config_path: Path | None = None) -> Settings:
@@ -60,7 +66,14 @@ class Settings(BaseModel):
 
         values: dict[str, str] = {
             key: value
-            for key in ("status_host", "status_port", "web_host", "web_port")
+            for key in (
+                "status_host",
+                "status_port",
+                "web_host",
+                "web_port",
+                "external_host",
+                "wire_format",
+            )
             if (value := entry(key)) is not None
         }
         experiment = read_config_entry("Experiment", "expt", config_path)

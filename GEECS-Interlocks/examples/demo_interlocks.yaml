@@ -1,8 +1,11 @@
 # Demo interlocks for `geecs-interlocks serve --demo` and `--fake-devices`.
-# The device names are made up: the demo scripts their values, so every
-# state (OK, TRIPPED, settling, waiting, a NaN, a dropout) shows up within
-# a couple of minutes.
+# The device names are made up: the demo scripts their values, sends the
+# external signal's UDP packets itself, and moves the windmill's settings
+# now and then, so every state (OK, TRIPPED, settling, waiting, a NaN, a
+# dropout, a warning packet, a changed setting) shows up within a couple of
+# minutes. Pass --arm-at-start to arm the windmill's settings.
 schema_version: 1
+stale_after_s: 5
 interlocks:
   - name: chamber vacuum
     description: Main chamber pressure below the HV limit
@@ -14,17 +17,14 @@ interlocks:
         limit: 1.0e-5
         hysteresis: 1.0e-6
     settle_s: 3
-  - name: camera saturation
-    description: Pointing camera not saturated
+  - name: pointing camera
+    description: Not saturated, and the centroid on its reference (one group)
     conditions:
       - kind: threshold
         device: DEMO_PointingCam
         variable: MaxCounts
         operator: ">="
         limit: 4000
-  - name: beam pointing
-    description: Centroid within tolerance of its reference
-    conditions:
       - kind: alignment
         device: DEMO_PointingCam
         variable: CentroidX
@@ -41,6 +41,18 @@ interlocks:
     conditions:
       - kind: stale
         device: DEMO_Chiller
+  - name: stage motion
+    description: The stage controller's UDP packets (one per change)
+    conditions:
+      - kind: external
+        port: 5050
+        source: stage controller
+  - name: windmill settings
+    description: Position and speed held at their armed values
+    conditions:
+      - kind: config_change
+        device: DEMO_Windmill
+        variables: [Position, Speed]
   - name: spare (disabled)
     enabled: false
     conditions:

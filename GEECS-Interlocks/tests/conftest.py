@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from geecs_schemas import InterlockSet
 
+from geecs_interlocks.external import NO_SIGNAL, SignalReading
 from geecs_interlocks.sources import NOT_CONNECTED, DeviceReading
 
 
@@ -39,6 +40,26 @@ class FakeSource:
         return self.now
 
 
+class FakeSignals:
+    """External signals the test sends, stamped on *source*'s clock."""
+
+    def __init__(self, source: FakeSource) -> None:
+        self._source = source
+        self._readings: dict[int, SignalReading] = {}
+
+    def send(self, port: int, text: str) -> None:
+        from geecs_interlocks.external import decode
+
+        old = self._readings.get(port, NO_SIGNAL)
+        state = decode(text.encode())
+        self._readings[port] = SignalReading(
+            old.state if state is None else state, self._source.now, text
+        )
+
+    def signal(self, port: int) -> SignalReading:
+        return self._readings.get(port, NO_SIGNAL)
+
+
 def threshold(name: str = "vac", **overrides: Any) -> dict[str, Any]:
     condition = {
         "kind": "threshold",
@@ -58,3 +79,8 @@ def interlock_set(*entries: dict[str, Any]) -> InterlockSet:
 @pytest.fixture
 def source() -> FakeSource:
     return FakeSource()
+
+
+@pytest.fixture
+def signals(source: FakeSource) -> FakeSignals:
+    return FakeSignals(source)

@@ -5,7 +5,7 @@
     geecs-interlocks serve --config main           # the experiment's interlocks/main.yaml, real devices
     geecs-interlocks serve --demo --interlocks examples/demo_interlocks.yaml
     geecs-interlocks serve --fake-devices --interlocks examples/demo_interlocks.yaml
-    geecs-interlocks listen 127.0.0.1:5001         # print what Master Control receives
+    geecs-interlocks listen 127.0.0.1:5001         # print what Master Control receives (either format)
 
 ``--demo`` replays scripted readings; ``--fake-devices`` starts fake GEECS
 devices on localhost and reads them through geecs_core. Neither needs the
@@ -30,12 +30,14 @@ from geecs_interlocks.config import (
     load_interlocks,
 )
 from geecs_interlocks.engine import Engine, SourceFactory, geecs_sources
-from geecs_interlocks.wire import parse_status, read_frame
+from geecs_interlocks.wire import WIRE_FORMATS, parse_status, read_frame
 
 logger = logging.getLogger("geecs_interlocks")
 
 #: Seconds between two reconnect attempts of ``listen``.
 LISTEN_RETRY_S = 2.0
+#: How long ``--arm-at-start`` waits for the settings to arrive.
+ARM_WAIT_S = 30.0
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -66,6 +68,19 @@ def _parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--status-host", help="Master Control stream's bind address")
     serve.add_argument("--status-port", type=int, help="Master Control stream's port")
+    serve.add_argument(
+        "--wire-format",
+        choices=WIRE_FORMATS,
+        help="the stream's message format (default: config.ini, else legacy)",
+    )
+    serve.add_argument(
+        "--external-host", help="where external (UDP) signals are received"
+    )
+    serve.add_argument(
+        "--arm-at-start",
+        action="store_true",
+        help="arm the config_change interlocks once their settings have arrived",
+    )
 
     listen = commands.add_parser("listen", help="print the frames a server sends")
     listen.add_argument("address", help="HOST:PORT of a running server")
@@ -79,7 +94,7 @@ def _settings(args: argparse.Namespace) -> Settings:
     settings = Settings.from_config_ini()
     overrides = {
         key: value
-        for key in ("status_host", "status_port")
+        for key in ("status_host", "status_port", "wire_format", "external_host")
         if (value := getattr(args, key)) is not None
     }
     return settings.model_copy(update=overrides)
@@ -126,6 +141,14 @@ def serve(args: argparse.Namespace) -> int:
     make_source, fakes = _sources(args, path)
     engine = Engine(path, make_source, settings)
     engine.start()
+    sender = None
+    if args.demo or args.fake_devices:
+        from geecs_interlocks.demo import FakeSender
+
+        sender = FakeSender(engine.signals.ports())
+        sender.start()
+    if args.arm_at_start:
+        threading.Thread(target=_arm_when_ready, args=(engine,), daemon=True).start()
     host, port = engine.stream.address
     logger.info(
         "serving %s; Master Control stream on %s:%d",
@@ -141,10 +164,28 @@ def serve(args: argparse.Namespace) -> int:
         while not done.wait(0.5):
             pass
     finally:
+        if sender is not None:
+            sender.stop()
         engine.stop()
         if fakes is not None:
             fakes.stop()  # type: ignore[attr-defined]
     return 0
+
+
+def _arm_when_ready(engine: Engine) -> None:
+    """Arm the config_change interlocks as soon as every setting has a value."""
+    deadline = time.monotonic() + ARM_WAIT_S
+    while True:
+        try:
+            logger.info("armed at start: %s", ", ".join(engine.arm()))
+            return
+        except ValueError as exc:
+            if "no armed interlock" in str(exc):
+                return  # nothing to arm
+            if time.monotonic() > deadline:
+                logger.exception("could not arm at start")
+                return
+        time.sleep(0.5)
 
 
 def listen(args: argparse.Namespace) -> int:

@@ -1,5 +1,6 @@
 """The monitor's states: waiting at start, trips, settling, off, staleness, the verdict."""
 
+import pytest
 from conftest import interlock_set, threshold
 
 from geecs_interlocks.monitor import Monitor
@@ -182,8 +183,126 @@ class TestGroups:
         status = make(source, group(SAT, DRIFT)).snapshot().statuses[0]
         assert status.condition.count("; ") == 1
 
-    def test_unimplemented_kinds_fail_safe(self, source):
-        monitor = make(source, group({"kind": "external", "port": 5050}, name="ext"))
+
+class TestImplicitStaleness:
+    def test_a_silent_device_trips_after_stale_after_s(self, source):
+        monitor = make(source, threshold())
+        source.push("Gauge", P=1.0)
+        assert states(monitor.step()) == {"vac": "ok"}
+        source.now += 5.5
         snapshot = monitor.step()
-        assert states(snapshot) == {"ext": "tripped"}
-        assert not snapshot.safe
+        assert states(snapshot) == {"vac": "tripped"}
+        assert "no new data for 5.5 s" in snapshot.statuses[0].diagnostic
+
+    def test_off_when_the_file_says_so(self, source):
+        interlocks = interlock_set(threshold()).model_copy(
+            update={"stale_after_s": None}
+        )
+        monitor = Monitor(interlocks, source, clock=source.clock)
+        source.push("Gauge", P=1.0)
+        monitor.step()
+        source.now += 1e4
+        assert states(monitor.step()) == {"vac": "ok"}
+
+    def test_a_stale_condition_keeps_its_own_rule(self, source):
+        monitor = make(
+            source,
+            {"name": "alive", "conditions": [{"kind": "stale", "device": "Gauge"}]},
+        )
+        source.push("Gauge", acq_timestamp=1)
+        monitor.step()
+        source.now += 60
+        assert states(monitor.step()) == {"alive": "ok"}
+
+
+EXT = {"kind": "external", "port": 5050, "source": "stage"}
+
+
+class TestExternal:
+    def make(self, source, signals, **condition):
+        return Monitor(
+            interlock_set(group({**EXT, **condition}, name="stage")),
+            source,
+            signals=signals,
+            clock=source.clock,
+        )
+
+    def test_waits_for_the_first_packet_then_follows_it(self, source, signals):
+        monitor = self.make(source, signals)
+        assert states(monitor.step()) == {"stage": "waiting"}
+        signals.send(5050, "SAFE")
+        assert states(monitor.step()) == {"stage": "ok"}
+        signals.send(5050, "Warning: moving")
+        assert states(monitor.step()) == {"stage": "tripped"}
+
+    def test_an_unrecognised_packet_keeps_the_last_state(self, source, signals):
+        monitor = self.make(source, signals)
+        signals.send(5050, "safe")
+        signals.send(5050, "hello")
+        assert states(monitor.step()) == {"stage": "ok"}
+
+    def test_max_age(self, source, signals):
+        monitor = self.make(source, signals, max_age_s=2)
+        signals.send(5050, "safe")
+        monitor.step()
+        source.now += 3
+        assert states(monitor.step()) == {"stage": "tripped"}
+        assert monitor.snapshot().statuses[0].value == 3
+
+    def test_no_signals_means_waiting(self, source):
+        assert states(self.make(source, None).step()) == {"stage": "waiting"}
+
+
+HOLD = {"kind": "config_change", "device": "W", "variables": ["Pos", "Mode"]}
+
+
+class TestArming:
+    def test_unarmed_trips_and_is_armable(self, source):
+        monitor = make(source, group(HOLD, name="windmill"))
+        source.push("W", Pos=1, Mode="a")
+        snapshot = monitor.step()
+        assert states(snapshot) == {"windmill": "tripped"}
+        assert snapshot.statuses[0].armable
+
+    def test_arm_then_a_change_trips_and_a_return_clears(self, source):
+        monitor = make(source, group(HOLD, name="windmill"))
+        source.push("W", Pos=1, Mode="a")
+        assert monitor.arm() == ["windmill"]
+        assert states(monitor.step()) == {"windmill": "ok"}
+        source.push("W", Pos=2)
+        snapshot = monitor.step()
+        assert states(snapshot) == {"windmill": "tripped"}
+        assert "Pos changed from 1 to 2" in snapshot.statuses[0].diagnostic
+        source.push("W", Pos=1)
+        assert states(monitor.step()) == {"windmill": "ok"}
+
+    def test_rearm_accepts_the_new_settings(self, source):
+        monitor = make(source, group(HOLD, name="windmill"))
+        source.push("W", Pos=1, Mode="a")
+        monitor.arm()
+        source.push("W", Pos=2)
+        monitor.step()
+        monitor.arm("windmill")
+        assert states(monitor.step()) == {"windmill": "ok"}
+
+    def test_all_or_nothing(self, source):
+        other = {**HOLD, "device": "V"}
+        monitor = make(source, group(HOLD, name="a"), group(other, name="b"))
+        source.push("W", Pos=1, Mode="a")
+        source.push("V", Pos=1)  # Mode never arrives
+        with pytest.raises(ValueError, match="V Mode"):
+            monitor.arm()
+        assert monitor.baseline("a", 0) is None
+
+    def test_a_disconnected_device_cannot_be_armed(self, source):
+        monitor = make(source, group(HOLD, name="a"))
+        source.push("W", Pos=1, Mode="a")
+        source.drop("W")
+        with pytest.raises(ValueError, match="disconnected"):
+            monitor.arm()
+
+    def test_nothing_to_arm(self, source):
+        with pytest.raises(ValueError, match="no armed interlock"):
+            make(source, threshold()).arm()
+        with pytest.raises(ValueError, match="holds no settings"):
+            make(source, threshold()).arm("vac")

@@ -1,22 +1,34 @@
-"""The Master Control status stream's wire format: framing, the message, the parser.
+"""The Master Control status stream's wire format: framing, two messages, the parser.
 
-A frame is a 4-byte big-endian length, then that many bytes of UTF-8 text:
-the overall verdict first, then one part per interlock, joined with ``" | "``::
+A frame is a 4-byte big-endian length, then that many bytes of UTF-8 text,
+every :data:`SEND_INTERVAL_S`. The text comes in one of two formats
+(:data:`WireFormat`), chosen per server:
 
-    SAFE | OK: <name> | OK: <name>                          every armed interlock OK
+``legacy`` (the default: the original server's, which Master Control reads
+today) — one part per armed interlock, joined with ``" | "``::
+
+    SAFE: <name> | SAFE: <name>                         every armed interlock OK
+    WARNING! <name> - <reason> | SAFE: <name>           a trip
+    WARNING! No monitors registered                     nothing armed, or no file
+
+``summary`` — the overall verdict first, then one part per interlock::
+
+    SAFE | OK: <name> | OK: <name>
     WARNING! TRIPPED | TRIPPED: <name> - <reason> | OK: <name>
-    WARNING! TRIPPED | OFF: <name>                          nothing armed
-    WARNING! TRIPPED | NO INTERLOCKS                        no interlocks file
+    WARNING! TRIPPED | OFF: <name>                      nothing armed
+    WARNING! TRIPPED | NO INTERLOCKS                    no interlocks file
 
-**The one rule** (pinned by the tests over every mix of states): the word
-"safe", in any case, appears only as the leading ``SAFE`` of an all-clear
-frame, because the Master Control VI decides by looking for that keyword —
-so any keyword search, however the VI does it, is right. Inside a part a
-"safe" in a name or reason is sent as ``sa-fe``, and a ``|`` as ``/``.
+**The keyword rules** (pinned by the tests over every mix of states): a
+frame holds ``WARNING`` exactly when it is not an all-clear, in both formats;
+in ``summary`` the word "safe" appears only as the leading ``SAFE`` of an
+all-clear. So any keyword search a reader does is right. Inside a name or a
+reason "safe" is sent as ``sa-fe``, "warning" as ``warn-ing``, and ``|`` as
+``/``.
 
-Waiting (nothing received yet) and settling (safe again, holding for
-``settle_s``) are sent as ``TRIPPED`` with the reason saying which: on this
-wire, anything not OK is a trip.
+Waiting (nothing received yet) and settling (clear again, holding for
+``settle_s``) are sent as trips, the reason saying which: on this wire,
+anything not OK is a trip. ``legacy`` leaves ``off`` interlocks out, as the
+original server never listed them.
 
 Nothing here imports Qt or the web stack.
 """
@@ -28,6 +40,7 @@ import socket
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal, get_args
 
 from geecs_interlocks.monitor import InterlockStatus, Snapshot
 
@@ -36,7 +49,12 @@ SEND_INTERVAL_S = 0.1
 #: A frame longer than this is a broken stream, not a message.
 MAX_FRAME_BYTES = 16 * 1024 * 1024
 
-#: The verdict that leads every frame.
+#: The two message formats; ``legacy`` is what Master Control reads today.
+WireFormat = Literal["legacy", "summary"]
+WIRE_FORMATS: tuple[WireFormat, ...] = get_args(WireFormat)
+DEFAULT_WIRE_FORMAT: WireFormat = "legacy"
+
+#: ``summary``: the verdict that leads every frame.
 ALL_SAFE = "SAFE"
 TRIPPED = "WARNING! TRIPPED"
 NO_INTERLOCKS = "NO INTERLOCKS"
@@ -46,8 +64,13 @@ PART_OK = "OK"
 PART_TRIPPED = "TRIPPED"
 PART_OFF = "OFF"
 
+#: ``legacy``: one part's prefixes, and the frame of nothing armed.
+LEGACY_SAFE = "SAFE: "
+LEGACY_WARNING = "WARNING! "
+LEGACY_NOTHING = "WARNING! No monitors registered"
+
 _LENGTH = struct.Struct(">I")
-_SAFE_WORD = re.compile("safe", re.IGNORECASE)
+_KEYWORDS = re.compile("safe|warn", re.IGNORECASE)
 
 
 def frame(message: str) -> bytes:
@@ -85,9 +108,9 @@ def read_frame(sock: socket.socket) -> str:
 
 
 def clean(text: str) -> str:
-    """*text* fit for a part: no separator, no keyword ("Safety" → "Sa-fety")."""
+    """*text* fit for a part: no separator, no keyword ("Safety" → "Sa-fety", "warning" → "wa-rning")."""
     text = text.replace("|", "/")
-    return _SAFE_WORD.sub(lambda m: f"{m.group(0)[:2]}-{m.group(0)[2:]}", text)
+    return _KEYWORDS.sub(lambda m: f"{m.group(0)[:2]}-{m.group(0)[2:]}", text)
 
 
 def _part(status: InterlockStatus) -> str:
@@ -100,12 +123,39 @@ def _part(status: InterlockStatus) -> str:
     return f"{PART_TRIPPED}: {name} - {clean(reason)}"
 
 
-def render_status(snapshot: Snapshot) -> str:
-    """The message one frame carries: the overall verdict, then one part per interlock."""
+def render_summary(snapshot: Snapshot) -> str:
+    """The ``summary`` message: the overall verdict, then one part per interlock."""
     if not snapshot.statuses:
         return f"{TRIPPED} | {NO_INTERLOCKS}"
     verdict = ALL_SAFE if snapshot.safe else TRIPPED
     return " | ".join([verdict, *(_part(s) for s in snapshot.statuses)])
+
+
+def _legacy_part(status: InterlockStatus) -> str:
+    name = clean(status.name)
+    if not status.unsafe:
+        return f"{LEGACY_SAFE}{name}"
+    reason = status.diagnostic or status.state
+    return f"{LEGACY_WARNING}{name} - {clean(reason)}"
+
+
+def render_legacy(snapshot: Snapshot) -> str:
+    """The ``legacy`` message: one part per armed interlock (the original server's)."""
+    armed = [s for s in snapshot.statuses if s.armed]
+    if not armed:
+        return LEGACY_NOTHING
+    return " | ".join(_legacy_part(s) for s in armed)
+
+
+def render_status(
+    snapshot: Snapshot, wire_format: WireFormat = DEFAULT_WIRE_FORMAT
+) -> str:
+    """The message one frame carries, in *wire_format*."""
+    if wire_format == "summary":
+        return render_summary(snapshot)
+    if wire_format == "legacy":
+        return render_legacy(snapshot)
+    raise ValueError(f"unknown wire format {wire_format!r} (one of {WIRE_FORMATS})")
 
 
 @dataclass(frozen=True)
@@ -123,12 +173,14 @@ class ParsedStatus:
 
     verdict: str
     parts: tuple[StatusPart, ...]
-    #: True when the frame says there is no interlocks file at all.
+    #: True when the frame says nothing is watched (no file, or nothing armed in ``legacy``).
     no_interlocks: bool = False
+    #: The format the frame was read as.
+    wire_format: WireFormat = "summary"
 
     @property
     def safe(self) -> bool:
-        """Whether the frame is an all-clear (the leading ``SAFE``)."""
+        """Whether the frame is an all-clear."""
         return self.verdict == ALL_SAFE
 
 
@@ -146,14 +198,36 @@ def _parse_part(text: str) -> StatusPart:
     return StatusPart(PART_TRIPPED, text, "unrecognised part")
 
 
-def parse_status(message: str) -> ParsedStatus:
-    """Read a frame back into its verdict and parts.
+def _parse_legacy(message: str) -> ParsedStatus:
+    if message == LEGACY_NOTHING:
+        return ParsedStatus(TRIPPED, (), no_interlocks=True, wire_format="legacy")
+    parts = []
+    for text in message.split(" | "):
+        if text.startswith(LEGACY_SAFE):
+            parts.append(StatusPart(PART_OK, text[len(LEGACY_SAFE) :]))
+        elif text.startswith(LEGACY_WARNING):
+            name, _, reason = text[len(LEGACY_WARNING) :].partition(" - ")
+            parts.append(StatusPart(PART_TRIPPED, name, reason))
+        else:
+            parts.append(StatusPart(PART_TRIPPED, text, "unrecognised part"))
+    safe = bool(parts) and all(p.state == PART_OK for p in parts)
+    return ParsedStatus(
+        ALL_SAFE if safe else TRIPPED, tuple(parts), wire_format="legacy"
+    )
 
-    Anything but a leading ``SAFE`` is read as tripped, as Master Control
-    reads it. A part's reason is everything after its first ``" - "``, so a
-    name holding ``" - "`` splits early (the rest lands in the reason).
+
+def parse_status(message: str) -> ParsedStatus:
+    """Read a frame of either format back into its verdict and parts.
+
+    A frame leading with exactly ``SAFE`` or ``WARNING! TRIPPED`` is
+    ``summary``; anything else is read as ``legacy``. Anything that is not
+    clearly an all-clear is read as tripped, as Master Control reads it. A
+    part's reason is everything after its first ``" - "``, so a name holding
+    ``" - "`` splits early (the rest lands in the reason).
     """
     head, *rest = message.split(" | ")
+    if head not in (ALL_SAFE, TRIPPED):
+        return _parse_legacy(message)
     verdict = ALL_SAFE if head == ALL_SAFE else TRIPPED
     if rest == [NO_INTERLOCKS]:
         return ParsedStatus(verdict, (), no_interlocks=True)
@@ -162,6 +236,10 @@ def parse_status(message: str) -> ParsedStatus:
 
 __all__ = [
     "ALL_SAFE",
+    "DEFAULT_WIRE_FORMAT",
+    "LEGACY_NOTHING",
+    "WIRE_FORMATS",
+    "WireFormat",
     "MAX_FRAME_BYTES",
     "NO_INTERLOCKS",
     "PART_OFF",
@@ -175,5 +253,7 @@ __all__ = [
     "frame",
     "parse_status",
     "read_frame",
+    "render_legacy",
     "render_status",
+    "render_summary",
 ]

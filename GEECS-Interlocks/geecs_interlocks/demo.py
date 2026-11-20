@@ -8,7 +8,13 @@ hardware, no DB and no network:
 - each alignment's value drifts out of tolerance and back;
 - the first threshold's value goes NaN for a few seconds every 90 s;
 - each stale-watched device goes quiet (a ``max_age_s`` condition) or drops
-  out (a disconnect-only one) for a few seconds now and then.
+  out (a disconnect-only one) for a few seconds now and then;
+- each ``config_change`` setting moves away from its value for a while and
+  comes back (arm first: ``serve --arm-at-start``);
+- each external signal (:class:`FakeSender`, real UDP packets to the
+  server's own listener) reports ``safe`` a few seconds in, then a
+  ``warning`` for a while every minute — one packet per change, as the
+  real senders do.
 
 :class:`DemoSource` feeds the monitor directly (``serve --demo``).
 :class:`FakeDevices` runs one ``geecs_core.testing.FakeGeecsServer`` per
@@ -22,6 +28,7 @@ import asyncio
 import contextlib
 import logging
 import math
+import socket
 import threading
 import time
 from collections.abc import Coroutine, Iterable
@@ -30,6 +37,7 @@ from typing import Any
 
 from geecs_schemas import (
     AlignmentCondition,
+    ConfigChangeCondition,
     InterlockSet,
     StaleCondition,
     ThresholdCondition,
@@ -76,12 +84,29 @@ class _Outage:
         return (t + self.offset) % self.every < self.length
 
 
+@dataclass(frozen=True)
+class _Step:
+    """*value* except for *length* seconds every *every* seconds, when it reads *moved*."""
+
+    value: float
+    moved: float
+    every: float
+    length: float
+    offset: float
+
+    def at(self, t: float) -> float:
+        return (
+            self.moved if (t + self.offset) % self.every < self.length else self.value
+        )
+
+
 @dataclass
 class DemoScript:
     """What every watched device reads at time *t* (seconds since the start)."""
 
     waves: dict[tuple[str, str], _Wave] = field(default_factory=dict)
     outages: dict[str, _Outage] = field(default_factory=dict)
+    steps: dict[tuple[str, str], _Step] = field(default_factory=dict)
     nan_variable: tuple[str, str] | None = None
     devices: dict[str, set[str]] = field(default_factory=dict)
 
@@ -123,6 +148,15 @@ class DemoScript:
                     condition.device, _Outage(every, length, every - 20.0, quiet)
                 )
                 script._watch(condition.device, None)
+            elif isinstance(condition, ConfigChangeCondition):
+                every = 75.0 + 11.0 * k
+                for n, variable in enumerate(condition.variables):
+                    key = (condition.device, variable)
+                    # Moved for 10 s, first 45 s in (after an --arm-at-start).
+                    script.steps.setdefault(
+                        key, _Step(10.0 + n, 12.0 + n, every, 10.0, every - 45.0)
+                    )
+                    script._watch(*key)
         return script
 
     def _watch(self, device: str, variable: str | None) -> None:
@@ -135,7 +169,13 @@ class DemoScript:
         out: dict[str, Any] = {STAMP_VARIABLE: round(time.time(), 3)}
         for variable in self.devices.get(device, ()):
             wave = self.waves.get((device, variable))
-            value = wave.at(t) if wave is not None else 0.0
+            step = self.steps.get((device, variable))
+            if wave is not None:
+                value = wave.at(t)
+            elif step is not None:
+                value = step.at(t)
+            else:
+                value = 0.0
             if (device, variable) == self.nan_variable and t % NAN_EVERY_S > (
                 NAN_EVERY_S - NAN_FOR_S
             ):
@@ -266,6 +306,65 @@ class FakeDevices:
                 await server.stop()
 
 
+class FakeSender:
+    """Send each external signal's scripted packets to the server's own UDP listeners.
+
+    Real packets on the loopback interface, one per change: ``safe`` after
+    :data:`SENDER_FIRST_S`, then ``warning`` for :data:`SENDER_WARN_S` of
+    every :data:`SENDER_EVERY_S`.
+    """
+
+    def __init__(self, ports: Iterable[int], host: str = "127.0.0.1") -> None:
+        self._ports = sorted(set(ports))
+        self._host = host
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Begin sending (a thread of its own)."""
+        if not self._ports:
+            return
+        self._thread = threading.Thread(
+            target=self._loop, name="interlock-fake-sender", daemon=True
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop sending."""
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(2)
+
+    @staticmethod
+    def state_at(t: float, k: int) -> str | None:
+        """What sender *k* reports at *t* (``None``: nothing sent yet)."""
+        if t < SENDER_FIRST_S:
+            return None
+        phase = (t - SENDER_FIRST_S + 13.0 * k) % SENDER_EVERY_S
+        return "warning: moving" if phase > SENDER_EVERY_S - SENDER_WARN_S else "safe"
+
+    def _loop(self) -> None:
+        t0 = time.monotonic()
+        sent: dict[int, str] = {}
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            while not self._stop.is_set():
+                t = time.monotonic() - t0
+                for k, port in enumerate(self._ports):
+                    state = self.state_at(t, k)
+                    if state is not None and sent.get(port) != state:
+                        sock.sendto(state.encode(), (self._host, port))
+                        sent[port] = state
+                self._stop.wait(0.2)
+
+
+#: The fake sender's first packet, seconds in.
+SENDER_FIRST_S = 3.0
+#: Its warning cycle…
+SENDER_EVERY_S = 60.0
+#: …and how long the warning lasts.
+SENDER_WARN_S = 12.0
+
+
 def watched_variables(script: DemoScript) -> dict[str, Iterable[str]]:
     """``device → variables`` for a ``DeviceSource`` over the fake devices."""
     return {device: sorted(v) for device, v in script.devices.items()}
@@ -275,6 +374,7 @@ __all__ = [
     "DemoScript",
     "DemoSource",
     "FakeDevices",
+    "FakeSender",
     "NAN_EVERY_S",
     "UPDATE_HZ",
     "watched_variables",

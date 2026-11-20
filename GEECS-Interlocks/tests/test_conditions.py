@@ -11,7 +11,15 @@ from geecs_schemas import (
     ThresholdCondition,
 )
 
-from geecs_interlocks.conditions import Inputs, describe, evaluate, number, watched
+from geecs_interlocks.conditions import (
+    Inputs,
+    describe,
+    evaluate,
+    number,
+    same_setting,
+    watched,
+)
+from geecs_interlocks.external import NO_SIGNAL, SignalReading
 
 
 def thr(op=">", limit=10.0, hysteresis=0.0):
@@ -139,3 +147,82 @@ class TestHelpers:
         external = ExternalCondition(kind="external", port=5050, source="stage")
         assert watched(external) == []
         assert describe(external) == "stage on UDP 5050"
+
+
+class TestExternal:
+    def ext(self, max_age=None):
+        return ExternalCondition(
+            kind="external", port=5050, source="stage", max_age_s=max_age
+        )
+
+    def check(self, state, raw="", age=1.0, max_age=None):
+        signal = SignalReading(state, 0.0, raw)
+        return evaluate(
+            self.ext(max_age), Inputs(signal=signal, age_s=age), tripped=False
+        )
+
+    def test_nothing_yet_is_waiting(self):
+        verdict = evaluate(self.ext(), Inputs(signal=NO_SIGNAL), tripped=False)
+        assert verdict.unsafe and verdict.waiting
+        assert "no packet yet on UDP port 5050" in verdict.diagnostic
+
+    def test_safe_and_warning(self):
+        assert not self.check(False, "safe").unsafe
+        verdict = self.check(True, "warning: moving")
+        assert verdict.unsafe and "alarm" in verdict.diagnostic
+
+    def test_only_unrecognised_packets_are_unsafe(self):
+        verdict = self.check(None, "hello")
+        assert verdict.unsafe and not verdict.waiting
+        assert "unrecognised" in verdict.diagnostic
+
+    def test_silence_is_normal_without_max_age(self):
+        assert not self.check(False, "safe", age=1e6).unsafe
+
+    def test_max_age(self):
+        assert self.check(False, "safe", age=3.0, max_age=2.0).unsafe
+
+
+class TestConfigChange:
+    def change(self):
+        return ConfigChangeCondition(
+            kind="config_change", device="W", variables=["Pos", "Mode"]
+        )
+
+    def check(self, settings, baseline):
+        return evaluate(
+            self.change(),
+            Inputs(settings=settings, baseline=baseline),
+            tripped=False,
+        )
+
+    def test_unarmed_is_unsafe_but_not_waiting(self):
+        verdict = self.check({"Pos": 1, "Mode": "a"}, None)
+        assert verdict.unsafe and not verdict.waiting
+        assert "not armed" in verdict.diagnostic
+
+    def test_unchanged(self):
+        assert not self.check(
+            {"Pos": "1.0", "Mode": "a"}, {"Pos": 1, "Mode": "a"}
+        ).unsafe
+
+    def test_a_change_names_the_setting(self):
+        verdict = self.check({"Pos": 2, "Mode": "a"}, {"Pos": 1, "Mode": "a"})
+        assert verdict.unsafe and "Pos changed from 1 to 2" in verdict.diagnostic
+
+    def test_missing_setting_waits(self):
+        verdict = self.check({"Pos": 1}, {"Pos": 1, "Mode": "a"})
+        assert verdict.unsafe and verdict.waiting
+
+    @pytest.mark.parametrize(
+        "a,b,same",
+        [(1, "1.0", True), ("on", "on", True), ("on", "off", False), (1, 1.5, False)],
+    )
+    def test_same_setting(self, a, b, same):
+        assert same_setting(a, b) is same
+
+
+class TestStaleness:
+    def test_a_silent_device_is_unsafe(self):
+        verdict = evaluate(thr(), Inputs(value=0, stale=[("G", 7.25)]), tripped=False)
+        assert verdict.unsafe and verdict.diagnostic == "G: no new data for 7.2 s"

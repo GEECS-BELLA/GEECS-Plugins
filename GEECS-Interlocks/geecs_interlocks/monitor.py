@@ -22,6 +22,10 @@ An interlock's state:
 
 The overall verdict is safe only when at least one interlock is armed and
 every armed one is ``ok``.
+
+A ``config_change`` condition holds settings at the values recorded when an
+operator arms it (:meth:`Monitor.arm`). The baselines live in the monitor,
+so a reload, which builds a new monitor, needs arming again.
 """
 
 from __future__ import annotations
@@ -30,12 +34,14 @@ import logging
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from geecs_schemas import (
     AlignmentCondition,
+    ConfigChangeCondition,
+    ExternalCondition,
     Interlock,
     InterlockCondition,
     InterlockSet,
@@ -50,7 +56,8 @@ from geecs_interlocks.conditions import (
     evaluate,
     number,
 )
-from geecs_interlocks.sources import Source
+from geecs_interlocks.external import SignalSource
+from geecs_interlocks.sources import DeviceReading, Source
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +96,8 @@ class InterlockStatus:
         What *value* is compared against (``None`` for a disconnect-only stale).
     since :
         Wall-clock seconds (``time.time()``) when it entered *state*.
+    armable :
+        It holds settings an operator arms (a ``config_change`` condition).
     """
 
     name: str
@@ -99,6 +108,7 @@ class InterlockStatus:
     value: float | None = None
     limit: float | None = None
     since: float = 0.0
+    armable: bool = False
 
     @property
     def unsafe(self) -> bool:
@@ -165,9 +175,13 @@ def _measured(
         value, target = number(inputs.value), number(inputs.target)
         distance = None if value is None or target is None else abs(value - target)
         return distance, condition.tolerance
-    if isinstance(condition, StaleCondition):
+    if isinstance(condition, StaleCondition | ExternalCondition):
         return inputs.age_s, condition.max_age_s
     return None, None
+
+
+def _armable(interlock: Interlock) -> bool:
+    return any(isinstance(c, ConfigChangeCondition) for c in interlock.conditions)
 
 
 def _combine(verdicts: list[Verdict]) -> Verdict:
@@ -193,6 +207,9 @@ class Monitor:
         The document to watch.
     source :
         Where the readings come from; started and stopped with the monitor.
+    signals :
+        Where external (UDP) signals come from; owned by the caller, never
+        started or stopped here (``None``: every external condition waits).
     origin :
         Where *interlocks* came from, shown to operators.
     tick :
@@ -206,11 +223,16 @@ class Monitor:
         interlocks: InterlockSet,
         source: Source,
         *,
+        signals: SignalSource | None = None,
         origin: str = "",
         tick: float = TICK_S,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._source = source
+        self._signals = signals
+        self._stale_after = interlocks.stale_after_s
+        #: (interlock name, condition index) → the settings recorded at arming.
+        self._baselines: dict[tuple[str, int], dict[str, Any]] = {}
         self._origin = origin
         self._tick = tick
         self._clock = clock
@@ -274,6 +296,61 @@ class Monitor:
                     return list(tracker.trend)
         return []
 
+    # -- arming ---------------------------------------------------------------
+
+    def arm(self, name: str | None = None) -> list[str]:
+        """Record the current settings of every ``config_change`` condition (of *name* only, if given).
+
+        All or nothing: when any setting has no value yet, or its device is
+        disconnected, nothing is armed. Interlocks that are ``off`` are
+        skipped.
+
+        Returns
+        -------
+        list of str
+            The interlocks armed.
+
+        Raises
+        ------
+        ValueError
+            Nothing to arm, or a setting has no value to record.
+        """
+        pending: dict[tuple[str, int], dict[str, Any]] = {}
+        missing: list[str] = []
+        for tracker in self._trackers:
+            interlock = tracker.interlock
+            if tracker.state == "off" or name not in (None, interlock.name):
+                continue
+            for index, condition in enumerate(interlock.conditions):
+                if not isinstance(condition, ConfigChangeCondition):
+                    continue
+                reading = self._source.reading(condition.device)
+                values = {v: reading.values.get(v) for v in condition.variables}
+                absent = [v for v, x in values.items() if x is None]
+                if not reading.connected:
+                    missing.append(f"{condition.device} (disconnected)")
+                elif absent:
+                    missing.append(f"{condition.device} {', '.join(absent)}")
+                pending[(interlock.name, index)] = values
+        if not pending:
+            raise ValueError(
+                f"{name!r} holds no settings to arm"
+                if name
+                else "no armed interlock holds settings to arm"
+            )
+        if missing:
+            raise ValueError(f"cannot arm, no value yet for: {'; '.join(missing)}")
+        with self._lock:
+            self._baselines.update(pending)
+        armed = sorted({key[0] for key in pending})
+        logger.info("armed %s", ", ".join(armed))
+        return armed
+
+    def baseline(self, name: str, index: int) -> Mapping[str, Any] | None:
+        """The settings recorded for condition *index* of *name* (``None``: not armed)."""
+        with self._lock:
+            return self._baselines.get((name, index))
+
     # -- one tick -------------------------------------------------------------
 
     def step(self) -> Snapshot:
@@ -304,12 +381,21 @@ class Monitor:
     ) -> InterlockStatus:
         interlock = tracker.interlock
         line = "; ".join(describe(c) for c in interlock.conditions)
+        armable = _armable(interlock)
         if tracker.state == "off":
             return InterlockStatus(
-                interlock.name, interlock.description, line, "off", since=tracker.since
+                interlock.name,
+                interlock.description,
+                line,
+                "off",
+                since=tracker.since,
+                armable=armable,
             )
         tripped = tracker.state in ("tripped", "settling")
-        inputs = [self._inputs(c, now) for c in interlock.conditions]
+        inputs = [
+            self._inputs(interlock.name, i, c, now)
+            for i, c in enumerate(interlock.conditions)
+        ]
         verdict = _combine(
             [
                 evaluate(c, i, tripped=tripped)
@@ -342,6 +428,7 @@ class Monitor:
             value,
             limit,
             tracker.since,
+            armable,
         )
 
     def _next_state(
@@ -362,13 +449,21 @@ class Monitor:
         if left <= 0:
             tracker.settle_from = None
             return "ok", ""
-        return "settling", f"safe again; OK in {left:.1f} s"
+        return "settling", f"clear again; OK in {left:.1f} s"
 
-    def _inputs(self, condition: InterlockCondition, now: float) -> Inputs:
-        if not isinstance(
-            condition, ThresholdCondition | AlignmentCondition | StaleCondition
-        ):
-            return Inputs()
+    def _inputs(
+        self, name: str, index: int, condition: InterlockCondition, now: float
+    ) -> Inputs:
+        if isinstance(condition, ExternalCondition):
+            signal = (
+                None if self._signals is None else self._signals.signal(condition.port)
+            )
+            age = (
+                None
+                if signal is None or signal.received is None
+                else now - signal.received
+            )
+            return Inputs(signal=signal, age_s=age)
         if isinstance(condition, StaleCondition):
             reading = self._source.reading(condition.device)
             age = None if reading.updated is None else now - reading.updated
@@ -382,15 +477,47 @@ class Monitor:
         if isinstance(condition, AlignmentCondition):
             devices.append(condition.target_device or condition.device)
         readings = {d: self._source.reading(d) for d in devices}
-        down = tuple(
-            d for d, r in readings.items() if not r.connected and r.updated is not None
-        )
-        value = readings[condition.device].values.get(condition.variable)
+        down, stale = self._health(readings, now)
+        values = readings[condition.device].values
+        if isinstance(condition, ConfigChangeCondition):
+            return Inputs(
+                disconnected=down,
+                stale=stale,
+                settings={v: values.get(v) for v in condition.variables},
+                baseline=self.baseline(name, index),
+            )
         target = None
         if isinstance(condition, AlignmentCondition):
             target_device = condition.target_device or condition.device
             target = readings[target_device].values.get(condition.target_variable)
-        return Inputs(value=value, target=target, disconnected=down)
+        return Inputs(
+            value=values.get(condition.variable),
+            target=target,
+            disconnected=down,
+            stale=stale,
+        )
+
+    def _health(
+        self, readings: Mapping[str, DeviceReading], now: float
+    ) -> tuple[tuple[str, ...], tuple[tuple[str, float], ...]]:
+        """The devices among *readings* that are down, and those silent past ``stale_after_s``.
+
+        A device not heard from yet is neither: its missing values make the
+        condition wait instead.
+        """
+        down = tuple(
+            d for d, r in readings.items() if not r.connected and r.updated is not None
+        )
+        if self._stale_after is None:
+            return down, ()
+        stale = tuple(
+            (d, now - r.updated)
+            for d, r in readings.items()
+            if r.connected
+            and r.updated is not None
+            and now - r.updated > self._stale_after
+        )
+        return down, stale
 
     def _fail_all(self, why: str) -> None:
         """Publish every armed interlock tripped (the loop hit an error)."""
@@ -400,7 +527,13 @@ class Monitor:
                 s
                 if not s.armed
                 else InterlockStatus(
-                    s.name, s.description, s.condition, "tripped", why, since=now
+                    s.name,
+                    s.description,
+                    s.condition,
+                    "tripped",
+                    why,
+                    since=now,
+                    armable=s.armable,
                 )
                 for s in self._snapshot.statuses
             )

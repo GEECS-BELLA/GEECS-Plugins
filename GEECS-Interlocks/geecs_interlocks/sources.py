@@ -4,8 +4,8 @@ A :class:`Source` keeps the latest :class:`DeviceReading` of every watched
 device and answers :meth:`Source.reading` from any thread. The monitor never
 touches a socket: it reads these snapshots on its own tick.
 
-:class:`DeviceSource` is the real one: one ``geecs_core.GeecsDevice``
-subscription per device. geecs_core keeps a subscription alive through
+:class:`DeviceSource` is the real one: one ``geecs_core.client.GeecsDevice``
+subscription per device (``geecs_core.client.GeecsDevice``). geecs_core keeps a subscription alive through
 device restarts once it is up; the first connection is this module's job,
 retried in the background until it succeeds, so a device that is off when
 the server starts is reported disconnected — never skipped — and picked up
@@ -122,7 +122,7 @@ class DeviceSource:
         self._cache = ReadingCache()
         self._devices: dict[
             str, Any
-        ] = {}  # Any: geecs_core.GeecsDevice, imported lazily
+        ] = {}  # Any: geecs_core.client.GeecsDevice, imported lazily
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -163,7 +163,14 @@ class DeviceSource:
                 self._stop.wait(CONNECT_RETRY_S)
 
     def _connect(self, name: str) -> bool:
+        """One attempt at *name*'s first connection; ``False`` to retry later.
+
+        Every failure is a disconnect and retried, never fatal: the expected
+        ones (the DB lookup, the transport) log one line per attempt, an
+        unexpected one its traceback.
+        """
         from geecs_core import GeecsDevice
+        from geecs_core.exceptions import GeecsError
 
         host_port = self._endpoints.get(name)
         try:
@@ -171,23 +178,31 @@ class DeviceSource:
                 device = GeecsDevice(name)
             else:
                 device = GeecsDevice(name, host=host_port[0], port=host_port[1])
-        except Exception as exc:  # noqa: BLE001 — a lookup failure is a disconnect
-            self._cache.disconnected(name, f"lookup failed: {exc}")
-            logger.warning("%s: lookup failed (%s); retrying", name, exc)
-            return False
+        except (GeecsError, OSError) as exc:
+            return self._failed(name, f"lookup failed: {exc}")
+        except Exception as exc:
+            logger.exception("%s: unexpected lookup failure", name)
+            return self._failed(name, f"lookup failed: {exc}")
         try:
             device.subscribe(
                 self._variables[name],
                 on_update=lambda frame, name=name: self._on_update(name, frame),
             )
-        except Exception as exc:  # noqa: BLE001 — retried; never fatal
+        except (GeecsError, OSError) as exc:
             device.close()
-            self._cache.disconnected(name, f"cannot connect: {exc}")
-            logger.warning("%s: cannot connect (%s); retrying", name, exc)
-            return False
+            return self._failed(name, f"cannot connect: {exc}")
+        except Exception as exc:
+            logger.exception("%s: unexpected connect failure", name)
+            device.close()
+            return self._failed(name, f"cannot connect: {exc}")
         self._devices[name] = device
         logger.info("%s: subscribed to %s", name, ", ".join(self._variables[name]))
         return True
+
+    def _failed(self, name: str, why: str) -> bool:
+        self._cache.disconnected(name, why)
+        logger.warning("%s: %s; retrying", name, why)
+        return False
 
     def _on_update(self, name: str, frame: Mapping[str, Any]) -> None:
         # Runs on geecs_core's loop thread: store and return.

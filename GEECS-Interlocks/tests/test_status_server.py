@@ -13,7 +13,9 @@ from geecs_interlocks.wire import parse_status, read_frame
 @pytest.fixture
 def server():
     current = {"snap": Snapshot((InterlockStatus("a", "", "", "ok"),))}
-    srv = StatusServer(lambda: current["snap"], "127.0.0.1", 0, interval=0.02)
+    srv = StatusServer(
+        lambda: current["snap"], "127.0.0.1", 0, interval=0.02, wire_format="summary"
+    )
     srv.start()
     srv.current = current
     yield srv
@@ -63,3 +65,18 @@ def test_a_taken_port_raises(server):
     other = StatusServer(lambda: Snapshot(), "127.0.0.1", server.address[1])
     with pytest.raises(OSError):
         other.start()
+
+
+def test_the_default_stream_is_legacy():
+    srv = StatusServer(
+        lambda: Snapshot((InterlockStatus("a", "", "", "tripped", "P=5"),)),
+        "127.0.0.1",
+        0,
+        interval=0.02,
+    )
+    srv.start()
+    try:
+        with connect(srv) as sock:
+            assert read_frame(sock) == "WARNING! a - P=5"
+    finally:
+        srv.stop()

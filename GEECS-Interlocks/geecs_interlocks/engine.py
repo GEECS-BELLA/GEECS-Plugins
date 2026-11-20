@@ -2,8 +2,9 @@
 
 The stream outlives a reload: it reads :meth:`Engine.snapshot`, which goes to
 whichever monitor is current, so Master Control stays connected while the
-file is re-read. A reload that does not validate keeps the old interlocks
-running and says why.
+file is re-read. So do the external-signal listeners, which keep the last
+state each sender reported. A reload that does not validate, or names a UDP
+port that cannot be bound, keeps the old interlocks running and says why.
 """
 
 from __future__ import annotations
@@ -13,10 +14,11 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from geecs_schemas import InterlockSet
+from geecs_schemas import ExternalCondition, InterlockSet
 
 from geecs_interlocks.conditions import watched
 from geecs_interlocks.config import Settings, load_interlocks
+from geecs_interlocks.external import ExternalSignals
 from geecs_interlocks.monitor import Event, Monitor, Snapshot
 from geecs_interlocks.sources import DeviceSource, Source
 from geecs_interlocks.status_server import StatusServer
@@ -41,6 +43,17 @@ def device_variables(interlocks: InterlockSet) -> dict[str, set[str]]:
     return out
 
 
+def external_ports(interlocks: InterlockSet) -> set[int]:
+    """The UDP ports the armed interlocks in *interlocks* listen on."""
+    return {
+        c.port
+        for i in interlocks.interlocks
+        if i.enabled
+        for c in i.conditions
+        if isinstance(c, ExternalCondition)
+    }
+
+
 def geecs_sources(
     endpoints: dict[str, tuple[str, int]] | None = None,
 ) -> SourceFactory:
@@ -62,7 +75,7 @@ class Engine:
     make_source :
         Builds the source for a document.
     settings :
-        Where the stream listens.
+        Where the stream and the external signals listen, and the wire format.
     """
 
     def __init__(
@@ -73,21 +86,48 @@ class Engine:
         self._make_source = make_source
         self._lock = threading.Lock()
         interlocks, origin = load_interlocks(path)  # invalid at start: raise
-        self._monitor = Monitor(interlocks, make_source(interlocks), origin=origin)
+        self._interlocks = interlocks
+        self.signals = ExternalSignals(settings.external_host)
+        self._monitor = self._build(interlocks, origin)
         self.stream = StatusServer(
-            self.snapshot, settings.status_host, settings.status_port
+            self.snapshot,
+            settings.status_host,
+            settings.status_port,
+            wire_format=settings.wire_format,
+        )
+
+    def _build(self, interlocks: InterlockSet, origin: str) -> Monitor:
+        return Monitor(
+            interlocks,
+            self._make_source(interlocks),
+            signals=self.signals,
+            origin=origin,
         )
 
     def start(self) -> None:
-        """Start the monitor, then the stream (``OSError``: the port is taken)."""
-        self._monitor.start()
-        self.stream.start()
+        """Listen for external signals, start the monitor, then the stream.
+
+        Raises
+        ------
+        OSError
+            A UDP port or the stream's port cannot be bound; nothing is left
+            running.
+        """
+        self.signals.open(external_ports(self._interlocks))
+        try:
+            self._monitor.start()
+            self.stream.start()
+        except OSError:
+            self._monitor.stop()
+            self.signals.stop()
+            raise
 
     def stop(self) -> None:
-        """Stop the stream and the monitor."""
+        """Stop the stream, the monitor and the external-signal listeners."""
         self.stream.stop()
         with self._lock:
             self._monitor.stop()
+        self.signals.stop()
 
     @property
     def monitor(self) -> Monitor:
@@ -103,6 +143,10 @@ class Engine:
         """The current monitor's state changes."""
         return self.monitor.events()
 
+    def arm(self, name: str | None = None) -> list[str]:
+        """Arm the current monitor's ``config_change`` conditions (see :meth:`Monitor.arm`)."""
+        return self.monitor.arm(name)
+
     def reload(self) -> str:
         """Re-read the file and swap in a fresh monitor; a line saying what happened.
 
@@ -113,17 +157,27 @@ class Engine:
         """
         try:
             interlocks, origin = load_interlocks(self.path)
+            ports = external_ports(interlocks)
+            self.signals.open(ports)
         except Exception as exc:
             logger.exception("reload refused")
             return f"reload refused, old interlocks kept: {exc}"
-        fresh = Monitor(interlocks, self._make_source(interlocks), origin=origin)
+        fresh = self._build(interlocks, origin)
         fresh.start()
         with self._lock:
             old, self._monitor = self._monitor, fresh
+            self._interlocks = interlocks
         old.stop()
+        self.signals.retain(ports)
         message = f"reloaded {len(interlocks.interlocks)} interlock(s) from {origin}"
         logger.info(message)
         return message
 
 
-__all__ = ["Engine", "SourceFactory", "device_variables", "geecs_sources"]
+__all__ = [
+    "Engine",
+    "SourceFactory",
+    "device_variables",
+    "external_ports",
+    "geecs_sources",
+]
