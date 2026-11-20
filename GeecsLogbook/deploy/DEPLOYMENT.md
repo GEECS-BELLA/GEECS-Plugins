@@ -159,7 +159,7 @@ curl -s http://localhost:8400/health            # "writable": true
 # shows NONE on its page — by design — so the page is not the check.
 curl -s 'http://localhost:8400/api/entries?since=2000-01-01T00:00:00%2B00:00' | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d["entries"]), "rows on the new port; next_cursor =", d["next_cursor"])'
 # in a browser: /day/<a day with live entries> shows them; an attachment link serves
-sudo systemctl start geecs-data-portal          # on its re-rendered unit (no StateDirectory)
+sudo systemctl start geecs-data-portal          # on its re-rendered unit
 ```
 
 Done on the reference host 2026-09-13 (portal 0.27.1, logbook 0.10.1):

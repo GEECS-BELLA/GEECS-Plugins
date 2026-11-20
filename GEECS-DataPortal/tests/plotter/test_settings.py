@@ -411,7 +411,7 @@ def test_the_sets_list_carries_the_open_scan(client: TestClient) -> None:
 def test_a_field_from_a_newer_copy_survives_a_save(
     client: TestClient, settings_dir: Path
 ) -> None:
-    """The shared folder mixes copies: an unknown field loads and is kept."""
+    """A newer portal's set (a rollback): an unknown field loads and is kept."""
     settings_dir.mkdir(exist_ok=True)
     (settings_dir / "default.json").write_text(
         '{"schema_version": 1, "bin_mode": "mean"}'

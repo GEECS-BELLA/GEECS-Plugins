@@ -61,8 +61,9 @@ class FakeLogbook:
         self.null_body_md = False
         #: Settings documents as stored, by the name the store gave them.
         self.documents: dict[str, dict] = {}
-        #: Answer a JSON upload 415: a logbook from before it took them.
-        self.refuse_json = False
+        #: Answer a JSON upload with this status (415: a logbook from
+        #: before it took them; 503: it could not store the file).
+        self.refuse_json = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:  # noqa: C901
         path = request.url.path
@@ -91,7 +92,9 @@ class FakeLogbook:
             if len(parts) == 4 and parts[3] == "attachments":
                 if b"application/json" in request.content:
                     if self.refuse_json:
-                        return httpx.Response(415, json={"detail": "unsupported"})
+                        return httpx.Response(
+                            self.refuse_json, json={"detail": "refused"}
+                        )
                     offered = re.search(rb'filename="([^"]+)"', request.content)
                     assert offered is not None
                     name = offered.group(1).decode()
@@ -352,22 +355,52 @@ class TestSendFreezesTheSettings:
         first = _send(book, settings=_SETTINGS, settings_name="ada")
         _send(book, settings=_SETTINGS, settings_name="ada", entry_id=first.entry_id)
         paragraphs = book.only_entry()["body_md"].strip().split("\n\n")
-        assert paragraphs[0] == (
+        # The portal link stays the entry's first line (its summary).
+        assert paragraphs[0].startswith("[Plotted in the data portal]")
+        assert paragraphs[1] == (
             "Plot settings as sent: "
             "[plot-1](attachments/e0001/plot-1-settings.json) · "
             "[plot-2](attachments/e0001/plot-2-settings.json)"
         )
-        assert paragraphs[1].startswith("[Plotted in the data portal]")
         # The two images are still consecutive paragraphs: one figure grid.
         assert [p.startswith("![") for p in paragraphs[2:]] == [True, True]
 
-    def test_the_settings_line_joins_a_body_someone_wrote(self) -> None:
-        body = "the jet was unstable\n\n![a](attachments/e/a.png)\n"
+    def test_the_settings_line_never_goes_above_what_someone_wrote(self) -> None:
+        """A heading stays the first line: the logbook shows it as the summary."""
+        body = "# Jet scan, good data\n\nunstable at first\n\n![a](attachments/e/a.png)\n\n![b](attachments/e/b.png)\n"
         out = logbook_send.with_settings_link(body, "plot-1", "attachments/e/s.json")
-        assert out == f"Plot settings as sent: [plot-1](attachments/e/s.json)\n\n{body}"
+        assert out == (
+            "# Jet scan, good data\n\nunstable at first\n\n"
+            "Plot settings as sent: [plot-1](attachments/e/s.json)\n\n"
+            "![a](attachments/e/a.png)\n\n![b](attachments/e/b.png)\n"
+        )
         again = logbook_send.with_settings_link(out, "plot-2", "attachments/e/t.json")
-        assert again.split("\n")[0].endswith("· [plot-2](attachments/e/t.json)")
-        assert again.split("\n", 1)[1] == out.split("\n", 1)[1]
+        assert again == out.replace(
+            "s.json)", "s.json) · [plot-2](attachments/e/t.json)"
+        )
+
+    def test_a_body_without_images_gets_the_line_at_its_end(self) -> None:
+        out = logbook_send.with_settings_link("# Notes\n", "p", "attachments/e/s.json")
+        assert out == "# Notes\n\nPlot settings as sent: [p](attachments/e/s.json)\n"
+        only = logbook_send.with_settings_link("", "p", "attachments/e/s.json")
+        assert only == "Plot settings as sent: [p](attachments/e/s.json)\n"
+        first = logbook_send.with_settings_link(
+            "![a](attachments/e/a.png)\n", "p", "attachments/e/s.json"
+        )
+        assert first.startswith("Plot settings as sent:") and first.endswith("a.png)\n")
+
+    def test_the_settings_link_survives_a_conflict(self) -> None:
+        """The retry rebuilds the line from the body someone just saved."""
+        book = FakeLogbook()
+        first = _send(book, settings=_SETTINGS, settings_name="ada")
+        book.entries[first.entry_id]["body_md"] += "\n\nthe jet was misaligned\n"
+        book.entries[first.entry_id]["version"] += 1
+        book.conflicts = 1
+        _send(book, settings=_SETTINGS, settings_name="ada", entry_id=first.entry_id)
+        body = book.only_entry()["body_md"]
+        assert "the jet was misaligned" in body
+        assert body.count("Plot settings as sent:") == 1
+        assert body.count("-settings.json") == 2
 
     def test_a_send_without_settings_is_the_send_it_always_was(self) -> None:
         book = FakeLogbook()
@@ -375,9 +408,13 @@ class TestSendFreezesTheSettings:
         assert result.settings_link is None and book.documents == {}
         assert "settings" not in book.only_entry()["body_md"]
 
-    def test_a_logbook_that_takes_no_json_still_gets_the_plot(self) -> None:
+    @pytest.mark.parametrize("status", [415, 413, 500, 503])
+    def test_a_logbook_that_refuses_the_settings_still_gets_the_plot(
+        self, status: int
+    ) -> None:
+        """The settings never veto the plot, or each retry leaves an unlinked image."""
         book = FakeLogbook()
-        book.refuse_json = True
+        book.refuse_json = status
         result = _send(book, settings=_SETTINGS, settings_name="ada")
         assert result.settings_link is None
         body = book.only_entry()["body_md"]

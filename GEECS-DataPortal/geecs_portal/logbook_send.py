@@ -44,8 +44,10 @@ themselves and not the name of a set that changes with its owner's next
 pick. One more upload between (2) and (3), and one line of the body: the
 ``Plot settings as sent:`` paragraph at the top of the entry, which links
 each plot's document (above the images, like the portal link, so it never
-splits their run). A logbook too old to take JSON answers 415: the image
-is still sent, and the result says the settings were not kept.
+splits their run). The settings are the plot's companion, never its
+gate: when the logbook refuses the document — 415 from one too old to
+take JSON, or its own trouble storing it — the image is still sent, and
+the result says the settings were not kept.
 
 Why append rather than replace
 ------------------------------
@@ -248,9 +250,12 @@ def frozen_settings(
 def with_settings_link(body_md: str, label: str, link: str) -> str:
     """``body_md`` with one more link on its settings line.
 
-    The line is a paragraph of its own at the top of the entry, made on
-    the first plot that has settings: above the images, where it cannot
-    split the run the renderer grids. Later plots extend it in place.
+    The line is a paragraph of its own, made on the first plot that has
+    settings: directly above the first image, or at the end of a body that
+    has none yet (the image is appended after it). It is never put above
+    what is already written — a heading stays the entry's first line, which
+    the logbook shows as its summary — and never between two images, which
+    would split the run the renderer grids. Later plots extend it in place.
     """
     item = f"[{_plain(label)}]({link})"
     lines = body_md.split("\n")
@@ -258,9 +263,17 @@ def with_settings_link(body_md: str, label: str, link: str) -> str:
         if line.startswith(SETTINGS_LINE):
             lines[index] = f"{line.rstrip()} · {item}"
             return "\n".join(lines)
-    rest = body_md.lstrip("\n")
-    head = f"{SETTINGS_LINE} {item}\n"
-    return f"{head}\n{rest}" if rest.strip() else head
+    paragraph = f"{SETTINGS_LINE} {item}"
+    for index, line in enumerate(lines):
+        if line.startswith("!["):
+            above = "\n".join(lines[:index]).rstrip()
+            below = "\n".join(lines[index:])
+            return (
+                f"{above}\n\n{paragraph}\n\n{below}"
+                if above
+                else f"{paragraph}\n\n{below}"
+            )
+    return appended_body(body_md, paragraph)
 
 
 def _plain(text: str) -> str:
@@ -509,10 +522,12 @@ def _upload_settings(
     """Store the settings document beside its image; its link, or ``None``.
 
     Named after the image the store actually kept, so the pair reads as
-    one in a listing. A 415 is a logbook that does not take JSON yet (one
-    deployed before this): the image is already stored and is still sent,
-    without its settings, and the caller is told so. Any other refusal is
-    the send's.
+    one in a listing. Any refusal of the document (415 from a logbook that
+    does not take JSON yet, a 5xx storing it) is logged and answered with
+    ``None``: the image is already stored, and stopping here would leave it
+    unlinked in an entry the page never learns of, one more per retry. The
+    plot is sent without its settings and the caller is told so. No answer
+    at all is still the send's failure (the body write would fail too).
     """
     name = f"{PurePosixPath(link).stem}-settings.json"
     try:
@@ -523,12 +538,11 @@ def _upload_settings(
             )
         )
     except LogbookRefused as exc:
-        if exc.status != 415:
-            raise
         logger.warning(
-            "the logbook at %s does not store plot settings (415); "
+            "the logbook at %s did not store the plot's settings (%s); "
             "the plot is sent without them",
             base,
+            exc,
         )
         return None
     return str(_field(uploaded, "link"))

@@ -242,6 +242,12 @@ cd GEECS-DataPortal && poetry install --extras analysis
 sudo systemctl restart geecs-data-portal
 ```
 
+When the unit template changed (`git diff` on
+`deploy/geecs-data-portal.service`), re-render and reinstall it before the
+restart. A unit from before the settings sets moved has no
+`--settings-dir`: the portal then saves them in the service account's own
+state folder (`~/.local/state/geecs-data-portal/settings`), not the unit's.
+
 (Drop `--extras analysis` only on a deployment that deliberately runs
 without the processing selector.)
 
@@ -376,10 +382,11 @@ portal refuses over 8 MiB first, with its own message).
 **Upgrading a host that ran `--scan-log`** (portal 0.22–0.26): the flag
 and the `log` extra are gone, so the old `GEECS_PORTAL_EXTRA_ARGS` value
 fails argument parsing at start — replace `--scan-log` with `--logbook-url
-…` in `site.env`, re-render the unit (it no longer declares a
-`StateDirectory`), and move the entries out of
+…` in `site.env`, re-render the unit, and move the entries out of
 `/var/lib/geecs-data-portal` per the logbook runbook **before** starting
-the portal on the new unit.
+the portal on the new unit (the unit's `StateDirectory` is that folder
+again, for the Plot tab's settings sets under `settings/`; the logbook's
+files have no place in it).
 
 
 ## The analysis documents: edited in the configurator

@@ -88,12 +88,19 @@ extending this package.
   `<image name>-settings.json` — `logbook_send.frozen_settings`: `kind:
   plot_settings`, the image's link, day, scan, the set's name, the source
   URL and the settings themselves — linked from the body's one `Plot
-  settings as sent:` paragraph at the top (`with_settings_link`: above the
-  images, so it cannot split their run).  The entry carries the settings,
-  never a reference: the set changes with its owner's next pick and the
-  document does not.  The reply's `settings_link` is null when no settings
-  came or the logbook refused JSON (415, a logbook older than this: the
-  plot is still sent).  The portal keeps the document as sent and does not
+  settings as sent:` paragraph (`with_settings_link`: directly above the
+  first image, never above what someone wrote and never between two
+  images, so a heading stays the summary and the run stays a grid).  The
+  entry carries the settings, never a reference: the set changes with its
+  owner's next pick and the document does not.  It is the set **as saved
+  when Send was pressed**: every pick saves into the set before the plot
+  redraws, so the two agree, except where the set was changed from another
+  tab or by another person after this page drew — the page does not detect
+  that.  The reply's `settings_link` is null when no settings came or the
+  logbook refused the document (415 from one older than this, or its own
+  trouble storing it): the settings never veto the plot.  A set the page
+  cannot read stops the send instead, since that is the portal's own
+  trouble and an unfrozen plot is what this exists to prevent.  The portal keeps the document as sent and does not
   validate it as `PlotterSettings` (the route knows nothing of the
   plotter); its size is capped (`MAX_SETTINGS_BYTES`).  Nothing loads a
   frozen document back into a set yet: it is a `PlotterSettings` file
