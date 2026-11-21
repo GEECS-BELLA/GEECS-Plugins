@@ -71,9 +71,9 @@ from geecs_bluesky.plans.on_demand import (
 from geecs_bluesky.plans.shot_gate import open_gate
 from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
 from geecs_bluesky.plans.strict import (
-    device_root,
     down_devices,
     geecs_name,
+    mover_roots,
     needed_device_names,
     name_failed_status,
     run_bracket,
@@ -255,9 +255,8 @@ def drop_down_devices(
         ``(kept detectors, dropped GEECS names)``.
     """
     judged = list(detectors)
-    for mover in movers:
-        root = device_root(mover)
-        if root is not None and all(root is not d for d in judged):
+    for root in mover_roots(movers):
+        if all(root is not d for d in judged):
             judged.append(root)
     optional = [d for d in detectors if geecs_name(d) not in needed]
     dropped = yield from liveness_gate(shot_control, judged, optional=optional)
@@ -834,7 +833,7 @@ def strict_plan(  # noqa: C901, PLR0915
         # A condition or a mover is never waited on: a frozen loop (connected,
         # publishing nothing) would go unnoticed, so it is WARNED, never refused.
         stale = yield from stale_devices(
-            [*(d for d in detectors if not is_per_shot(d)), *movers]
+            [*(d for d in detectors if not is_per_shot(d)), *mover_roots(movers)]
         )
         start_warnings: list[str] = []
         if stale:

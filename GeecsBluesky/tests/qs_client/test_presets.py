@@ -177,6 +177,7 @@ def test_expand_a_pseudo_axis_to_its_namespace_noun() -> None:
     )
     assert item.kwargs["sweep"]["trajectory"]["axes"][0]["axis"] == "JetZ_with_probe"
     assert "JetZ_with_probe" in item.references  # the preflight checks it exists
+    assert "U_Jet" in item.needed  # its component's device: down refuses
 
 
 def test_expansion_records_axis_references_and_preserves_order():

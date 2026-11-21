@@ -743,6 +743,9 @@ def test_needed_devices_are_the_required_the_moved_and_the_box(RE, box) -> None:
     sc = SimpleNamespace(liveness_signals={"DG": object()})
     assert needed_device_names([cam], [magnet.current], sc) == {"UC_Cam", "U_S1H", "DG"}
     assert needed_device_names([], [SimpleNamespace(name="pseudo")], None) == set()
+    # a pseudo positioner moves its components: their devices are needed
+    pseudo = SimpleNamespace(name="bump", component_settables=(magnet.current,))
+    assert needed_device_names([], [pseudo], None) == {"U_S1H"}
     assert "UC_Other" not in needed_device_names([cam], [], sc)
 
 

@@ -112,7 +112,8 @@ def stale_devices(objs: Sequence[Any]):
     ``systimestamp`` (:func:`~geecs_bluesky.devices.ca.liveness.probe_stale_pvs`:
     older than 30 s, or never set), the sibling of the ``CONNECTED`` PV
     its ``connected_status`` reads.  A device with no gateway
-    ``connected_status`` (a native one, a pseudo) is not judged.  A
+    ``connected_status`` (a native one, a pseudo itself — pass its
+    components, :func:`mover_roots`) is not judged.  A
     warning's evidence, never a refusal.
     """
     from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE, normalize_component
@@ -171,21 +172,35 @@ def device_root(obj: Any) -> Any | None:
     return root
 
 
+def mover_roots(movers: Sequence[Any]) -> list[Any]:
+    """The namespace devices a run moves: each mover's :func:`device_root`.
+
+    A pseudo positioner has no GEECS device of its own; it moves its
+    components, so their devices are the ones moved.
+    """
+    roots: list[Any] = []
+    for mover in movers:
+        parts = getattr(mover, "component_settables", None)
+        for part in parts if parts is not None else (mover,):
+            root = device_root(part)
+            if root is not None and all(root is not r for r in roots):
+                roots.append(root)
+    return roots
+
+
 def needed_device_names(
     required: Sequence[Any], movers: Sequence[Any], shot_control: Any | None
 ) -> frozenset[str]:
     """The GEECS devices a run cannot go without — the one rule of what refuses it.
 
-    The *required* per-shot devices, the devices the run moves (*movers*),
-    and the trigger profile's box.  Any other device the run lists may be
+    The *required* per-shot devices, the devices the run moves (*movers*;
+    a pseudo positioner's components, :func:`mover_roots`), and the
+    trigger profile's box.  Any other device the run lists may be
     down at its start (``registry.drop_down_devices``: left out) or silent
     after ``ScanStart`` (left out of scan mode) without refusing it.
     """
     names = {geecs_name(obj) for obj in required}
-    for mover in movers:
-        root = device_root(mover)
-        if root is not None:
-            names.add(geecs_name(root))
+    names |= {geecs_name(root) for root in mover_roots(movers)}
     names |= {str(d) for d in getattr(shot_control, "liveness_signals", None) or {}}
     return frozenset(names)
 

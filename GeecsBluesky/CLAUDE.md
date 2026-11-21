@@ -541,7 +541,7 @@ the exact `Disconnected` string counts; a native camera is judged by its
 IOC's own `AsynIO.CNCT` instead — `devices/native.down_native_cameras`,
 connected if needed and read within 5 s, where unreadable means down).  A dead **needed**
 device — a required one, a device the run moves (judged even when the
-preset does not list it), or the box (`plans/strict.needed_device_names`,
+preset does not list it; a pseudo positioner's components, `plans/strict.mover_roots`), or the box (`plans/strict.needed_device_names`,
 the one rule) — refuses the run with `GeecsDeviceDownError` naming
 every such one, before the box is driven and before `open_run` claims a
 scan number — so nothing is claimed and no folder exists.  Any other

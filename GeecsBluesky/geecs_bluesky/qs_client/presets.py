@@ -321,8 +321,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         try:
             payload = Sweep.model_validate(kwargs.get("sweep"))
             for axis in payload.axis_references():
-                owner = _axis_device(axis.axis, catalog, by_reference)
-                if owner is not None:
+                for owner in _axis_devices(axis.axis, catalog, by_reference):
                     needed.setdefault(owner)
                 if (
                     ":" in axis.axis
@@ -416,24 +415,30 @@ def expand_against_tree(
     return expand_preset(preset, device_tree=tree, **kwargs)
 
 
-def _axis_device(
+def _axis_devices(
     axis: str, catalog: Mapping[str, Any] | None, by_reference: Mapping[str, str]
-) -> str | None:
-    """The GEECS device a sweep axis moves, or ``None`` for a catalog pseudo.
+) -> list[str]:
+    """The GEECS devices a sweep axis moves: one, or a catalog pseudo's components.
 
     *axis* as the preset spells it: ``Device:Variable``, a catalog name, or
     an expanded reference (``U_S1H.current``, mapped back to the listed
-    device's GEECS spelling when it is one).
+    device's GEECS spelling when it is one).  The worker's rule is
+    ``plans/strict.mover_roots``.
     """
     spec = (catalog or {}).get(axis)
     if spec is not None:
         if getattr(spec, "kind", None) == "pseudo":
-            return None
+            devices: list[str] = []
+            for component in spec.targets:
+                for device in _axis_devices(str(component.target), None, by_reference):
+                    if device not in devices:
+                        devices.append(device)
+            return devices
         axis = str(spec.target)
     if ":" in axis:
-        return axis.partition(":")[0]
+        return [axis.partition(":")[0]]
     base = axis.partition(".")[0]
-    return by_reference.get(base, base)
+    return [by_reference.get(base, base)]
 
 
 def _detector_names(native_devices: Collection[str] | Mapping[str, Any]) -> set[str]:
