@@ -779,7 +779,7 @@ class ScannerService:
         """
         from geecs_scanner.service.setups import hazards, provenance, questions
 
-        operator = body.operator.strip()
+        operator = (body.operator or "").strip()
         if not operator:
             raise ScannerError(
                 "invalid_request",
@@ -908,7 +908,8 @@ class ScannerService:
                 f"preset name {stem!r} is not a file name: use letters, digits, "
                 "'_', '-' and '.', no separators",
             )
-        if not body.operator.strip():
+        operator = (body.operator or "").strip()
+        if not operator:
             raise ScannerError(
                 "invalid_request",
                 "enter your name (the operator) first: a saved preset is a commit under it",
@@ -929,7 +930,7 @@ class ScannerService:
                 f"preset {stem!r} already exists; replace it or pick another name",
                 exists=True,
             )
-        saved = self._presets.save(stem, preset.model_dump(mode="json"), operator=body.operator.strip(), overwrite=body.overwrite)  # fmt: skip
+        saved = self._presets.save(stem, preset.model_dump(mode="json"), operator=operator, overwrite=body.overwrite)  # fmt: skip
         return SavePresetOut(
             name=stem, path=saved.path, message=saved.message, commit=saved.commit
         )
