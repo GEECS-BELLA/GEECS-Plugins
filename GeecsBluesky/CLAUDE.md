@@ -559,7 +559,7 @@ scan number — so nothing is claimed and no folder exists.  Any other
 listed device down is **left out of the run**
 (`registry.drop_down_devices`, `count` and `sweep`): no stream, no
 columns, not waited on for scan mode, not read as background telemetry
-either, WARNED and named in the start document's `devices_dropped`; the
+either, WARNED (at bind, and again after `open_run` so `scan.log` says it) and named in the start document's `devices_dropped`; the
 next run that finds it up records it again, the preset untouched.  Every
 listed device down refuses (nothing left to record).  The client's
 preflight asks only about a down device the run needs (it refuses); one

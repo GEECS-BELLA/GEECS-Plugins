@@ -271,12 +271,16 @@ def drop_down_devices(
             "resubmit.",
             device_name=dropped[0],
         )
-    logger.warning(
-        "%s DISCONNECTED — not required, so left out of this run (no stream, "
-        "no columns); listed again the next run that finds it up",
-        ", ".join(dropped),
-    )
+    logger.warning("%s", dropped_text(dropped))
     return kept, dropped
+
+
+def dropped_text(dropped: Sequence[str]) -> str:
+    """The warning for the devices a run left out because they were down: at bind and in ``scan.log``."""
+    return (
+        f"{', '.join(dropped)} DISCONNECTED — not required, so left out of this "
+        "run (no stream, no columns); listed again the next run that finds it up"
+    )
 
 
 def set_tolerance_gate(movers: Sequence[Any]):
@@ -839,10 +843,7 @@ def strict_plan(  # noqa: C901, PLR0915
         if dropped:
             # drop_down_devices WARNED it at bind, before scan.log exists:
             # again after open_run, so the scan's own log says it too.
-            start_warnings.append(
-                f"{', '.join(dropped)} DISCONNECTED — not required, so left out "
-                "of this run (no stream, no columns)"
-            )
+            start_warnings.append(dropped_text(dropped))
         if stale:
             start_warnings.append(
                 f"{stale_text(stale)} — connected, but its LabVIEW loop has not "
