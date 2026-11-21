@@ -75,6 +75,8 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "read",
         "read_configuration",
         "set_name",
+        "shot_stamp",
+        "shot_stamp_from_systimestamp",
         "stage",
         "trigger",
         "unstage",

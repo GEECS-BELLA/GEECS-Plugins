@@ -120,11 +120,15 @@ class StampingDevice(FakeScanModeDevice):
         camera: Any = None,
         drop: set[int] | None = None,
         timeline: list | None = None,
+        loop_stamp_only: bool = False,
         **kw: Any,
     ) -> None:
         super().__init__(name, command_port, **kw)
         self.camera = camera
         self.drop = set(drop or ())
+        # A driver that never sets acq_timestamp: each shot moves only the
+        # device's loop stamp (systimestamp).
+        self.loop_stamp_only = loop_stamp_only
         if timeline is not None:
             self.scan_ends = _Recording(timeline, "scan_end", key=name)
 
@@ -133,7 +137,12 @@ class StampingDevice(FakeScanModeDevice):
         super()._on_path(path)
         shot = self.shot_numbers[-1] if self.shot_numbers else None
         if self.camera is not None and self.stamp != before and shot not in self.drop:
-            set_mock_value(self.camera.acq_timestamp, 1000.0 + self.stamp)
+            signal = (
+                self.camera.systimestamp
+                if self.loop_stamp_only
+                else self.camera.acq_timestamp
+            )
+            set_mock_value(signal, 1000.0 + self.stamp)
 
 
 class _Box:
@@ -1093,7 +1102,7 @@ def test_the_entry_of_a_bound_count_spares_every_device_not_needed(
     class Seen(Exception):
         pass
 
-    def bracket(plan, control, entry):
+    def bracket(plan, control, entry, **_: Any):
         entries.append(entry)
         raise Seen
         yield  # a generator
@@ -1217,3 +1226,139 @@ def test_preflight_reads_the_boundary_rows_as_they_are_now(
         with pytest.raises(GeecsConfigurationError, match="conflicts"):
             scan_mode_preflight(sc, control, run_devices=(CAM,))
     assert "could not be re-read" in caplog.text
+
+
+# ------------------------------------------- a device with no hardware stamp
+
+
+def test_a_device_whose_acq_timestamp_is_never_set_is_stamped_by_its_systimestamp(
+    RE: RunEngine, stack: Stack
+) -> None:
+    """In scan mode a device publishes once per announced shot: its loop stamp is the shot."""
+    cam = _camera(RE, FakeBox(), CAM)
+    set_mock_value(cam.acq_timestamp, 0.0)  # the gateway's placeholder, never set
+    stack.start(**{CAM: {"camera": cam, "loop_stamp_only": True}})
+    control = stack.make_control()
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bound["count"]([cam], num=2))
+    start = col.docs["start"][0]
+    assert start["shot_stamp_systimestamp"] == [CAM]
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r[ANNOUNCED_SHOT] for r in rows] == [1, 2]
+    assert all(r["complete"] for r in rows)  # no refire: each shot delivered
+    stream = col.stream_events("uc_cam_stream")
+    # recorded under the column every reader joins on
+    assert [e["data"]["uc_cam-acq_timestamp"] for e in stream] == [1001.0, 1002.0]
+    assert cam.shot_stamp is cam.acq_timestamp  # cleared at the run's end
+
+
+def test_a_device_with_a_hardware_stamp_keeps_it_in_scan_mode(
+    RE: RunEngine, stack: Stack
+) -> None:
+    cam = _camera(RE, FakeBox(), CAM)
+    set_mock_value(cam.acq_timestamp, 999.0)  # its driver sets the stamp
+    stack.start(**{CAM: {"camera": cam}})
+    control = stack.make_control()
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bound["count"]([cam], num=1))
+    assert col.docs["start"][0]["shot_stamp_systimestamp"] == []
+
+
+def test_a_refused_entry_still_puts_the_stamps_back(RE: RunEngine) -> None:
+    """The choice and its undoing share the bracket's finalizer: a refused ScanStart leaves no device switched."""
+    from ophyd_async.core import AsyncStatus
+
+    from geecs_bluesky.plans.scan_mode import scan_mode_bracket
+
+    cam = _camera(RE, FakeBox(), CAM)
+    set_mock_value(cam.acq_timestamp, 0.0)
+    switched: list[bool] = []
+
+    class Refusing:
+        name = "scan_mode"
+        parent = None
+
+        def set(self, value: Any) -> AsyncStatus:
+            switched.append(cam.shot_stamp is cam.systimestamp)
+
+            async def refuse() -> None:
+                raise RuntimeError("ScanStart refused")
+
+            return AsyncStatus(refuse())
+
+    with pytest.raises(FailedStatus):
+        RE(scan_mode_bracket(iter(()), Refusing(), _entry(), stamped=[cam]))
+    assert switched == [True, True]  # chosen before the entry; still at the exit
+    assert cam.shot_stamp is cam.acq_timestamp  # undone though the exit failed too
+
+
+def test_the_start_document_names_them_though_the_plan_copied_its_metadata(
+    RE: RunEngine,
+) -> None:
+    """A plan built before the bracket (the sweep copies its md eagerly) still records the choice."""
+    from ophyd_async.core import AsyncStatus
+
+    from geecs_bluesky.plans.scan_mode import scan_mode_bracket
+
+    cam = _camera(RE, FakeBox(), CAM)
+    set_mock_value(cam.acq_timestamp, 0.0)
+
+    class Accepting:
+        name = "scan_mode"
+        parent = None
+
+        def set(self, value: Any) -> AsyncStatus:
+            async def ok() -> None:
+                return None
+
+            return AsyncStatus(ok())
+
+    def run(md: dict[str, Any]):
+        md = dict(md)  # copied now, before the bracket chose
+
+        def go():
+            yield from bps.open_run(md=md)
+            yield from bps.close_run()
+
+        return go()
+
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(
+        scan_mode_bracket(
+            run({"shot_stamp_systimestamp": []}), Accepting(), _entry(), stamped=[cam]
+        )
+    )
+    assert col.docs["start"][0]["shot_stamp_systimestamp"] == [CAM]
+    assert cam.shot_stamp is cam.acq_timestamp
+
+
+def test_a_run_outside_scan_mode_undoes_a_halted_runs_choice(
+    RE: RunEngine, stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import geecs_bluesky.plans.registry as registry
+
+    cam = _camera(RE, FakeBox(), CAM)
+    reset: list[list[Any]] = []
+
+    class Seen(Exception):
+        pass
+
+    def record(per_shot):
+        reset.append(list(per_shot))
+        raise Seen
+        yield  # a generator
+
+    monkeypatch.setattr(registry, "reset_shot_stamps", record)
+    bound = bind_plans(_profiles(RE, stack.timeline, use_scan_mode=False))
+    with pytest.raises(Seen):
+        RE(bound["count"]([cam], num=1))
+    assert reset == [[cam]]

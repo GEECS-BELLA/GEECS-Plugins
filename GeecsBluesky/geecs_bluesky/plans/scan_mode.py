@@ -26,6 +26,7 @@ The device is :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`;
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -35,12 +36,14 @@ from typing import Any
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
+from bluesky.utils import Msg
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_core.epics_env import pva_addr_tokens
 
 from geecs_bluesky.data_paths import local_data_root
-from geecs_bluesky.devices.ca._view import geecs_device_of
+from geecs_bluesky.devices.ca._view import geecs_device_of, owner_of
+from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.scan_mode import (
     EXIT,
     EnterScanMode,
@@ -105,20 +108,112 @@ def scan_parameter_for(plan_name: str) -> str:
     return "Shot #" if plan_name == "count" else plan_name
 
 
-def scan_mode_bracket(plan: Any, control: ScanModeControl, entry: EnterScanMode):
+def _stamped_owners(per_shot: Sequence[Any]) -> list[GeecsDetector]:
+    """The GEECS detectors among *per_shot* whose shot is a stamp (no file plugin), once each."""
+    owners: dict[int, GeecsDetector] = {}
+    for obj in per_shot:
+        owner = owner_of(obj)
+        if isinstance(owner, GeecsDetector) and not owner.plugin_backed:
+            owners.setdefault(id(owner), owner)
+    return list(owners.values())
+
+
+def _set_stamp(owner: GeecsDetector, on: bool):
+    """Retarget *owner*'s stamp monitor on the RunEngine's loop (a CA subscription)."""
+
+    async def do() -> None:
+        owner.shot_stamp_from_systimestamp(on)
+
+    return do
+
+
+def _read_stamp(owner: GeecsDetector):
+    """``acq_timestamp`` read uncached on the RunEngine's loop; ``None`` when it fails."""
+
+    async def do() -> float | None:
+        with contextlib.suppress(Exception):
+            return float(await owner.acq_timestamp.get_value(cached=False))
+        return None
+
+    return do
+
+
+def choose_shot_stamps(per_shot: Sequence[Any]):
+    """Plan: set each stamped per-shot device's shot stamp for a scan-mode run; return the GEECS names on ``systimestamp``.
+
+    A device whose ``acq_timestamp`` reads ``0.0`` (its LabVIEW driver never
+    sets it; the gateway's placeholder) takes its shots from
+    ``systimestamp``, which a device in scan mode publishes once per
+    announced shot; every other device keeps ``acq_timestamp``, and so does
+    one whose ``acq_timestamp`` cannot be read (the liveness gate judged it
+    up).  Run by :func:`scan_mode_bracket` before the entry, and undone by
+    :func:`reset_shot_stamps` in its finalizer; a run outside scan mode
+    resets first, so it never inherits a halted run's choice.
+    """
+    chosen: list[str] = []
+    for owner in _stamped_owners(per_shot):
+        (task,) = yield from bps.wait_for([_read_stamp(owner)])
+        value = task.result()
+        if value is None:
+            logger.warning(
+                "%s: acq_timestamp could not be read — its shots stay on it",
+                owner._geecs_device_name,
+            )
+        use = value is not None and value <= 0
+        yield from bps.wait_for([_set_stamp(owner, use)])
+        if use:
+            chosen.append(owner._geecs_device_name)
+    if chosen:
+        logger.info(
+            "%s: acq_timestamp is never set — in scan mode its shots are its "
+            "systimestamp (once per announced shot), recorded as its acq_timestamp",
+            ", ".join(chosen),
+        )
+    return chosen
+
+
+def reset_shot_stamps(per_shot: Sequence[Any]):
+    """Plan: every stamped per-shot device back on ``acq_timestamp`` (the run's finalizer)."""
+    for owner in _stamped_owners(per_shot):
+        yield from bps.wait_for([_set_stamp(owner, False)])
+
+
+def scan_mode_bracket(
+    plan: Any,
+    control: ScanModeControl,
+    entry: EnterScanMode,
+    *,
+    stamped: Sequence[Any] = (),
+):
     """Enter scan mode before *plan*; end it in a finalizer (every exit path but a halt).
 
     The entry sits inside the finalizer too: an abort while it waits for
     the acknowledgements, the connections or the drain still ends scan
-    mode (the exit cancels the entry's outstanding task first).
+    mode (the exit cancels the entry's outstanding task first).  Before
+    the entry the run's per-shot devices (*stamped*) take their scan-mode
+    shot stamp (:func:`choose_shot_stamps`); the names are set on *plan*'s
+    ``open_run`` as ``shot_stamp_systimestamp`` (a plan that copied its
+    metadata when it was built still records them).  The finalizer ends
+    scan mode, then puts the stamps back, whether or not the exit failed.
     """
 
     def body():
+        chosen = yield from choose_shot_stamps(stamped)
+
+        def name_them(msg: Msg) -> Msg:
+            if msg.command != "open_run":
+                return msg
+            return msg._replace(
+                kwargs={**msg.kwargs, "shot_stamp_systimestamp": chosen}
+            )
+
         yield from bps.mv(control, entry)
-        return (yield from plan)
+        return (yield from bpp.msg_mutator(plan, name_them))
 
     def leave():
-        yield from bps.mv(control, EXIT)
+        yield from bpp.finalize_wrapper(
+            bps.mv(control, EXIT), reset_shot_stamps(stamped)
+        )
 
     return (yield from bpp.finalize_wrapper(body(), leave()))
 
@@ -341,10 +436,12 @@ def release_scan_mode_plan(control: ScanModeControl | None):
 __all__ = [
     "boundary_conflicts",
     "check_gateway_host",
+    "choose_shot_stamps",
     "device_root_check",
     "gateway_hosts",
     "paused_device_names",
     "release_scan_mode_plan",
+    "reset_shot_stamps",
     "root_path_check",
     "run_device_names",
     "scan_mode_bracket",

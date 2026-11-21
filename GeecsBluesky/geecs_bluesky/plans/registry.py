@@ -52,6 +52,7 @@ from geecs_bluesky.plans.scan_mode import (
     EnterScanMode,
     paused_device_names,
     release_scan_mode_plan,
+    reset_shot_stamps,
     run_device_names,
     scan_mode_bracket,
     scan_mode_preflight,
@@ -817,6 +818,12 @@ def strict_plan(  # noqa: C901, PLR0915
         md["acquisition"] = acquisition
         md["native_image_save"] = native_files
         md["devices_dropped"] = dropped
+        # The scan-mode bracket names the devices stamped by their
+        # systimestamp; any other run takes every stamp from acq_timestamp
+        # (a halted scan-mode run's choice undone here).
+        md["shot_stamp_systimestamp"] = []
+        if announce is None:
+            yield from reset_shot_stamps(per_shot)
         gate = gate_for_run(shot_control, fly=fly)
         if gate is not None:
             md["shot_gate"] = gate.describe()
@@ -902,6 +909,7 @@ def strict_plan(  # noqa: C901, PLR0915
                     paused=paused_device_names(detectors),
                     optional=tuple(d for d in run_devices if d not in needed),
                 ),
+                stamped=per_shot,
             )
         if fly:
             # Nothing on the box: no state, no fire (its devices were judged

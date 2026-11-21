@@ -70,6 +70,8 @@ logger = logging.getLogger(__name__)
 
 #: The GEECS shot stamp variable (generated inside LabVIEW, not a DB row yet).
 ACQ_TIMESTAMP = "acq_timestamp"
+#: Every GEECS device's loop stamp (the gateway's fallback rung).
+SYSTIMESTAMP = "systimestamp"
 
 #: Seconds a shot may take to arrive after the fire: one trigger period (the
 #: single shot fires on the *next* edge) plus the device's exposure and
@@ -228,6 +230,27 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         if not self._monitoring:
             self._signal.subscribe_reading(self._on_update)
             self._monitoring = True
+
+    @property
+    def signal(self) -> SignalR[float]:
+        """The signal whose advance is a shot (``acq_timestamp`` unless retargeted)."""
+        return self._signal
+
+    def retarget(self, signal: SignalR[float]) -> None:
+        """Take shots from *signal* from now on (the monitor moved, the last stamp forgotten).
+
+        A no-op when *signal* is already the one monitored.
+        """
+        if signal is self._signal:
+            return
+        if self._monitoring:
+            self._signal.clear_sub(self._on_update)
+        self._signal = signal
+        self._last = None
+        self._t0 = None
+        self._drain()
+        if self._monitoring:
+            self._signal.subscribe_reading(self._on_update)
 
     def _on_update(self, reading: dict[str, Any]) -> None:
         value = reading[self._signal.name]["value"]
@@ -656,6 +679,12 @@ class GeecsDetector(StandardDetector):
         self.acq_timestamp = epics_signal_r(
             float, ca_pv(experiment, device, ACQ_TIMESTAMP)
         )
+        # Every GEECS device's loop stamp (the gateway serves it for all):
+        # a scan-mode run's shot stamp for a device whose acq_timestamp is
+        # never set (shot_stamp_from_systimestamp); never an event column.
+        self.systimestamp = getattr(self, SYSTIMESTAMP, None) or epics_signal_r(
+            float, ca_pv(experiment, device, SYSTIMESTAMP)
+        )
         # The gateway's per-device liveness PV: never an event column, read by
         # the refire gate to tell a dropped frame from a dead device.
         self.connected_status = epics_signal_r(
@@ -729,6 +758,27 @@ class GeecsDetector(StandardDetector):
     def last_acq_timestamp(self) -> float | None:
         """Latest stamp seen by the persistent monitor."""
         return self._acquire.last_acq_timestamp
+
+    @property
+    def shot_stamp(self) -> SignalR[float]:
+        """The signal whose advance is this device's shot: ``acq_timestamp``, or ``systimestamp``."""
+        return self._acquire.signal
+
+    def shot_stamp_from_systimestamp(self, on: bool) -> None:
+        """Take this device's shots from ``systimestamp`` (*on*) or ``acq_timestamp``.
+
+        For a device whose LabVIEW driver never sets ``acq_timestamp`` (it
+        reads ``0.0``, the gateway's placeholder) in a **scan-mode** run:
+        a device in scan mode acquires and publishes once per announced
+        shot, so its loop stamp advances once per shot.  Outside scan mode
+        the loop stamp ticks on its own and is never a shot.  The stamp is
+        still recorded under ``<name>-acq_timestamp``, the column every
+        reader joins on; the start document names the devices
+        (``shot_stamp_systimestamp``).  Set by the scan-mode bracket before
+        its entry and cleared in its finalizer
+        (:func:`~geecs_bluesky.plans.scan_mode.choose_shot_stamps`).
+        """
+        self._acquire.retarget(self.systimestamp if on else self.acq_timestamp)
 
     @property
     def plugin_backed(self) -> bool:
