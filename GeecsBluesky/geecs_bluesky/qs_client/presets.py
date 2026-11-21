@@ -27,7 +27,8 @@ A preset must name a scan verb; ``mv`` and ``apply_setup`` go through
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+import contextlib
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
@@ -80,6 +81,10 @@ class QueueItem:
     whose being down refuses the run worker-side (``registry.drop_down_devices``):
     the required per-shot devices and a sweep's axis devices (every device
     of an ``optimize``); any other listed device down is left out of the run.
+    ``left_out`` names the preset's devices the manager's device tree does
+    not have and the run does not require (expanded with ``device_tree``):
+    their rows are dropped from the item, so the manager is never handed a
+    device it does not know.
     """
 
     name: str
@@ -88,6 +93,7 @@ class QueueItem:
     references: list[str] = field(default_factory=list)
     devices: tuple[str, ...] = ()
     needed: tuple[str, ...] = ()
+    left_out: tuple[str, ...] = ()
 
 
 def scan_variable_reference(
@@ -201,7 +207,11 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         ``acq_timestamp`` nor an ``hdf`` child there is a condition, read in
         every row: never passed as ``required``, whatever its ``required``
         says.  Unset, every non-native device counts as per-shot (the
-        binder refuses a condition named in ``required``).
+        binder refuses a condition named in ``required``).  A row whose
+        device is not in the tree at all and is not ``required`` is left
+        out of the item (:attr:`QueueItem.left_out`), except in an
+        ``optimize``, which reads every device; a required one stays, and
+        the preflight refuses it as unknown.
 
     Raises
     ------
@@ -245,6 +255,23 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     required: list[str] = []
     per_shot: list[str] = []
     devices = merge_required_devices(preset, required_devices).devices
+    left_out: tuple[str, ...] = ()
+    if device_tree is not None and plan.name != "optimize":
+        # Known: the device itself or anything under it is in the tree.
+        tree = {name.split(".", 1)[0] for name in device_tree}
+        unknown = [
+            d
+            for d in devices
+            if not d.required and device_reference(d.device) not in tree
+        ]
+        if unknown and len(unknown) == len(devices):
+            raise GeecsConfigurationError(
+                f"preset {preset.name!r}: the worker knows none of its devices "
+                f"({', '.join(d.device for d in unknown)}) — check that the DB "
+                "lists them for the experiment"
+            )
+        left_out = tuple(d.device for d in unknown)
+        devices = [d for d in devices if d not in unknown]
     if native_devices is None:
         # A stand-in resolver (the scanner's demo) has no registry.
         read = getattr(resolver, "resolve_native_devices", None)
@@ -347,6 +374,8 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     run_md.setdefault("background", preset.background)
     geecs = dict(run_md.get("geecs") or {})
     geecs.setdefault("preset", preset.name)
+    if left_out:
+        geecs["devices_left_out"] = list(left_out)
     run_md["geecs"] = geecs
     kwargs["md"] = run_md
     return QueueItem(
@@ -356,7 +385,33 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         references=references,
         devices=tuple(d.device for d in devices),
         needed=tuple(needed),
+        left_out=left_out,
     )
+
+
+def expand_against_tree(
+    preset: Any,
+    read_tree: Callable[[], Collection[str]],
+    **kwargs: Any,
+) -> QueueItem:
+    """:func:`expand_preset`, then again over the manager's device tree when it matters.
+
+    The tree matters only when some device is not required: it tells the
+    conditions (no shot stamp, never required) apart and leaves out a
+    device it does not have (:attr:`QueueItem.left_out`).  *read_tree* is
+    asked only then; one that raises leaves the first expansion (the
+    manager then answers the submit itself).  The one copy the submit, the
+    preflight and the scanner's preview expand through.
+    """
+    item = expand_preset(preset, **kwargs)
+    if "required" not in item.kwargs:
+        return item
+    tree: list[str] | None = None
+    with contextlib.suppress(Exception):  # no tree: the plain expansion stands
+        tree = list(read_tree())
+    if tree is None:
+        return item
+    return expand_preset(preset, device_tree=tree, **kwargs)
 
 
 def _axis_device(
