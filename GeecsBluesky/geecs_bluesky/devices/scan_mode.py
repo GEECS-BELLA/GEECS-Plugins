@@ -7,8 +7,8 @@ device at three points of a strict run (the rules: CLAUDE.md, "Scan mode"):
   before the stage and the claim: ``ScanStart`` on the experiment's
   multicast group, then every run device's acknowledgement (one retry:
   ``ScanEnd``, a fresh ``ScanStart``), every host's connection and a drain.  A
-  silent or refusing device refuses the run by name
-  (:exc:`~geecs_bluesky.exceptions.GeecsScanModeError`): nothing claimed.
+  silent or refusing device the run needs refuses it (nothing claimed); an
+  ``optional`` one is WARNED and left out of scan mode.
 - ``mv(control, ANNOUNCE)`` on every shot, between the detectors' trigger
   and the fire: the run-wide counter advances (never re-sent) and
   ``Path>>…\ScanNNN_xxx_SSS.fileextension`` — the claimed folder on the
@@ -90,10 +90,18 @@ class EnterScanMode:
     scan_parameter :
         The second ``ScanStart`` argument — Master Control's scan-tab
         selection, which the device stores and reads nothing from.
+    optional :
+        The run devices the run can go without (not required, not the
+        box): one silent after the retry, or acknowledging with an error,
+        is WARNED and left out of scan mode for the run rather than
+        refusing it — not waited for at the path channel or at ``ScanEnd``.
+        It stays a device of the run outside scan mode, waited on by
+        nothing.
     """
 
     devices: tuple[str, ...]
     scan_parameter: str = "Shot #"
+    optional: tuple[str, ...] = ()
 
 
 def default_state_file(env: Mapping[str, str] | None = None) -> Path:
@@ -238,6 +246,7 @@ class ScanModeControl:
         # process, and the entry's warning about any of them gone quiet.
         self._seen_hosts: set[str] = set()
         self._quiet_warning: str | None = None
+        self._left_out_warning: str | None = None
         self._state_file = state_file or default_state_file()
         self._device_path = device_path
         self.boundary_writes: dict[str, list[Mapping[str, Any]]] = {
@@ -555,7 +564,8 @@ class ScanModeControl:
         self._write_state()
         started = time.monotonic()
         try:
-            acks = await self._scan_start(devices)
+            acks = await self._scan_start(devices, optional=frozenset(entry.optional))
+            devices, hosts = self._leave_out_silent(devices, acks)
             await self._wait_connected(devices, hosts)
             if self._drain_s > 0:
                 await asyncio.sleep(self._drain_s)
@@ -590,6 +600,40 @@ class ScanModeControl:
             time.monotonic() - started,
         )
         del lags
+
+    def _leave_out_silent(
+        self, devices: tuple[str, ...], acks: Mapping[str, ScanModeAck]
+    ) -> tuple[tuple[str, ...], set[str]]:
+        """The run devices that entered and their hosts; the optional rest WARNED and left out.
+
+        :meth:`_scan_start` refused already when a device that is not
+        optional stayed silent or acknowledged with an error, so whatever
+        did not enter here is optional.  The ones left out are dropped from
+        the run's devices (the path-channel wait, ``ScanEnd``'s acks, the
+        state file); the warning is repeated at the first shot, into the
+        run's ``scan.log``.
+        """
+        entered = tuple(d for d in devices if d in acks and acks[d].ok)
+        left_out = [d for d in devices if d not in entered]
+        self._left_out_warning = None
+        if left_out:
+            if not entered:
+                raise GeecsScanModeError(
+                    f"scan mode: no device entered scan mode ({', '.join(left_out)} "
+                    "silent or refusing after ScanStart) — the run was refused "
+                    "before any shot. Check the devices, then resubmit.",
+                    devices=left_out,
+                )
+            self._left_out_warning = (
+                f"scan mode: {', '.join(left_out)} did not enter scan mode "
+                "(silent or refusing after ScanStart) — not required, so the run "
+                "goes on without it in scan mode: no shot-numbered files, its "
+                "DB start values unapplied"
+            )
+            logger.warning(self._left_out_warning)
+            self._run_devices = entered
+            self._write_state()
+        return entered, {self._device_endpoints[d][0] for d in entered}
 
     def _log_quiet_hosts(self, server: ScanModeServer) -> None:
         """Name the experiment's hosts that opened no path-channel connection.
@@ -631,7 +675,9 @@ class ScanModeControl:
                 named(never),
             )
 
-    async def _scan_start(self, devices: tuple[str, ...]) -> dict[str, ScanModeAck]:
+    async def _scan_start(
+        self, devices: tuple[str, ...], *, optional: frozenset[str] = frozenset()
+    ) -> dict[str, ScanModeAck]:
         assert self._sender is not None and self._listener is not None
         assert self._server is not None
         loop = asyncio.get_running_loop()
@@ -678,6 +724,10 @@ class ScanModeControl:
                     devices=silent,
                 )
         errors = {d: ack.status for d, ack in acks.items() if not ack.ok}
+        # An optional device's silence or error is no refusal: the entry
+        # leaves it out (_leave_out_silent).
+        silent = [d for d in silent if d not in optional]
+        errors = {d: status for d, status in errors.items() if d not in optional}
         if silent or errors:
             parts: list[str] = []
             if silent:
@@ -732,8 +782,10 @@ class ScanModeControl:
                 "folder (is the claim_scan preprocessor installed?)"
             )
         number = scan_number_of(folder)
-        if self._shot == 0 and self._quiet_warning:
-            logger.warning(self._quiet_warning)  # into the run's scan.log
+        if self._shot == 0:
+            for warning in (self._left_out_warning, self._quiet_warning):
+                if warning:
+                    logger.warning(warning)  # into the run's scan.log
         self._shot += 1
         path = device_shot_path(self._device_path(str(folder)), number, self._shot)
         count = await self._server.push_path(path)

@@ -619,8 +619,8 @@ def test_a_dead_box_refuses_the_run_before_any_move(RE, box, profiles) -> None:
     assert col.docs["start"] == []  # no open_run → nothing claimed
 
 
-def test_every_dead_device_of_the_scan_is_named(RE, box, profiles) -> None:
-    """A detector, a scalars view and a non-essential device: all in one refusal."""
+def test_every_dead_required_device_of_the_scan_is_named(RE, box, profiles) -> None:
+    """A required detector and a required scalars view down: both in one refusal."""
     a = _camera(RE, box, "UC_A")
     b = _camera(RE, box, "UC_B")
     c = _camera(RE, box, "UC_C")
@@ -633,15 +633,64 @@ def test_every_dead_device_of_the_scan_is_named(RE, box, profiles) -> None:
     with pytest.raises(GeecsDeviceDownError) as info:
         RE(count([a, b.scalars, live, c], 1, required=[a, b.scalars, live]))
     message = str(info.value)
-    assert "UC_A, UC_B, UC_C" in message and "UC_Live" not in message
-    assert "nothing claimed" in message
+    assert "UC_A, UC_B" in message and "UC_C" not in message
+    assert "UC_Live" not in message and "nothing claimed" in message
     assert box.puts == [] and col.docs["start"] == []
 
 
-def test_a_dead_scalar_only_device_is_named_through_its_scalars_view(
+def test_a_dead_device_not_required_is_left_out_of_the_run(
+    RE, box, profiles, caplog
+) -> None:
+    """Not required and down: no stream, no columns, named in the start document; the run goes on."""
+    live = _camera(RE, box, "UC_Live")
+    dead = _camera(RE, box, "UC_Dead")
+    set_mock_value(dead.connected_status, "Disconnected")
+    col = DocCollector()
+    RE.subscribe(col)
+    count = bind_plans(profiles)["count"]
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.registry"):
+        RE(count([live, dead], 2, required=[live]))
+    (start,) = col.docs["start"]
+    assert start["devices_dropped"] == ["UC_Dead"]
+    assert "uc_dead" not in start["detectors"]
+    assert "uc_dead_stream" not in start["per_shot_streams"]
+    assert col.stream_events("uc_dead_stream") == []
+    assert box.fires == 2 and len(col.primary_events()) == 2
+    assert not any(
+        key.startswith("uc_dead") for e in col.primary_events() for key in e["data"]
+    )
+    assert any("UC_Dead DISCONNECTED" in r.getMessage() for r in caplog.records)
+
+
+def test_a_live_run_records_no_device_dropped(RE, box, profiles) -> None:
+    """``devices_dropped`` is in every start document, empty when every device is up."""
+    cam = _camera(RE, box, "UC_Cam")
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bind_plans(profiles)["count"]([cam], 1))
+    assert col.docs["start"][0]["devices_dropped"] == []
+
+
+def test_every_listed_device_down_refuses_the_run(RE, box, profiles) -> None:
+    """Nothing required, everything down: nothing left to record — refused, nothing claimed."""
+    a = _camera(RE, box, "UC_A")
+    b = _camera(RE, box, "UC_B")
+    for cam in (a, b):
+        set_mock_value(cam.connected_status, "Disconnected")
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(GeecsDeviceDownError, match="every device the run lists"):
+        RE(bind_plans(profiles)["count"]([a, b], 1, required=[]))
+    assert box.puts == [] and col.docs["start"] == []
+
+
+def test_a_dead_scalar_only_device_is_judged_through_its_scalars_view(
     RE, box, profiles
 ) -> None:
-    """Found on hardware: ``U_VS1H.scalars`` (a CaSnapshotReadable's view) must be judged."""
+    """Found on hardware: ``U_VS1H.scalars`` (a CaSnapshotReadable's view) must be judged.
+
+    A condition is never required, so down it is left out, not a refusal.
+    """
     from geecs_bluesky.devices.ca import CaSnapshotReadable
 
     cam = _camera(RE, box, "UC_Cam")
@@ -650,10 +699,50 @@ def test_a_dead_scalar_only_device_is_named_through_its_scalars_view(
     )
     connect_mock(RE, magnet)
     set_mock_value(magnet.connected_status, "Disconnected")
-    count = bind_plans(profiles)["count"]
-    with pytest.raises(GeecsDeviceDownError, match="U_VS1H"):
-        RE(count([cam, magnet.scalars], 1))
-    assert box.puts == []
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bind_plans(profiles)["count"]([cam, magnet.scalars], 1))
+    assert col.docs["start"][0]["devices_dropped"] == ["U_VS1H"]
+    assert not any(k.startswith("u_vs1h") for k in col.primary_events()[0]["data"])
+
+
+def test_a_down_sweep_axis_device_refuses_the_run_listed_or_not(
+    RE, box, profiles
+) -> None:
+    """The device a sweep moves is needed: down, the run is refused before the claim."""
+    from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+
+    cam = _camera(RE, box, "UC_Cam")
+    magnet = CaSnapshotReadable(
+        "U_S1H", ["Voltage"], experiment="TestExp", name="u_s1h"
+    )
+    magnet.current = CaMotor("U_S1H", "Current", experiment="TestExp", tolerance=0.01)
+    magnet.add_readables([magnet.current])
+    connect_mock(RE, magnet)
+    follow_setpoint(magnet.current)
+    set_mock_value(magnet.connected_status, "Disconnected")
+    col = DocCollector()
+    RE.subscribe(col)
+    sweep = bind_plans(profiles, settables={"U_S1H": magnet})["sweep"]
+    for listed in ([cam, magnet.scalars], [cam]):
+        with pytest.raises(GeecsDeviceDownError, match="U_S1H"):
+            RE(sweep(listed, sweep=payload()))
+    assert box.puts == [] and col.docs["start"] == []
+
+
+def test_needed_devices_are_the_required_the_moved_and_the_box(RE, box) -> None:
+    from types import SimpleNamespace
+
+    from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+    from geecs_bluesky.plans.strict import needed_device_names
+
+    cam = _camera(RE, box, "UC_Cam")
+    magnet = CaSnapshotReadable("U_S1H", [], experiment="TestExp", name="u_s1h")
+    magnet.current = CaMotor("U_S1H", "Current", experiment="TestExp", tolerance=0.01)
+    sc = SimpleNamespace(liveness_signals={"DG": object()})
+    assert needed_device_names([cam], [magnet.current], sc) == {"UC_Cam", "U_S1H", "DG"}
+    assert needed_device_names([], [SimpleNamespace(name="pseudo")], None) == set()
+    assert "UC_Other" not in needed_device_names([cam], [], sc)
 
 
 def test_a_live_set_passes_the_gate_and_the_box_is_then_armed(
