@@ -112,7 +112,7 @@ def run_submit_preflight(
 
     # -- validate (hard gate) ----------------------------------------------
     try:
-        from geecs_bluesky.qs_client.presets import expand_against_tree, expand_preset
+        from geecs_bluesky.qs_client.presets import expand_preset
 
         resolver = resolver or _make_default_resolver(experiment)
         item = expand_preset(preset, catalog=catalog, resolver=resolver)
@@ -128,8 +128,11 @@ def run_submit_preflight(
             client,
             experiment,
             item,
-            expand=lambda tree: expand_against_tree(
-                preset, lambda: tree, catalog=catalog, resolver=resolver
+            # Always over the tree, required or not: it tells a condition
+            # (no shot stamp, never needed) from a per-shot device, as the
+            # worker does — the item judged here is never the one submitted.
+            expand=lambda tree: expand_preset(
+                preset, catalog=catalog, resolver=resolver, device_tree=tree
             ),
         )
     except Exception as exc:  # noqa: BLE001 — preflight fails open
@@ -151,7 +154,9 @@ def run_submit_preflight(
 
     # -- gateway liveness ----------------------------------------------------
     devices = list(item.devices)
-    box = list(_trigger_profile_devices(profile))
+    # A fly run never drives the box, and the worker never judges it there.
+    fly = item.kwargs.get("acquisition", "strict") == "fly"
+    box = [] if fly else list(_trigger_profile_devices(profile))
     for device in [*item.needed, *box]:
         if device not in devices:
             devices.append(device)

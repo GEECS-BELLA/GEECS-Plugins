@@ -400,8 +400,10 @@ def expand_against_tree(
     conditions (no shot stamp, never required) apart and leaves out a
     device it does not have (:attr:`QueueItem.left_out`).  *read_tree* is
     asked only then; one that raises leaves the first expansion (the
-    manager then answers the submit itself).  The one copy the submit, the
-    preflight and the scanner's preview expand through.
+    manager then answers the submit itself).  The one copy the submit and
+    the scanner's preview expand through; the preflight, which judges and
+    never submits, expands over the tree it already holds every time, so
+    its needed set tells conditions apart as the worker does.
     """
     item = expand_preset(preset, **kwargs)
     if "required" not in item.kwargs:

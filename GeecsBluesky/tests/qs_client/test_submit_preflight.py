@@ -260,6 +260,51 @@ class TestRunSubmitPreflight:
             "left out, disconnected and not required: UC_Cam2",
         ) in report.outcomes
 
+    def test_a_down_condition_in_an_all_required_preset_is_a_note(
+        self, engine, monkeypatch
+    ):
+        """Every row required (the default): a condition is still not needed, as on the worker."""
+        tree = ["UC_Cam1", "UC_Cam1.scalars", "UC_Cam1.acq_timestamp"]
+        tree += ["U_Gauge", "U_Gauge.scalars", "U_Gauge.pressure"]  # no stamp
+        monkeypatch.setattr(
+            submit_preflight,
+            "_make_default_client",
+            lambda experiment: _FakeQueueClient(devices=tree),
+        )
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected",
+            lambda experiment, device_names, *, timeout: ["U_Gauge"],
+        )
+        preset = _preset(
+            devices=[{"device": "UC_Cam1"}, {"device": "U_Gauge", "save_images": False}]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is None and report.questions == []
+        assert (
+            "gateway_liveness",
+            "passed",
+            "left out, disconnected and not required: U_Gauge",
+        ) in report.outcomes
+
+    def test_a_fly_run_never_needs_the_box(self, engine, monkeypatch):
+        """The worker drives no box in fly mode and never judges it: its being down asks nothing."""
+        probed: list[list[str]] = []
+
+        def probe(experiment, device_names, *, timeout):
+            probed.append(list(device_names))
+            return ["U_DG645_ShotControl"]
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected", probe
+        )
+        preset = _preset(
+            plan={"name": "count", "kwargs": {"num": 2, "acquisition": "fly"}},
+            trigger_profile="HTU-Test",
+        )
+        report = run_submit_preflight(preset, "Undulator", trigger_profile=_profile())
+        assert report.refusal is None and report.questions == []
+        assert all("U_DG645_ShotControl" not in names for names in probed)
+
     def test_every_listed_device_down_is_still_a_question(self, engine, monkeypatch):
         """None needed, all down: the worker refuses the run, so the operator is told."""
         monkeypatch.setattr(
