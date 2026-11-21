@@ -40,6 +40,7 @@ from geecs_interlocks.config import (
 )
 from geecs_interlocks.engine import Engine, SourceFactory, geecs_sources
 from geecs_interlocks.logs import LogBuffer, configure_logging
+from geecs_interlocks.monitor import NothingToArm
 from geecs_interlocks.sources import DeviceSource, PreviewFactory
 from geecs_interlocks.wire import WIRE_FORMATS, parse_status, read_frame
 
@@ -310,9 +311,9 @@ def _arm_when_ready(engine: Engine) -> None:
         try:
             logger.info("armed at start: %s", ", ".join(engine.arm()))
             return
-        except ValueError as exc:
-            if "no armed interlock" in str(exc):
-                return  # nothing to arm
+        except NothingToArm:
+            return  # nothing in the file holds settings
+        except ValueError:  # a setting has no value yet: try again
             if time.monotonic() > deadline:
                 logger.exception("could not arm at start")
                 return

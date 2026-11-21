@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 
-from geecs_interlocks.monitor import TICK_S, State, Snapshot
+from geecs_interlocks.monitor import TICK_S, InterlockStatus, State, Snapshot
 
 #: Seconds a snapshot may be old before every reader treats the server as
 #: stalled: ten ticks without an evaluation is not a slow tick.
@@ -19,11 +19,14 @@ STALL_S = 10 * TICK_S
 def stall_age(snapshot: Snapshot, now: float | None = None) -> float | None:
     """How long *snapshot* has not been replaced, when that is past :data:`STALL_S` (else ``None``).
 
+    *now* is a ``time.monotonic()`` reading (default: now), compared with
+    the snapshot's monotonic stamp.
+
     The evaluation loop publishes a snapshot every tick; one that stops being
     replaced means the loop is blocked or gone, and the last verdict must not
     stand for the current one.
     """
-    age = (time.time() if now is None else now) - snapshot.taken
+    age = (time.monotonic() if now is None else now) - snapshot.mono
     return age if age > STALL_S else None
 
 
@@ -55,13 +58,18 @@ def verdict_text(snapshot: Snapshot) -> tuple[str, str]:
     return headline, f"{len(bad)} of {len(armed)} armed not OK · since {when}"
 
 
-def is_age(condition_line: str) -> bool:
-    """Whether a check's value is an age in seconds (stale and external checks)."""
-    return (
-        " connected" in condition_line
-        or "updating every" in condition_line
-        or " on UDP " in condition_line
-    )
+#: The condition kinds whose value is an age in seconds.
+AGE_KINDS = frozenset({"stale", "external"})
+
+
+def is_age(kind: str) -> bool:
+    """Whether a check of *kind* measures an age in seconds."""
+    return kind in AGE_KINDS
+
+
+def status_is_age(status: InterlockStatus) -> bool:
+    """Whether an interlock's own value is an age (it holds one check, and that one measures one)."""
+    return len(status.checks) == 1 and is_age(status.checks[0].kind)
 
 
 def number_text(value: float | None, seconds: bool = False) -> str:
@@ -73,4 +81,13 @@ def number_text(value: float | None, seconds: bool = False) -> str:
     return f"{value:.4g}"
 
 
-__all__ = ["KIT_STATE", "STALL_S", "is_age", "number_text", "stall_age", "verdict_text"]
+__all__ = [
+    "AGE_KINDS",
+    "KIT_STATE",
+    "STALL_S",
+    "is_age",
+    "number_text",
+    "stall_age",
+    "status_is_age",
+    "verdict_text",
+]

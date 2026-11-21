@@ -39,7 +39,13 @@ from geecs_web_theme.web import (
 
 from geecs_interlocks.engine import Engine
 from geecs_interlocks.monitor import Event, InterlockStatus, Snapshot
-from geecs_interlocks.present import KIT_STATE, is_age, number_text, verdict_text
+from geecs_interlocks.present import (
+    KIT_STATE,
+    is_age,
+    number_text,
+    status_is_age,
+    verdict_text,
+)
 
 _PKG = Path(__file__).parent
 #: Snapshots sent per second at most, per browser.
@@ -57,7 +63,7 @@ def status_json(status: InterlockStatus) -> dict[str, Any]:
         "state": status.state,
         "kit_state": KIT_STATE[status.state],
         "diagnostic": status.diagnostic,
-        "value": number_text(status.value, is_age(status.condition)),
+        "value": number_text(status.value, status_is_age(status)),
         "since": status.since,
         "armable": status.armable,
         "checks": [
@@ -65,7 +71,7 @@ def status_json(status: InterlockStatus) -> dict[str, Any]:
                 "condition": c.condition,
                 "unsafe": c.unsafe,
                 "diagnostic": c.diagnostic,
-                "value": number_text(c.value, is_age(c.condition)),
+                "value": number_text(c.value, is_age(c.kind)),
             }
             for c in status.checks
         ],

@@ -98,7 +98,7 @@
     },
     "ExternalCondition": {
       "additionalProperties": false,
-      "description": "Unsafe while an external program says so over UDP.\n\nFor a program outside GEECS \u2014 a motion controller on another computer,\nsay \u2014 that sends one short text packet to the interlock server whenever\nits state changes. A packet containing ``warning`` (or ``unsafe``) makes\nthe condition unsafe, one containing ``safe`` otherwise makes it safe\n(case does not matter), and any other packet leaves the last state.\nUnsafe until the first packet.",
+      "description": "Unsafe while an external program says so over UDP.\n\nFor a program outside GEECS \u2014 a motion controller on another computer,\nsay \u2014 that sends one short text packet to the interlock server whenever\nits state changes. The packet's first word decides (case does not\nmatter): ``warning`` or ``unsafe`` makes the condition unsafe; ``safe``\nmakes it safe unless a negation follows (``not``, ``no``, ``false``,\n``off``, ``0``). Any other packet makes the signal unknown, which is\nunsafe until a recognised packet arrives; so is the time before the\nfirst packet.",
       "properties": {
         "kind": {
           "const": "external",

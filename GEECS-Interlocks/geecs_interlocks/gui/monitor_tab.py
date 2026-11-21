@@ -32,7 +32,13 @@ from geecs_interlocks.gui.reloader import Reloader
 from geecs_interlocks.gui.theme import SAFE_COLOURS, STATE_COLOURS
 from geecs_interlocks.logs import LogBuffer
 from geecs_interlocks.monitor import STATES, InterlockStatus, Snapshot
-from geecs_interlocks.present import is_age, number_text, stall_age, verdict_text
+from geecs_interlocks.present import (
+    is_age,
+    number_text,
+    stall_age,
+    status_is_age,
+    verdict_text,
+)
 
 #: Milliseconds between two redraws.
 REFRESH_MS = 200
@@ -234,7 +240,7 @@ class MonitorTab(QWidget):
         value = (
             f"{len(status.checks)} checks"
             if grouped
-            else number_text(status.value, is_age(status.condition))
+            else number_text(status.value, status_is_age(status))
         )
         name = status.name + ("  (holds settings)" if status.armable else "")
         item = QTreeWidgetItem([status.state, name, value, status.diagnostic])
@@ -254,7 +260,7 @@ class MonitorTab(QWidget):
                     [
                         "",
                         check.condition,
-                        number_text(check.value, is_age(check.condition)),
+                        number_text(check.value, is_age(check.kind)),
                         reason,
                     ]
                 )

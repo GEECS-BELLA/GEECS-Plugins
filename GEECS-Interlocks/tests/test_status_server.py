@@ -13,7 +13,7 @@ from geecs_interlocks.wire import parse_status, read_frame
 
 def fresh(snapshot):
     """*snapshot* as a running monitor publishes it: taken just now."""
-    return dataclasses.replace(snapshot, taken=time.time())
+    return dataclasses.replace(snapshot, taken=time.time(), mono=time.monotonic())
 
 
 @pytest.fixture
@@ -102,7 +102,11 @@ def test_the_default_stream_is_summary():
 @pytest.mark.parametrize("wire_format", ["summary", "legacy"])
 def test_a_stalled_evaluation_trips_the_stream(wire_format):
     """A last verdict of SAFE must not be re-sent once the loop stops replacing it."""
-    safe = Snapshot((InterlockStatus("a", "", "", "ok"),), taken=time.time() - 5)
+    safe = Snapshot(
+        (InterlockStatus("a", "", "", "ok"),),
+        taken=time.time(),  # the wall clock says now: only the monotonic stamp is old
+        mono=time.monotonic() - 5,
+    )
     assert safe.safe
     srv = StatusServer(
         lambda: safe, "127.0.0.1", 0, interval=0.02, wire_format=wire_format

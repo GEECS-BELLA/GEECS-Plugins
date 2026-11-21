@@ -3,7 +3,7 @@
 import pytest
 from conftest import interlock_set, threshold
 
-from geecs_interlocks.monitor import Monitor
+from geecs_interlocks.monitor import Monitor, NothingToArm
 
 
 def make(source, *entries):
@@ -309,9 +309,9 @@ class TestArming:
             monitor.arm()
 
     def test_nothing_to_arm(self, source):
-        with pytest.raises(ValueError, match="no armed interlock"):
+        with pytest.raises(NothingToArm, match="no armed interlock"):
             make(source, threshold()).arm()
-        with pytest.raises(ValueError, match="holds no settings"):
+        with pytest.raises(NothingToArm, match="holds no settings"):
             make(source, threshold()).arm("vac")
 
 

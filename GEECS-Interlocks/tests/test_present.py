@@ -42,6 +42,33 @@ def test_number_text():
     assert number_text(42.4, seconds=True) == "42 s"
 
 
-def test_is_age():
-    assert is_age("stage on UDP 5050") and is_age("G connected")
-    assert not is_age("G P > 10")
+def test_is_age_reads_the_kind():
+    assert is_age("stale") and is_age("external")
+    assert not is_age("threshold") and not is_age("config_change")
+
+
+def test_an_interlock_value_is_an_age_only_for_one_age_check():
+    from geecs_interlocks.monitor import CheckStatus
+    from geecs_interlocks.present import status_is_age
+
+    def status(*kinds):
+        checks = tuple(CheckStatus("c", False, kind=k) for k in kinds)
+        return InterlockStatus("i", "", "", "ok", checks=checks)
+
+    assert status_is_age(status("stale"))
+    assert not status_is_age(status("threshold"))
+    assert not status_is_age(status("stale", "stale"))  # a group shows its count
+
+
+def test_a_wall_clock_step_neither_hides_nor_fakes_a_stall():
+    """Staleness is judged on the monotonic stamp, not the wall clock."""
+    import time
+
+    from geecs_interlocks.present import stall_age
+
+    fresh = Snapshot(taken=0.0, mono=time.monotonic())  # wall clock far in the past
+    assert stall_age(fresh) is None
+    stalled = Snapshot(
+        taken=time.time() + 3600, mono=time.monotonic() - 5
+    )  # wall clock ahead
+    assert stall_age(stalled) > 4

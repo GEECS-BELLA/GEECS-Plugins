@@ -74,6 +74,10 @@ TREND_S = 300.0
 EVENTS_KEPT = 500
 
 
+class NothingToArm(ValueError):
+    """No armed interlock (or not the one named) holds settings to arm."""
+
+
 @dataclass(frozen=True)
 class CheckStatus:
     """One condition of an interlock, at one tick (a group's rows in a table).
@@ -88,6 +92,9 @@ class CheckStatus:
         Why it is unsafe (empty when it is not).
     value, limit :
         As :class:`InterlockStatus`'s, for this condition alone.
+    kind :
+        The condition's kind (``threshold``, ``stale``, …), so a reader can
+        tell what *value* measures without reading the display line.
     """
 
     condition: str
@@ -95,6 +102,7 @@ class CheckStatus:
     diagnostic: str = ""
     value: float | None = None
     limit: float | None = None
+    kind: str = ""
 
 
 @dataclass(frozen=True)
@@ -156,6 +164,9 @@ class Snapshot:
     taken: float = 0.0
     #: Where the interlocks came from (a file path, or a note).
     source: str = ""
+    #: ``time.monotonic()`` of the tick: what staleness is judged on, so a
+    #: wall-clock step can neither hide a stalled loop nor fake one.
+    mono: float = 0.0
 
     @property
     def safe(self) -> bool:
@@ -386,7 +397,7 @@ class Monitor:
                     missing.append(f"{condition.device} {', '.join(absent)}")
                 pending[(interlock.name, index)] = values
         if not pending:
-            raise ValueError(
+            raise NothingToArm(
                 f"{name!r} holds no settings to arm"
                 if name
                 else "no armed interlock holds settings to arm"
@@ -414,7 +425,7 @@ class Monitor:
         for tracker in self._trackers:
             status = self._step_one(tracker, now_wall, now, events)
             statuses.append(status)
-        snapshot = Snapshot(tuple(statuses), now_wall, self._origin)
+        snapshot = Snapshot(tuple(statuses), now_wall, self._origin, now)
         with self._lock:
             self._snapshot = snapshot
             self._events.extend(events)
@@ -455,7 +466,7 @@ class Monitor:
         ]
         verdict = _combine(verdicts)
         checks = tuple(
-            CheckStatus(describe(c), v.unsafe, v.diagnostic, *_measured(c, i))
+            CheckStatus(describe(c), v.unsafe, v.diagnostic, *_measured(c, i), c.kind)
             for c, i, v in zip(interlock.conditions, inputs, verdicts, strict=True)
         )
         new_state, diagnostic = self._next_state(tracker, verdict, interlock, now)
@@ -595,12 +606,13 @@ class Monitor:
                 )
                 for s in self._snapshot.statuses
             )
-            self._snapshot = Snapshot(statuses, now, self._origin)
+            self._snapshot = Snapshot(statuses, now, self._origin, self._clock())
 
 
 __all__ = [
     "EVENTS_KEPT",
     "CheckStatus",
+    "NothingToArm",
     "STATES",
     "TICK_S",
     "TREND_S",
