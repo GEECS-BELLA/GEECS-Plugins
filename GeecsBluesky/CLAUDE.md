@@ -809,8 +809,9 @@ driver never sets it: the DAQs, the LeCroy scope) takes its shots from
 `systimestamp` in a scan-mode run, which a device in scan mode publishes
 once per announced shot (`plans/scan_mode.choose_shot_stamps`, run by
 `scan_mode_bracket` before the entry and undone in its finalizer, so a
-refused entry leaves nothing switched; a run outside scan mode resets
-first, against a halted run's choice; recorded under its
+refused entry leaves nothing switched, and an optional device the entry
+left out goes back on `acq_timestamp` before the run opens; a run outside
+scan mode resets first, against a halted run's choice; recorded under its
 `-acq_timestamp` column, named in the start document's
 `shot_stamp_systimestamp`).  Outside scan mode the loop stamp ticks on its
 own and is never a shot.  Readers

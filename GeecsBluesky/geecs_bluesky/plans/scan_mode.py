@@ -241,6 +241,19 @@ def scan_mode_bracket(
 
     def body():
         chosen = yield from choose_shot_stamps(stamped)
+        yield from bps.mv(control, entry)
+        # An optional device the entry left out (silent, or acknowledging
+        # with an error) runs outside scan mode, where its systimestamp is
+        # the loop tick, never a shot: it goes back on acq_timestamp.
+        entered = {d.casefold() for d in control.run_devices}
+        left_out = [
+            o
+            for o in _stamped_owners(stamped)
+            if o._geecs_device_name.casefold() not in entered
+        ]
+        yield from reset_shot_stamps(left_out)
+        dropped = {o._geecs_device_name for o in left_out}
+        chosen = [name for name in chosen if name not in dropped]
 
         def name_them(msg: Msg) -> Msg:
             if msg.command != "open_run":
@@ -249,7 +262,6 @@ def scan_mode_bracket(
                 kwargs={**msg.kwargs, "shot_stamp_systimestamp": chosen}
             )
 
-        yield from bps.mv(control, entry)
         return (yield from bpp.msg_mutator(plan, name_them))
 
     def leave():

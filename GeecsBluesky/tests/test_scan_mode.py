@@ -1314,6 +1314,7 @@ def test_the_start_document_names_them_though_the_plan_copied_its_metadata(
     class Accepting:
         name = "scan_mode"
         parent = None
+        run_devices = (CAM, BOX)  # every device entered
 
         def set(self, value: Any) -> AsyncStatus:
             async def ok() -> None:
@@ -1338,6 +1339,41 @@ def test_the_start_document_names_them_though_the_plan_copied_its_metadata(
         )
     )
     assert col.docs["start"][0]["shot_stamp_systimestamp"] == [CAM]
+
+
+def test_a_device_the_entry_left_out_goes_back_on_its_acq_timestamp(
+    RE: RunEngine,
+) -> None:
+    """An optional device left out of scan mode free-runs: its loop stamp is no shot, so it is not stamped by it."""
+    from ophyd_async.core import AsyncStatus
+
+    from geecs_bluesky.plans.scan_mode import scan_mode_bracket
+
+    cam = _camera(RE, FakeBox(), CAM)
+    set_mock_value(cam.acq_timestamp, 0.0)  # chosen for systimestamp at first
+    seen: list[bool] = []
+
+    class LeavesCamOut:
+        name = "scan_mode"
+        parent = None
+        run_devices = (BOX,)  # the camera acknowledged with an error
+
+        def set(self, value: Any) -> AsyncStatus:
+            async def ok() -> None:
+                return None
+
+            return AsyncStatus(ok())
+
+    def run():
+        seen.append(cam.shot_stamp is cam.systimestamp)
+        yield from bps.open_run()
+        yield from bps.close_run()
+
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(scan_mode_bracket(run(), LeavesCamOut(), _entry(), stamped=[cam]))
+    assert seen == [False]  # back on acq_timestamp before the run opened
+    assert col.docs["start"][0]["shot_stamp_systimestamp"] == []
     assert cam.shot_stamp is cam.acq_timestamp
 
 
