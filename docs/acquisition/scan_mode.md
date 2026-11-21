@@ -112,7 +112,16 @@ every device but keeps its readbacks flowing, so a sweep moves it between
 shots exactly as outside scan mode. A mover with the lock `enabled` is a
 database mistake: fix the row, then relaunch the device. A device reads
 its lock only at launch, so a running one keeps the old value. The worker
-neither checks nor warns.
+neither checks a mover's lock nor warns about it.
+
+A run device (a camera, a DAQ) with its lock `disabled` keeps its normal
+acquisition, so the worker does not wait for its `ScanStart`
+acknowledgement (on PW such cameras sent none). It reads the lock from the
+DB at every run, names those devices in the log (a WARNING when one is
+Required), and records them as they acquire, free-running, one row per
+fire. They save no shot-numbered files. The trigger box is always waited
+for. The worker follows the DB, but the device follows the value it read
+at launch: after editing a lock, relaunch the device before the next run.
 
 ### Scanning a detector's own variable
 
