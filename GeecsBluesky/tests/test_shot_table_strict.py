@@ -59,6 +59,8 @@ class ClockBox(FakeBox):
         self.stamps: list[float] = []
         # Frames a free-running camera's plugin counts per fire beyond the shot's.
         self.extra: dict[str, int] = {}
+        # Seconds the devices' clock runs off the worker's.
+        self.skew = 0.0
 
     def __call__(self, device: str, variable: str):
         box = self
@@ -76,7 +78,7 @@ class ClockBox(FakeBox):
         return Setter()
 
     def deliver(self) -> None:
-        self.stamp = time.time() + LV
+        self.stamp = time.time() + LV + self.skew
         self.stamps.append(self.stamp)
         for cam in self.cameras:
             if cam.name in self.quiet:
@@ -148,10 +150,17 @@ def test_the_shot_table_and_its_streams_read_through_the_w3b_readers(
     assert set(rows[0]) == SHOT_KEYS | {
         "uc_cam-baseline",
         "u_ps-baseline",
+        "u_ps-answered",  # the stamped device's only: the plugin camera counts frames
         "u_gauge-pressure",
     }
     assert [r["uc_cam-baseline"] for r in rows] == [0, 1, 2]
     assert len(col.stream_events("u_ps_stream")) == 3
+    # Each row names the stream record that answered its fire, by its stamp.
+    recorded = [
+        e["data"]["u_ps-acq_timestamp"] for e in col.stream_events("u_ps_stream")
+    ]
+    assert [r["u_ps-answered"] for r in rows] == recorded == box.stamps
+    assert [r["u_ps-baseline"] for r in rows[1:]] == recorded[:-1]
     assert sum(d["stop"] - d["start"] for d in col.datums("uc_cam")) == 3
     # The run's stack, as the plugin would have finalized it, then the readers.
     _write_plugin_stack(
@@ -170,6 +179,7 @@ def test_the_shot_table_and_its_streams_read_through_the_w3b_readers(
     sfile = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
     assert list(sfile["Shotnumber"]) == [1, 2, 3]
     assert list(sfile["U_PS MeanCounts"]) == [7.0] * 3
+    assert not [c for c in sfile.columns if "answered" in c.lower()]
     assert list(sfile["UC_Cam MeanCounts"]) == [1.0, 2.0, 3.0]
     checks = [
         m
@@ -180,6 +190,34 @@ def test_the_shot_table_and_its_streams_read_through_the_w3b_readers(
         "scan 1: uc_cam: 3 of 3 frame(s) in UC_Cam.h5 assigned to a shot-table row — "
         "0 extra(s), 0 row(s) flagged, 0 row(s) with no frame"
     ]
+
+
+def test_a_device_clock_far_off_the_workers_still_lands_every_row_in_the_s_file(
+    RE, box, count, tmp_path
+) -> None:
+    """Stamps 5 s behind every fire: no fire interval holds them; the row names its record."""
+    from geecs_bluesky.callbacks import SFileCallback
+
+    folder = tmp_path / "scans" / "Scan001"
+    folder.mkdir(parents=True)
+    box.skew = -5.0
+    ps = _camera(RE, box, "U_PS")
+    values = iter([1.0, 2.0, 3.0])
+    box.on_fire = lambda n: set_mock_value(ps.meancounts, next(values)) or True
+    col = DocCollector()
+    RE.subscribe(col)
+    md = {
+        "scan_folder": str(folder),
+        "scan_number": 1,
+        "geecs_scalar_headers": {"u_ps-meancounts": "U_PS MeanCounts"},
+    }
+    RE(count([ps], 3, md=md, shot_period=0.15))
+    cb = SFileCallback(finalize_timeout=2.0)
+    for name, doc in col.ordered:
+        cb(name, doc)
+    cb.join(10.0)
+    sfile = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert list(sfile["U_PS MeanCounts"]) == [1.0, 2.0, 3.0]
 
 
 def _pause_from_a_thread(RE: RunEngine) -> None:
@@ -264,6 +302,10 @@ def test_a_quiet_required_device_refires_then_flags_and_the_scan_continues(
     assert (
         len(col.stream_events("uc_b_stream")) == 3
     )  # every fire's record of the other device
+    # Each refire's row carries its own answer; the quiet device's is NaN.
+    assert all(math.isnan(r["uc_a-answered"]) for r in rows)
+    assert [r["uc_b-answered"] for r in rows] == box.stamps
+    assert len(set(box.stamps)) == 3
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert any(
         "last row is flagged incomplete" in r.getMessage() for r in caplog.records
@@ -377,6 +419,10 @@ def test_a_non_required_device_going_quiet_never_refires(
     assert box.fires == 3 and all(r["complete"] for r in rows)
     assert col.docs["start"][0]["required"] == [d.name for d in required(a, b)]
     assert col.stream_events("uc_b_stream") == []
+    # Only a required stamped device's answer is in the row.
+    assert {k for k in rows[0] if k.endswith("-answered")} == {
+        f"{d.name}-answered" for d in required(a, b)
+    }
 
 
 def test_required_none_is_every_per_shot_device_and_a_condition_cannot_be_required(

@@ -336,6 +336,36 @@ class TestGeecsRunWriter:
         )  # the data keys ride along, as the stock writer does
         assert client.children["run1"].metadata["stop"]["exit_status"] == "success"
 
+    def test_a_stamp_is_the_same_float_in_two_streams_after_the_spool_and_parquet(
+        self, scan_folder
+    ):
+        """A row's ``-answered`` and the stream record's stamp are matched by equality offline too."""
+        import json
+
+        from geecs_bluesky.tiled.spool import encode_line
+
+        stamps = [3862914000.1 + k / 3.0 for k in range(4)] + [3862914001.0000005]
+        writer = GeecsRunWriter(_FakeClient(), tiled_path=lambda p: p)
+        docs = []
+        for name, doc in _docs("run1", scan_folder, len(stamps)):
+            if name == "event":
+                doc["data"]["x"] = stamps[doc["seq_num"] - 1]
+            if name == "descriptor":  # the row and the device stream, one run
+                docs.append((name, {**doc, "uid": "run1-d2", "name": "cam_stream"}))
+            docs.append((name, doc))
+            if name == "event":
+                again = {**doc, "uid": doc["uid"] + "s", "descriptor": "run1-d2"}
+                docs.append((name, again))
+        spooled = [json.loads(encode_line(name, doc)) for name, doc in docs]
+        _replay(writer, [(line["name"], line["doc"]) for line in spooled])
+        read = [
+            pq.read_table(scan_folder / f"ScanDataScan007-{stream}.parquet")["x"]
+            .to_numpy(zero_copy_only=False)
+            .tolist()
+            for stream in ("primary", "cam_stream")
+        ]
+        assert read[0] == read[1] == stamps
+
     def test_a_run_longer_than_the_batch_rewrites_one_file_and_updates_the_registration(
         self, scan_folder, monkeypatch
     ):
