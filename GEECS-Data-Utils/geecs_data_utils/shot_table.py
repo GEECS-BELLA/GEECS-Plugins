@@ -10,19 +10,23 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   stacks under ``shots`` rows, a streamed ``<name>_stream``) is
   joined exactly as the s-file joins it (:mod:`geecs_data_utils.shot_join`).
 - **Shot-table layout** (``layout: "shot-table/1"``).  ``primary`` is the
-  shot table and every device is in its own stream.  A device the rows
-  name the answering record of is filed by that name; for every other,
-  time assigns.  Counters audit — a counter never moves a record:
+  shot table and every device is in its own stream.  Time assigns; on a
+  row with no witness of its own, a device the row names the answering
+  record of is filed by that name instead.  Counters audit — a counter
+  never moves a record:
 
   ============================  ==============================================
   rows / device                 assignment
   ============================  ==============================================
-  ``<device>-answered`` in      the record whose stamp equals the row's
-  the rows (a strict run's      value, uncorrected on both sides; ``NaN`` is
-  required stamped device)      a miss.  Every row, witnessed or not: no
-                                clock, interval or fire time is read
   witnessed, synchronous        nearest offset-corrected stamp, globally
-                                nearest pair first (the s-file's join)
+                                nearest pair first (the s-file's join);
+                                a ``<device>-answered`` column is not read
+  unwitnessed / witness late    the record whose stamp equals the row's
+  / count not advanced, with    value, uncorrected on both sides and not
+  ``<device>-answered`` in      already a witnessed row's; ``NaN`` is a
+  the rows (a strict run's      miss.  No clock, interval or fire time is
+  required stamped device)      read; *answer-after-miss* where the shot's
+                                previous attempt missed the device
   unwitnessed / witness late    the interval (fire *k* − m, fire *k*+1],
   / count not advanced          *m* the stamp budget; the overlap by the
                                 run's phase, else *interval-ambiguous*;
@@ -45,7 +49,7 @@ Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
 ``witness-stale``, ``clock-step``, ``unwitnessed``, ``witness-stamp-shared``,
 ``witness-stamp-shared-unresolved``, ``interval-ambiguous``,
-``complete-mismatch``.  Run-level
+``answer-after-miss``, ``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 witness attribute NaN all run), ``attribute-lag-systematic``,
 ``attribute-lag-noisy`` (poll lag too frequent to audit rows by: the
@@ -99,7 +103,7 @@ WITNESS_ATTRIBUTE_KEY = "WitnessCount"
 #: The row column naming the record of a required stamped device that
 #: answered the row's fire, ``<device>`` + this: that record's stamp as the
 #: plan read it after the wait (LabVIEW epoch, uncorrected), ``NaN`` when
-#: the device did not answer.
+#: the device did not answer.  Read on rows without a witness of their own.
 ANSWERED_SUFFIX = "-answered"
 
 #: How far before its fire an unwitnessed record may be stamped, seconds:
@@ -390,13 +394,9 @@ def shot_table(
                 a is not None and not s for a, s in zip(assigned, stale)
             )
         else:
-            answered = _column(rows, f"{name}{ANSWERED_SUFFIX}") if new else None
-            if answered is None:
-                assigned = clock.assign(source, records, positional=positional)
-            else:
-                assigned = _assign_answered(
-                    answered, source.records.stamps, name, clock.flags
-                )
+            assigned = clock.assign(
+                source, records, positional=positional, rows=rows if new else None
+            )
             claimed = set(assigned)
             extras[name] = tuple(i for i in range(len(records)) if i not in claimed)
             run_flags = clock.audit(
@@ -501,9 +501,19 @@ class _RowClock:
         return np.where(self.loose & np.isfinite(late_fire), late_fire, self.stamps)
 
     def assign(
-        self, source: DeviceRecords, records: np.ndarray, *, positional: bool
+        self,
+        source: DeviceRecords,
+        records: np.ndarray,
+        *,
+        positional: bool,
+        rows: pd.DataFrame | None = None,
     ) -> list[int | None]:
-        """A synchronous device's record per row; flags its gaps."""
+        """A synchronous device's record per row; flags its gaps.
+
+        *rows* (a shot-table run's) may name the device's answering record
+        per row (``<device>-answered``): the rows without a witness of their
+        own are then filed by that name, not by fire interval.
+        """
         n = self.stamps.size
         unresolved: set[int] = set()
         ambiguous: set[int] = set()
@@ -521,7 +531,15 @@ class _RowClock:
                     windows=row_windows(self.stamps, self.period),
                 )
                 assigned = list(join.frame_for_shot)
-            ambiguous = _assign_intervals(assigned, records, self)
+            answered = (
+                None
+                if rows is None
+                else _column(rows, f"{source.device}{ANSWERED_SUFFIX}")
+            )
+            if answered is None:
+                ambiguous = _assign_intervals(assigned, records, self)
+            else:
+                _assign_answered(assigned, answered, source, rows, self)
             unresolved, self.held[source.device] = _assign_shared(
                 assigned, records, source.counter, self
             )
@@ -637,9 +655,13 @@ def _gathered(values: Any, indices: Sequence[int | None]) -> np.ndarray:
 
 
 def _assign_answered(
-    answered: np.ndarray, stamps: np.ndarray, name: str, flags: list[list[str]]
-) -> list[int | None]:
-    """Per row, the record whose stamp is the one the row names; a miss is flagged.
+    assigned: list[int | None],
+    answered: np.ndarray,
+    source: DeviceRecords,
+    rows: pd.DataFrame,
+    clock: _RowClock,
+) -> None:
+    """File the rows without a witness by the record each names; flag an answer after a miss.
 
     *answered* is the rows' ``<device>-answered`` column: the device's
     stamp as the plan read it after the wait, when it had moved from the
@@ -648,22 +670,59 @@ def _assign_answered(
     of the stamps as recorded — no drain offset on either side (the join
     subtracts it from the records only to compare them with a row clock),
     no tolerance and no clock.  ``NaN`` (the device did not answer) and a
-    stamp no record carries (the stream lost it) are misses.  Rows go in
-    order and a record is taken once: when a stamp repeats in the stream,
-    each row naming it takes the earliest such record still free.  A row
-    with no record gets ``None`` and ``missing:<name>`` in *flags*.
+    stamp no free record carries (the stream lost it, or a witnessed row
+    took it) are misses.  Rows go in order and a record is taken once:
+    when a stamp repeats in the stream, each row naming it takes the
+    earliest such record still free.
+
+    Only a row with no witness of its own is filed here (unwitnessed,
+    witness late, count not advanced): a witnessed row keeps the witness's
+    assignment, because the name can be wrong where the witness is not —
+    a record landing after the shot timeout, just after the refire's
+    baseline read, answers the refire's row, and the refire's own record
+    then answers the row after it.  That can start only on a refire the
+    device had missed the attempt before, so such a row — a finite answer
+    after the same shot's previous attempt listed the device in
+    ``missing`` — is flagged ``answer-after-miss:<device>``, from the rows
+    alone; the flag moves no record.
     """
+    name = source.device
+    claimed = {i for i in assigned if i is not None}
     free: dict[float, list[int]] = {}
-    for index, stamp in enumerate(np.asarray(stamps, dtype=float)):
-        if np.isfinite(stamp):
+    for index, stamp in enumerate(np.asarray(source.records.stamps, dtype=float)):
+        if np.isfinite(stamp) and index not in claimed:
             free.setdefault(float(stamp), []).append(index)
-    assigned: list[int | None] = []
-    for stamp in answered:
-        indices = free.get(float(stamp)) if np.isfinite(stamp) else None
-        assigned.append(indices.pop(0) if indices else None)
-        if assigned[-1] is None:
-            flags[len(assigned) - 1].append(f"missing:{name}")
-    return assigned
+    after_miss = _missed_the_attempt_before(rows, name)
+    for k in np.flatnonzero(clock.loose & np.isfinite(answered)):
+        indices = free.get(float(answered[k]))
+        if indices:
+            assigned[k] = indices.pop(0)
+        if after_miss[k]:
+            clock.flags[k].append(f"answer-after-miss:{name}")
+
+
+def _missed_the_attempt_before(rows: pd.DataFrame, name: str) -> np.ndarray:
+    """Rows that refire a shot whose previous attempt listed *name* in ``missing``.
+
+    The previous attempt is the row before, when this row's ``attempt`` is
+    one more than its own.  ``missing`` holds comma-joined object names,
+    matched ignoring case and separators.  All ``False`` when the rows
+    lack either column.
+    """
+    out = np.zeros(len(rows), dtype=bool)
+    attempts = _column(rows, "attempt")
+    if attempts is None or "missing" not in rows:
+        return out
+    key = _squash(name)
+    missed = [
+        key in {_squash(part) for part in str(value).split(",")}
+        if isinstance(value, str)
+        else False
+        for value in rows["missing"]
+    ]
+    for k in range(1, len(rows)):
+        out[k] = missed[k - 1] and attempts[k] == attempts[k - 1] + 1
+    return out
 
 
 def _last_before(

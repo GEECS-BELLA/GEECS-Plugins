@@ -8,9 +8,10 @@ says so (``layout: "shot-table/1"``, :func:`start_keys`).  The slot's
 steps are :class:`OnDemand`'s.
 
 ``complete`` is the plan's decision to stop refiring; which record is
-which shot's is the join's (``geecs_data_utils.shot_table``) — except
-for a required stamped device, whose row names the record that answered
-its fire (``<device>-answered``) and the join takes that one.  The slot is
+which shot's is the join's (``geecs_data_utils.shot_table``); for a
+required stamped device the row names the record that answered its fire
+(``<device>-answered``), which the join takes on a row no witness times.
+The slot is
 not rewindable: a resume replays nothing.
 """
 
@@ -265,7 +266,7 @@ class OnDemand:
        required stamped device's re-read stamp, when it moved from the
        baseline, is recorded in the row (``<device>-answered``, else
        ``NaN``): the record that answered this fire, which the join takes
-       by that stamp.  It is the latest stamp at the re-read, so of two
+       by that stamp on a row no witness times.  It is the latest stamp at the re-read, so of two
        records landing within one wait the row names the later, and a
        record landing after the shot timeout answers the refire's row;
     6. the witness: only when neither the witness nor any per-shot device

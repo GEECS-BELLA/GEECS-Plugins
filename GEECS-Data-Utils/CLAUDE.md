@@ -533,11 +533,16 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `witness_stamp` (or `fire_stamp` intervals when unwitnessed), counters
   and the witness attribute only audit.  A device the rows carry a
   `<device>-answered` column for (a strict run's required stamped device:
-  the stamp the plan read after its wait) is not timed at all: row *k*
-  takes the record whose stamp equals the row's value, raw on both sides
-  (the drain offset corrects records only for a clock comparison), `NaN`
-  a miss, on every row witnessed or not.  A run without the column, a
-  device that is not required and a framed device keep the timed rules.
+  the stamp the plan read after its wait) is filed by that name on every
+  row with no witness of its own (unwitnessed, witness late, count not
+  advanced; per row, not per run): the row takes the record whose stamp
+  equals its value, raw on both sides (the drain offset corrects records
+  only for a clock comparison), `NaN` a miss, and a finite answer after
+  the same shot's previous attempt missed the device is flagged
+  `answer-after-miss:<device>` (where a late record could start a shift).
+  A witnessed row keeps the witness, which files a late record on its
+  true row.  A run without the column, a device that is not required and
+  a framed device keep the fire interval on those rows.
   Plain inputs, no I/O; the
   adapters are the readers' (`tiled_export.read_device_records` for a
   Tiled run, GeecsBluesky's callback buffer for the live one, both through

@@ -989,16 +989,103 @@ def test_of_two_records_in_one_wait_the_row_keeps_the_one_it_names() -> None:
     assert table.extras["cam"] == (4,)
 
 
-def test_the_named_record_wins_on_witnessed_rows_too() -> None:
-    """Stamps most of a period before their edge: the nearest edge is the wrong row's."""
+def test_a_witnessed_row_keeps_the_witness_whatever_the_row_names() -> None:
+    """The name is read only where no witness times the row."""
     rows = _rows(6)
-    stamps = rows["witness_stamp"].to_numpy() + LV - 0.7
-    named = rows.assign(**{"cam-answered": stamps})
-    assert shot_table(START, rows, [_device("cam", stamps)]).record_for_shot[
-        "cam"
-    ] != tuple(range(6))
-    table = shot_table(START, named, [_device("cam", stamps)])
+    cam = _cam(rows)
+    stamps = cam.records.stamps
+    named = rows.assign(**{"cam-answered": np.roll(stamps, 1)})  # every name wrong
+    table = shot_table(START, named, [cam])
+    assert table.record_for_shot == shot_table(START, rows, [cam]).record_for_shot
     assert table.record_for_shot["cam"] == tuple(range(6))
+    assert table.flags == shot_table(START, rows, [cam]).flags
+
+
+def test_a_witness_late_row_of_a_witnessed_run_is_filed_by_its_name() -> None:
+    """Per row: the row the witness did not time takes the record it names."""
+    rows = _rows(6)
+    rows["witness_late"] = np.arange(6) == 3
+    stamps = rows["witness_stamp"].to_numpy() + LV + 0.05
+    stamps[3] -= 0.6  # stamped before its own fire: no fire interval holds it
+    cam = _device("cam", stamps)
+    assert shot_table(START, rows, [cam]).record_for_shot["cam"][3] is None
+    named = rows.assign(**{"cam-answered": stamps})
+    assert shot_table(START, named, [cam]).record_for_shot["cam"] == tuple(range(6))
+
+
+def test_a_stamp_the_stream_repeats_goes_to_each_row_naming_it_in_order() -> None:
+    """A, B, A again: the second row naming A takes the later record."""
+    rows, stamps = _answered_run(PHASE_LOCKED)
+    stamps = stamps[:4].copy()
+    stamps[2] = stamps[0]
+    rows = rows.iloc[:4].assign(**{"cam-answered": stamps})
+    value = [10.0, 11.0, 12.0, 13.0]
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", stamps, value=value)])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3)
+    assert list(table.rows["cam-meancounts"]) == value
+
+
+def _late_record(witnessed: bool) -> tuple[dict, pd.DataFrame, DeviceRecords]:
+    """Shot 2's record lands after its timeout, just after the refire's baseline read.
+
+    Edges at 0, 1, 5, 6, 7 s, one record 50 ms after each.  The plan saw
+    row 2 miss, then the late record answer the refire (row 3), and each
+    later row answered by the record of the fire before it.
+    """
+    edges = np.array([0.0, 1.0, 5.0, 6.0, 7.0])
+    stamps = T0 + LV + edges + 0.05
+    rows = pd.DataFrame(
+        {
+            "shot_index": np.arange(1, 6),
+            "attempt": [1, 1, 2, 1, 1],
+            "fire_stamp": T0 + edges - 0.3,
+            "unwitnessed": [not witnessed] * 5,
+            "complete": [True, False, True, True, True],
+            "missing": ["", "cam", "", "", ""],
+            "cam-answered": [stamps[0], np.nan, stamps[1], stamps[2], stamps[3]],
+        }
+    )
+    if witnessed:
+        rows["witness_epoch"] = "e1"
+        rows["witness_count"] = 100.0 + np.arange(1, 6)
+        rows["witness_stamp"] = T0 + edges
+    return (START if witnessed else FIRE_CLOCK), rows, _device("cam", stamps)
+
+
+def test_a_late_record_answering_the_refire_is_filed_as_named_and_flagged() -> None:
+    """Unwitnessed: nothing contradicts the plan, so the refire's row says where a shift may start."""
+    start, rows, cam = _late_record(witnessed=False)
+    table = shot_table(start, rows, [cam])
+    assert table.record_for_shot["cam"] == (0, None, 1, 2, 3)
+    assert table.extras["cam"] == (4,)
+    assert _flagged(table, "answer-after-miss:cam") == [3]
+    assert _flagged(table, "missing:cam") == [2]
+    assert _flagged(table, "complete-mismatch") == []
+
+
+def test_the_witness_files_the_same_late_record_on_its_true_row() -> None:
+    start, rows, cam = _late_record(witnessed=True)
+    table = shot_table(start, rows, [cam])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4)
+    assert _flagged(table, "complete-mismatch") == [2]
+    assert _flagged(table, "answer-after-miss:cam") == []
+
+
+def test_an_answer_after_a_miss_is_matched_by_name_ignoring_case_and_separators() -> (
+    None
+):
+    start, rows, cam = _late_record(witnessed=False)
+    rows.loc[1, "missing"] = "other_cam,CAM"
+    assert _flagged(shot_table(start, rows, [cam]), "answer-after-miss:cam") == [3]
+    rows.loc[1, "missing"] = "other_cam"
+    assert _flagged(shot_table(start, rows, [cam]), "answer-after-miss:cam") == []
+
+
+def test_a_first_attempt_after_another_shots_miss_is_not_flagged() -> None:
+    """The flag is the same shot's refire: an exhausted shot does not mark the next."""
+    start, rows, cam = _late_record(witnessed=False)
+    rows["attempt"] = [1, 1, 1, 1, 1]
+    assert _flagged(shot_table(start, rows, [cam]), "answer-after-miss:cam") == []
 
 
 def test_an_old_layout_run_never_reads_the_column() -> None:
