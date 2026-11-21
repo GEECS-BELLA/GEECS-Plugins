@@ -200,6 +200,7 @@ class SlotColumns:
                 "fire_stamp": math.nan,
                 "slowest_device": "",
                 "slowest_s": math.nan,
+                "after_pause": False,
             }
         )
         witness = {} if self._fly else {"unwitnessed": False, "witness_late": False}
@@ -357,6 +358,8 @@ class OnDemand:
             answered=[p.name for p in self.required if not p.framed],
         )
         self._last_fire: float | None = None
+        #: ``ShotControl.pause_count`` at the last fire (``after_pause``).
+        self._fired_pauses: int | None = None
         self._exhausted = 0
         self._reported_down: set[str] = set()
         self._refused_press: set[str] = set()
@@ -586,7 +589,15 @@ class OnDemand:
             )
             if self.gate is not None:
                 self.columns.values["gate_hold_s"] = held
+            # A pause since the previous fire (its slot's own, a gate hold's,
+            # a resume): the time between the two fires is no shot period.
+            if "after_pause" in self.columns.values:  # a fly row has none
+                self.columns.values["after_pause"] = (
+                    self._fired_pauses is not None
+                    and self.sc.pause_count != self._fired_pauses
+                )
             if (yield from self._fire()):
+                self._fired_pauses = self.sc.pause_count
                 return mark, base
             self.columns.shot_index -= 1  # nothing fired: no row
             yield from pause_on_lapses(self.gate, lapses, self._pause)

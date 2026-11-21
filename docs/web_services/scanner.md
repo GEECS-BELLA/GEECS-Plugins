@@ -92,17 +92,19 @@ opens this page.
   against the planned shots, and a live tail of the scan's own `scan.log`
   (the manager's console text sits behind a toggle). **Pause**, **Resume**
   and **Stop scan…** live here and act on the running item. Two tiles say
-  why a scan runs at the rate it does. **rate** is the current repetition
-  rate (one over the time since the previous fire) with the run's average
-  under it. **waiting on** names the required device the last shot waited
-  for longest, and how long after the fire it delivered, then the worker's
-  own time (its reads, the row and the collects) for the rest of the
-  period. The line under them lists the devices that held the most shots,
-  each with its mean and longest delay. A rate below the trigger's means a
-  shot missed the next trigger edge. When the named device's delay is most
-  of the period, it is what held the shot: untick it as required, or fix
-  its trigger. When the worker's time is most of it, no device is to
-  blame, and unticking one will not help.
+  why a scan runs at the rate it does. **rate** is one over the time
+  between the latest two fires of one step, less any shot-gate hold (never
+  across a step move or a pause), with the worker's own share of that time
+  under it (its reads, the row, the collects and any throttle). **waiting
+  on** names a device only when it delivered later than that time between
+  fires, so it held the rate, with its delay after the fire. The delay
+  counts from the fire command, which leads the trigger edge by up to a
+  period, so a device that delivers within one period is waiting for the
+  edge and is never named. The line under the tiles lists the devices that
+  held the rate most often. A rate below the trigger's with a device named:
+  that device is holding the scan; untick it as required, or fix its
+  trigger. A low rate with no device named: the worker's time is the
+  cause, and unticking a device will not help.
 - **New scan** — the form. **Load preset…** fills it from a saved scan
   document in the experiment's configs repository, or compose one. The
   top half is common to every scan: shots per step, trigger profile,

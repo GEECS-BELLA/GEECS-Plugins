@@ -291,7 +291,8 @@ route accepts images and PDFs only.
   `tiled_writer`) plus `/health.version`.
 - `scan_progress` → `GET /api/progress` verbatim (`scan_number`,
   `planned_total`, `shots_done`, `state`, `exit_status`, `paused_reason`,
-  `scan_folder`, `day`). The SSE stream is not consumed; the JSON routes
+  `scan_folder`, `day`, and the timing: `current_rate_hz`, `waiting_on`,
+  `waiting_s`, `worker_s`, `slowest`). The SSE stream is not consumed; the JSON routes
   are what the scanner page itself polls.
 - `scan_history(limit=10)` → `GET /api/queue?history=limit`: `running`,
   `waiting`, `finished` rows (`item_uid`, `scan_numbers`, `run_uids`,

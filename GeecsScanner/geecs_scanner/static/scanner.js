@@ -229,23 +229,17 @@
     if (!p.available) setChip($("chip-docs"), K.degraded, "doc stream", p.detail || "not consuming");
   }
 
-  // The rows' timing (fire_stamp, slowest_device, slowest_s),
-  // reduced by the shared progress stream: shown, never a gate.
+  // The rows' timing, reduced by the shared progress stream (periods within
+  // a bin, less gate holds, none across a pause): shown, never a gate.
   function renderRate(p) {
-    function hz(x) { return x == null ? "—" : x.toFixed(2) + " Hz"; }
     function s(x) { return x.toFixed(2) + " s"; }
-    $("lv-rate").textContent = hz(p.current_rate_hz);
-    $("ag-rate").textContent = p.average_rate_hz == null ? "" : "average " + hz(p.average_rate_hz);
+    $("lv-rate").textContent = p.current_rate_hz == null ? "—" : p.current_rate_hz.toFixed(2) + " Hz";
+    $("ag-rate").textContent = p.worker_s == null ? "" : "worker " + s(p.worker_s);
     $("lv-wait").textContent = p.waiting_on || "—";
-    var parts = [];
-    if (p.waiting_s != null) parts.push(s(p.waiting_s) + " after the fire");
-    if (p.worker_s != null) parts.push("worker " + s(p.worker_s));
-    $("ag-wait").textContent = parts.join("; ");
+    $("ag-wait").textContent = p.waiting_s == null ? "" : s(p.waiting_s) + " after the fire";
     var slow = p.slowest || [];
     $("slowest-note").textContent = slow.length
-      ? "Held the most shots: " + slow.map(function (d) {
-          return d.device + " " + d.held + " (mean " + s(d.mean_s) + ", max " + s(d.max_s) + ")";
-        }).join("; ")
+      ? "Held the rate: " + slow.map(function (d) { return d.device + " (" + d.held + " shots)"; }).join("; ")
       : "";
   }
 

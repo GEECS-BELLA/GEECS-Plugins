@@ -39,20 +39,21 @@ SLOWEST_KEPT = 5
 
 
 class SlowDevice(BaseModel):
-    """One required device as the run's rows saw it hold their shots."""
+    """One required device that held the run's rate: the last to deliver, later than the period."""
 
     device: str
-    held: int = Field(description="Rows whose shot it was the last to deliver")
-    mean_s: float = Field(description="Its mean delay after the fire on those rows")
-    max_s: float = Field(description="Its longest delay after the fire")
+    held: int = Field(description="Rows whose rate it held")
 
 
 class RunProgress(BaseModel):
     """The latest run as the streams describe it.
 
-    The rates and the slowest devices come from the rows' ``fire_stamp``,
-    ``slowest_device`` and ``slowest_s`` (a strict run's
-    shot table; ``None`` / empty for a run without them).
+    The rate and the devices that held it come from the rows'
+    ``fire_stamp``, ``bin_number``, ``gate_hold_s``, ``after_pause``,
+    ``interrupted``, ``slowest_device`` and ``slowest_s`` (a strict run's
+    shot table; ``None`` / empty for a run without them).  A period is the
+    time between two fires of one bin, less the later one's gate hold;
+    none spans a step move, a pause or an interrupted row.
     """
 
     available: bool = False
@@ -69,26 +70,26 @@ class RunProgress(BaseModel):
     paused_reason: Optional[str] = None
     updated_at: Optional[float] = None
     current_rate_hz: Optional[float] = Field(
-        default=None, description="1 / the time between the latest two fires"
-    )
-    average_rate_hz: Optional[float] = Field(
         default=None,
-        description="(fires − 1) / (last fire − first fire) over the run",
+        description="1 / the latest period: two fires of one bin, less the gate hold",
     )
     waiting_on: Optional[str] = Field(
-        default=None, description="The latest row's slowest_device"
+        default=None,
+        description="The device that held the latest shot: its slowest_device, "
+        "when its delay (from the fire put, so the trigger edge's wait "
+        "included) exceeds the period; None otherwise",
     )
     waiting_s: Optional[float] = Field(
-        default=None, description="The latest row's slowest_s"
+        default=None, description="That device's slowest_s"
     )
     worker_s: Optional[float] = Field(
         default=None,
-        description="The latest period less the previous row's wait for its "
-        "devices: the worker's own reads, row and collects",
+        description="The latest period less the previous row's wait: the worker's "
+        "reads, row, collects and throttle",
     )
     slowest: list[SlowDevice] = Field(
         default_factory=list,
-        description="The devices that held the most rows, most first",
+        description="The devices that held the most rows' rate, most first",
     )
 
 
@@ -321,21 +322,19 @@ def _scan_day(tag: Any) -> Optional[str]:
 
 
 class _RowTiming:
-    """The run's rates and the devices that held its shots, from the rows' timing columns.
+    """The run's rate and the devices that held it, from the rows' timing columns.
 
-    Running totals only (a count, a sum and a maximum per device), so a long
-    run costs the same per row as a short one.
+    Running totals only (a count per device), so a long run costs the same
+    per row as a short one.
     """
 
     def __init__(self) -> None:
-        self.first: float | None = None
-        self.last: float | None = None
-        self.fires = 0
+        self.prev: tuple[float, Any, bool] | None = None  # fire, bin, interrupted
         self.period: float | None = None
         self.worker: float | None = None
         self.last_wait: float | None = None
         self.waiting: tuple[str, float] | None = None
-        self.held: dict[str, list[Any]] = {}  # device → [rows, sum, max]
+        self.held: dict[str, int] = {}
 
     def take(self, data: dict, *, page: bool) -> None:
         """One event's ``data`` (or an event page's, columns of lists)."""
@@ -349,41 +348,50 @@ class _RowTiming:
 
     def _row(self, row: dict) -> None:
         fired = _finite(row.get("fire_stamp"))
+        interrupted = bool(row.get("interrupted"))
+        period = None
         if fired is not None:
-            if self.last is not None and fired > self.last:
-                self.period = fired - self.last
-                # The period's part not spent waiting for the previous row's
-                # devices: the worker's own reads, row and collects.
-                # Nothing required: the whole period is the worker's.
-                self.worker = max(0.0, self.period - (self.last_wait or 0.0))
-            self.first = fired if self.first is None else min(self.first, fired)
-            self.last = fired if self.last is None else max(self.last, fired)
-            self.fires += 1
+            prev = self.prev
+            if (
+                prev is not None
+                and fired > prev[0]
+                and row.get("bin_number") == prev[1]
+                and not prev[2]
+                and not interrupted
+                and not row.get("after_pause")
+            ):
+                period = fired - prev[0] - (_finite(row.get("gate_hold_s")) or 0.0)
+                if period > 0:
+                    self.period = period
+                    # The period's part not spent waiting for the previous
+                    # row's devices; nothing required: all of it.
+                    self.worker = max(0.0, period - (self.last_wait or 0.0))
+                else:
+                    period = None
+            self.prev = (fired, row.get("bin_number"), interrupted)
         device = row.get("slowest_device")
         delay = _finite(row.get("slowest_s"))
+        if interrupted:  # a pause cut the wait: its arrivals say nothing
+            self.last_wait = None
+            return
         self.last_wait = delay
-        if device and delay is not None:
+        # A device held the rate when it delivered later than the period:
+        # its delay counts from the fire put, which leads the trigger edge
+        # by up to a period, so a delay within one is the edge's wait.
+        if device and delay is not None and period is not None and delay > period:
             self.waiting = (str(device), delay)
-            stats = self.held.setdefault(str(device), [0, 0.0, 0.0])
-            stats[0] += 1
-            stats[1] += delay
-            stats[2] = max(stats[2], delay)
+            self.held[str(device)] = self.held.get(str(device), 0) + 1
+        elif period is not None:
+            self.waiting = None
 
     def write(self, progress: RunProgress) -> None:
         """Set the picture's timing fields."""
         progress.current_rate_hz = None if self.period is None else 1.0 / self.period
         progress.worker_s = self.worker
-        span = (
-            None if self.first is None or self.last is None else self.last - self.first
-        )
-        progress.average_rate_hz = (
-            (self.fires - 1) / span if span and self.fires > 1 else None
-        )
         progress.waiting_on, progress.waiting_s = self.waiting or (None, None)
-        ranked = sorted(self.held.items(), key=lambda kv: (-kv[1][0], -kv[1][2]))
+        ranked = sorted(self.held.items(), key=lambda kv: -kv[1])
         progress.slowest = [
-            SlowDevice(device=device, held=n, mean_s=total / n, max_s=top)
-            for device, (n, total, top) in ranked[:SLOWEST_KEPT]
+            SlowDevice(device=device, held=n) for device, n in ranked[:SLOWEST_KEPT]
         ]
 
 

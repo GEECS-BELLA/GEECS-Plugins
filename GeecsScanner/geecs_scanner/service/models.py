@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
+from geecs_bluesky.qs_client.progress import SlowDevice
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -246,15 +247,6 @@ class VerbOut(BaseModel):
     message: str = ""
 
 
-class SlowDeviceOut(BaseModel):
-    """A required device that held the run's shots (the rows' ``slowest_device``)."""
-
-    device: str
-    held: int = Field(description="Rows whose shot it was the last to deliver")
-    mean_s: float = Field(description="Its mean delay after the fire on those rows")
-    max_s: float = Field(description="Its longest delay after the fire")
-
-
 class ProgressOut(BaseModel):
     """The latest-run picture from the document and console streams."""
 
@@ -278,24 +270,24 @@ class ProgressOut(BaseModel):
         description="The run's day, ISO (from the start document's scan_tag)",
     )
     current_rate_hz: Optional[float] = Field(
-        default=None, description="1 / the time between the latest two fires"
-    )
-    average_rate_hz: Optional[float] = Field(
-        default=None, description="The run's fires over their span"
+        default=None,
+        description="1 / the latest period: two fires of one bin, less the gate hold",
     )
     waiting_on: Optional[str] = Field(
         default=None,
-        description="The required device the latest shot waited for last (GEECS name)",
+        description="The device that held the latest shot's rate (GEECS name): "
+        "its delay after the fire exceeded the period; None otherwise",
     )
     waiting_s: Optional[float] = Field(
-        default=None, description="Its delay after that fire, seconds"
+        default=None,
+        description="Its delay after the fire put, seconds (the trigger edge's wait included)",
     )
     worker_s: Optional[float] = Field(
         default=None,
         description="The latest period less the previous shot's wait: the worker's own time",
     )
-    slowest: list[SlowDeviceOut] = Field(
-        default_factory=list, description="The devices that held the most rows"
+    slowest: list[SlowDevice] = Field(
+        default_factory=list, description="The devices that held the most shots' rate"
     )
 
     @classmethod

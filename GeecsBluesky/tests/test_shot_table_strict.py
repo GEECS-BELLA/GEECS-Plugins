@@ -37,6 +37,7 @@ SHOT_KEYS = {
     "fire_stamp",
     "slowest_device",
     "slowest_s",
+    "after_pause",
     "complete",
     "missing",
     "extra_frames",

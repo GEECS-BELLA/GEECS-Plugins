@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from geecs_bluesky.qs_client import FAILED_MOVE_LOG_PREFIX
 from geecs_bluesky.qs_client.progress import ProgressStream, RunProgress
 
@@ -85,33 +87,40 @@ def test_the_snapshot_is_a_copy() -> None:
     assert isinstance(snap, RunProgress)
 
 
-def test_the_rates_and_the_devices_that_held_the_shots() -> None:
-    """Current = 1 / the last period, average over the run's fires; the slowest ranked by rows held."""
-    stream = ProgressStream(clock=lambda: 3.0)
-    stream.on_document("start", {"uid": "r", "plan_name": "count", "num_points": 4})
+def _rows(stream: ProgressStream, rows: list[dict]) -> None:
+    stream.on_document("start", {"uid": "r", "plan_name": "count", "num_points": 9})
     stream.on_document("descriptor", {"uid": "p", "name": "primary"})
-    rows = [
-        (100.0, "CAM-Wedge", 1.8),
-        (102.0, "CAM-Wedge", 1.6),
-        (104.0, "CAM-Ghost", 1.9),
-    ]
-    for seq, (fire, device, delay) in enumerate(rows, start=1):
-        stream.on_document(
-            "event",
-            {
-                "descriptor": "p",
-                "seq_num": seq,
-                "data": {
-                    "fire_stamp": fire,
-                    "slowest_device": device,
-                    "slowest_s": delay,
-                },
-            },
-        )
+    for seq, data in enumerate(rows, start=1):
+        stream.on_document("event", {"descriptor": "p", "seq_num": seq, "data": data})
+
+
+def _row(fire: float, device: str = "", delay: float = math.nan, **extra) -> dict:
+    return {
+        "fire_stamp": fire,
+        "bin_number": extra.pop("bin_number", 1),
+        "slowest_device": device,
+        "slowest_s": delay,
+        **extra,
+    }
+
+
+def test_a_device_is_named_only_when_it_held_the_rate() -> None:
+    """Its delay past the period: it held the shot; within it, the trigger edge's wait."""
+    stream = ProgressStream(clock=lambda: 3.0)
+    _rows(
+        stream,
+        [
+            _row(100.0, "CAM-Wedge", 1.8),
+            _row(102.0, "CAM-Wedge", 2.3),  # period 2.0, delayed 2.3: held it
+            _row(104.0, "CAM-Ghost", 2.6),  # period 2.0, delayed 2.6: held it
+        ],
+    )
     mid = stream.snapshot()
     assert mid.current_rate_hz == 0.5
-    assert abs(mid.worker_s - (2.0 - 1.6)) < 1e-9  # the period less row 2's wait
-    # an event page (columns of lists) of the fourth row
+    assert (mid.waiting_on, mid.waiting_s) == ("CAM-Ghost", 2.6)
+    assert mid.worker_s == 0.0  # a period shorter than the previous wait (2.3)
+    # an event page (columns of lists) of the fourth row: period 1.0, 0.7 s
+    # after the fire is the edge's wait, not the device
     stream.on_document(
         "event_page",
         {
@@ -119,6 +128,7 @@ def test_the_rates_and_the_devices_that_held_the_shots() -> None:
             "seq_num": [4],
             "data": {
                 "fire_stamp": [105.0],
+                "bin_number": [1],
                 "slowest_device": ["CAM-Wedge"],
                 "slowest_s": [0.7],
             },
@@ -126,22 +136,45 @@ def test_the_rates_and_the_devices_that_held_the_shots() -> None:
     )
     snap = stream.snapshot()
     assert snap.current_rate_hz == 1.0
+    assert snap.waiting_on is None and snap.waiting_s is None
     assert snap.worker_s == 0.0  # a period shorter than the previous wait
-    assert snap.average_rate_hz == 3 / 5.0
-    assert (snap.waiting_on, snap.waiting_s) == ("CAM-Wedge", 0.7)
-    top = snap.slowest[0]
-    assert (top.device, top.held, top.max_s) == ("CAM-Wedge", 3, 1.8)
-    assert abs(top.mean_s - (1.8 + 1.6 + 0.7) / 3) < 1e-9
-    assert [d.device for d in snap.slowest] == ["CAM-Wedge", "CAM-Ghost"]
+    assert [(d.device, d.held) for d in snap.slowest] == [
+        ("CAM-Wedge", 1),
+        ("CAM-Ghost", 1),
+    ]
     # a new run starts clean
     stream.on_document("start", {"uid": "r2"})
     fresh = stream.snapshot()
     assert fresh.current_rate_hz is None and fresh.slowest == []
 
 
+def test_no_period_spans_a_step_a_pause_or_an_interrupted_row() -> None:
+    """Periods within a bin only, less the gate hold; a pause or an interrupted row breaks them."""
+    stream = ProgressStream(clock=lambda: 3.0)
+    _rows(
+        stream,
+        [
+            _row(100.0),
+            _row(101.5, gate_hold_s=0.5),  # 1.5 s, 0.5 of it the gate: 1.0
+            _row(110.0, bin_number=2),  # a step move: no period
+            _row(111.0, bin_number=2, after_pause=True),  # across a pause
+            _row(112.0, "CAM-Wedge", 5.0, bin_number=2, interrupted=True),
+            _row(113.0, bin_number=2),  # after an interrupted row
+        ],
+    )
+    snap = stream.snapshot()
+    assert snap.current_rate_hz == 1.0  # still the first bin's period
+    assert snap.slowest == []  # the interrupted row's arrivals say nothing
+    stream.on_document(
+        "event",
+        {"descriptor": "p", "seq_num": 7, "data": _row(114.25, bin_number=2)},
+    )
+    assert stream.snapshot().current_rate_hz == 0.8
+
+
 def test_a_run_without_timing_columns_has_no_rates() -> None:
     stream = ProgressStream(clock=lambda: 3.0)
     _strict_run(stream)
     snap = stream.snapshot()
-    assert snap.current_rate_hz is None and snap.average_rate_hz is None
+    assert snap.current_rate_hz is None
     assert snap.waiting_on is None and snap.slowest == []

@@ -280,6 +280,9 @@ def test_deferred_pause_lands_between_the_shots_of_a_step(
     events = col.primary_events()
     assert box.fires == 10 and len(events) == 10
     assert [e["data"]["bin_number"] for e in events] == [1] * 5 + [2] * 5
+    # the first fire after the resume says so: its period spans the pause
+    flags = [e["data"]["after_pause"] for e in events]
+    assert sum(flags) == 1 and not flags[0], flags
 
 
 def test_two_cameras_share_one_fire(
