@@ -550,10 +550,26 @@ listed detector, through the one verdict
 rule in `devices/ca/liveness.py` (`read_disconnected`, fail-open — only
 the exact `Disconnected` string counts; a native camera is judged by its
 IOC's own `AsynIO.CNCT` instead — `devices/native.down_native_cameras`,
-connected if needed and read within 5 s, where unreadable means down).  A dead device refuses the run
-with `GeecsDeviceDownError` naming every dead one, before the box is
-driven and before `open_run` claims a scan number — so nothing is
-claimed and no folder exists.  The rule against reading quiescence in a
+connected if needed and read within 5 s, where unreadable means down).  A dead **needed**
+device — a required one, a device the run moves (judged even when the
+preset does not list it; a pseudo positioner's components, `plans/strict.mover_roots`), or the box (`plans/strict.needed_device_names`,
+the one rule) — refuses the run with `GeecsDeviceDownError` naming
+every such one, before the box is driven and before `open_run` claims a
+scan number — so nothing is claimed and no folder exists.  Any other
+listed device down is **left out of the run**
+(`registry.drop_down_devices`, `count` and `sweep`): no stream, no
+columns, not waited on for scan mode, not read as background telemetry
+either, WARNED and named in the start document's `devices_dropped`; the
+next run that finds it up records it again, the preset untouched.  Every
+listed device down refuses (nothing left to record).  The client's
+preflight asks only about a down device the run needs (it refuses); one
+it does not need is a `passed` note in the submission record, never a
+question (`QueueItem.needed`).  A device the run never waits on (a
+condition, a sweep's mover) whose LabVIEW loop is frozen — connected, its
+`systimestamp` older than 30 s or never set (`devices/ca/liveness.probe_stale`)
+— is WARNED at the run's start and named in `devices_stale`
+(`plans/strict.stale_devices`), never refused; the preflight records the
+same as a `device_loops` note.  A device the worker's tree does not have at all (the DB did not list it at environment open) is left out client-side the same way unless it is required: `qs_client.expand_against_tree`, the one expansion the submit and the scanner's preview share (the preflight expands over the tree it holds every time, so its needed set leaves the conditions out as the worker does, and leaves out the box in a fly run), drops its row (`QueueItem.left_out`, named in the `worker_ready` outcome), since the manager refuses an item naming a device it lacks; a required or moved one is still refused as unknown.  `optimize` still refuses on any of its devices down.  The rule against reading quiescence in a
 scan does not apply: this is the liveness PV, read once per run.  The
 verdict (`plans/strict.py::down_devices`; a native setpoint device by its
 readbacks' severity) is also `apply_setup`'s: over the namespace nouns
@@ -725,7 +741,9 @@ mv(scan_mode, EnterScanMode(run devices))   # ScanStart on the group; wait for e
                                             #   device's ack (one retry: ScanEnd, then a
                                             #   fresh ScanStart) + every host's
                                             #   path-channel connection; one drain; a silent
-                                            #   device refuses the run BEFORE the claim
+                                            #   required device (or the box) refuses the
+                                            #   run BEFORE the claim; any other is left
+                                            #   out of scan mode with a WARNING
   stage / open_run …
     prepare; trigger(detectors)             # the stamp baseline
     mv(scan_mode, ANNOUNCE)                 # shot N+1: Path>> pushed on every connection
@@ -742,7 +760,13 @@ The rules: the entry sits **inside the trigger bracket, before the stage
 and the claim** (a refused entry claims nothing, the liveness gate's
 posture); the run devices the entry waits for are the detectors' owners (every
 per-shot device) and the profile's box — not the movers, not the
-background; the shot number is **run-wide and never re-sent** (a refire
+background, and not a device whose DB `device.scanmode_lock` is `disabled`
+(`GeecsDb.get_scan_mode_locks`, re-read per run; `plans/scan_mode.entered_device_names`):
+it keeps its normal acquisition, so its acknowledgement is not waited for
+(the PW cameras with the lock disabled sent none), it records as it
+acquires and keeps `acq_timestamp`; a required one is WARNED, and the box
+is always waited for.  The worker follows the DB and the device its launch
+value, so a lock edit needs the device relaunched before the next run; the shot number is **run-wide and never re-sent** (a refire
 takes the next number; the partial row keeps its own — `announced_shot`
 is the join key for the files, never the s-file's row index); the pushed
 path is the claimed folder translated by `data_paths.device_server_save_path`
@@ -777,8 +801,31 @@ the paused per-shot loop, and a mover's is never `enabled`.  It still
 acknowledges `ScanStart` and connects, but its readbacks keep flowing, so a
 `CaMotor` move between shots completes on its readback as outside scan
 mode.  A mover with the lock `enabled` is a DB mistake to fix in the DB;
-the preflight neither checks nor warns.  (The readbacks that froze at the
-last shot on the stand were the run's detectors, which do pause.)  Readers
+the preflight neither checks nor warns about a mover.  (The readbacks that froze at the
+last shot on the stand were the run's detectors, which do pause.)  **A
+run detector's own variable moved by a `CaMotor`** (a camera scanning its
+exposure with a DB tolerance) can never confirm on its frozen readback, so
+while a device is paused — the run's per-shot detectors
+(`plans/scan_mode.paused_device_names`, carried by `EnterScanMode.paused`)
+that acknowledged `ScanStart`, marked by `ScanModeControl` in
+`devices/scan_pause.py` and cleared at every exit; a condition and the box
+acknowledge but are never marked — its motor takes the device's `no error`
+reply as the verdict (the
+device ran its check-values against the same DB tolerance before
+answering); an error reply still fails the move, and every other motor
+keeps the readback confirm.  `CaConfirmSettable` has no such carve-out
+yet.  A
+device whose `acq_timestamp` reads `0.0` at the run's start (its LabVIEW
+driver never sets it: the DAQs, the LeCroy scope) takes its shots from
+`systimestamp` in a scan-mode run, which a device in scan mode publishes
+once per announced shot (`plans/scan_mode.choose_shot_stamps`, run by
+`scan_mode_bracket` before the entry and undone in its finalizer, so a
+refused entry leaves nothing switched, and an optional device the entry
+left out goes back on `acq_timestamp` before the run opens; a run outside
+scan mode resets first, against a halted run's choice; recorded under its
+`-acq_timestamp` column, named in the start document's
+`shot_stamp_systimestamp`).  Outside scan mode the loop stamp ticks on its
+own and is never a shot.  Readers
 join a device's shot-numbered files to rows by `announced_shot` — the
 s-file's `Announced Shot` — through `geecs_data_utils.tiled_schema.announced_shots`
 (it parts from the row index only when an announced shot ends in no row,

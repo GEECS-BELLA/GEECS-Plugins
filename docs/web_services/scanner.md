@@ -98,7 +98,17 @@ opens this page.
   whether LabVIEW saves its own files, shot period, a description, and
   the devices table (which devices to record, whether each saves images,
   and which are required: a required device is waited on every shot and
-  a shot it misses is refired; the others record what they take). The mode buttons fill the bottom half:
+  a shot it misses is refired; the others record what they take). A
+  device that is not required and is down when the scan starts is left
+  out of that scan with a warning (no columns); a required one, or a
+  device the scan moves, refuses the scan when down. A device the worker
+  does not know at all (not enabled in the DB when its environment opened)
+  is left out the same way, unless it is required.
+  Leave the row in place: the next scan that finds the
+  device up records it again. A gauge, a motor or a sweep's axis that is
+  connected but whose LabVIEW loop has stopped updating (nothing new in
+  30 s) is never waited on, so the scan warns about it in `scan.log` when
+  it starts and records it anyway: check the device. The mode buttons fill the bottom half:
   **Count** (N shots at a fixed configuration, optionally tagged as a
   background), **Sweep** (one or more variables along a trajectory) or
   **Optimize** (an optimizer drives the variables). Acquisition is

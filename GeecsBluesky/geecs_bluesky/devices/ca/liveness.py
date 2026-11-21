@@ -20,6 +20,7 @@ read live.
   enum edge to trip over.
 
 - :func:`down_natives` — native devices (no ``CONNECTED``): a judge that raises is down.
+- :func:`probe_stale` — a frozen loop (``systimestamp`` stale): a warning only.
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra).
 """
@@ -41,6 +42,10 @@ logger = logging.getLogger(__name__)
 #: CA read budget for one probe batch (seconds) — concurrent, so N dead
 #: PVs cost one budget, not N.
 DEFAULT_PROBE_TIMEOUT_S = 2.0
+
+#: A device whose ``systimestamp`` is older than this (seconds) has a
+#: frozen loop: connected, but publishing nothing.
+STALE_AFTER_S = 30.0
 
 
 def read_disconnected(
@@ -134,6 +139,72 @@ def probe_disconnected(
         for device, reading in zip(names, readings)
         if reading is not None and str(reading) == GATEWAY_DISCONNECTED
     ]
+
+
+def probe_stale_pvs(
+    stamp_pvs: Mapping[str, str],
+    *,
+    window: float = STALE_AFTER_S,
+    timeout: float = DEFAULT_PROBE_TIMEOUT_S,
+    now: float | None = None,
+) -> list[tuple[str, float | None]]:
+    """The devices whose loop stamp is older than *window*: ``(name, age s)``, ``None`` when never set.
+
+    *stamp_pvs* is GEECS device name → its ``systimestamp`` PV (bare).
+    One concurrent read; a read that fails is not judged (fail-open, as
+    :func:`probe_disconnected`).  The age is against this host's clock, so
+    a skew between hosts larger than *window* would read as stale.
+    """
+    import time
+
+    from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
+
+    from geecs_bluesky.devices.ca.oneshot import try_caget_many
+
+    names = list(stamp_pvs)
+    if not names:
+        return []
+    readings = try_caget_many([stamp_pvs[n] for n in names], timeout=timeout)
+    wall = (time.time() if now is None else now) + LABVIEW_EPOCH_OFFSET
+    stale: list[tuple[str, float | None]] = []
+    for name, reading in zip(names, readings):
+        try:
+            stamp = float(reading)
+        except (TypeError, ValueError):
+            continue  # unreadable: not judged
+        if stamp <= 0:
+            stale.append((name, None))  # the gateway's placeholder: never published
+        elif wall - stamp > window:
+            stale.append((name, wall - stamp))
+    return stale
+
+
+def probe_stale(
+    experiment: str,
+    device_names: Iterable[str],
+    *,
+    window: float = STALE_AFTER_S,
+    timeout: float = DEFAULT_PROBE_TIMEOUT_S,
+) -> list[tuple[str, float | None]]:
+    """:func:`probe_stale_pvs` over device *names* (the client-side preflight)."""
+    from geecs_bluesky.devices.ca._pv import ca_pv
+    from geecs_bluesky.devices.ca.gateway_put import bare_pv
+
+    return probe_stale_pvs(
+        {d: bare_pv(ca_pv(experiment, d, "systimestamp")) for d in device_names},
+        window=window,
+        timeout=timeout,
+    )
+
+
+def stale_text(stale: Sequence[tuple[str, float | None]]) -> str:
+    """``"A (not updated in 95 s), B (never updated)"`` — the one wording."""
+    return ", ".join(
+        f"{name} (never updated)"
+        if age is None
+        else f"{name} (not updated in {age:.0f} s)"
+        for name, age in stale
+    )
 
 
 def down_natives(found: Sequence[Any], judge: Callable[[Any], Awaitable[bool]]):

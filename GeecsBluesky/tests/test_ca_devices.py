@@ -906,3 +906,64 @@ async def test_snapshot_carries_the_liveness_pv_but_never_reads_it() -> None:
     assert gauge.connected_status.source.endswith(expected)
     set_mock_value(gauge.connected_status, "Disconnected")
     assert set(await gauge.read()) == {"g-pressure"}
+
+
+# --------------------------------------------------------------------------
+# A device paused in scan mode: the reply is the verdict (devices/scan_pause)
+# --------------------------------------------------------------------------
+#
+# Scan012 on PW (2026-11-18): CAM-2BL-F3M7 scanned its own exposure under a
+# scan-mode profile.  The DB tolerance bound exposure as a CaMotor, the
+# camera paused between shots, its readback froze at 0.005, and the move to
+# 0.0545 stalled after the device had replied ``no error``.
+
+
+@pytest.fixture
+def paused():
+    """Mark devices paused for one test; always clear the set after."""
+    from geecs_bluesky.devices.scan_pause import mark_paused
+
+    yield mark_paused
+    mark_paused(())
+
+
+async def test_a_paused_device_s_motor_completes_on_the_reply(paused, caplog) -> None:
+    motor = _slow_stage(device="CAM-2BL-F3M7", variable="exposure", tolerance=0.001)
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, 0.005)  # frozen at the last shot
+    paused(["cam-2bl-f3m7"])  # as the control marks it; names fold case
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with caplog.at_level(logging.INFO, logger="geecs_bluesky.devices.ca.motor"):
+        await asyncio.wait_for(motor.set(0.0545), timeout=2.0)
+    assert loop.time() - t0 < _GRACE  # the reply, not the stall rule
+    get_mock_put(motor._setpoint).assert_called_once()
+    assert "confirmed by the device's reply" in caplog.text
+
+
+async def test_a_paused_device_s_error_reply_still_fails_the_move(paused) -> None:
+    motor = _slow_stage(device="CAM-2BL-F3M7", variable="exposure", tolerance=0.001)
+    await motor.connect(mock=True)
+    paused(["CAM-2BL-F3M7"])
+    refusal = _RefusedPut(
+        "bella:cam_2bl_f3m7:exposure:SP: Channel write request failed"
+    )
+
+    def reject(value, **kwargs):
+        raise refusal
+
+    callback_on_mock_put(motor._setpoint, reject)
+    with pytest.raises(_RefusedPut) as info:
+        await asyncio.wait_for(motor.set(0.0545), timeout=2.0)
+    assert info.value is refusal
+
+
+async def test_another_device_paused_leaves_the_readback_confirm(paused) -> None:
+    # Only the run's detectors pause; a mover on another device still
+    # confirms on its readback (the stall rule still fires).
+    motor = _slow_stage()
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, 0.0)
+    paused(["CAM-2BL-F3M7"])
+    with pytest.raises(GeecsMotorTimeoutError):
+        await asyncio.wait_for(motor.set(-24.0), timeout=5.0)

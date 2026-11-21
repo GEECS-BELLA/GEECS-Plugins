@@ -26,7 +26,7 @@ light and offline.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -123,7 +123,18 @@ def run_submit_preflight(
 
     # -- worker ready (hard gate; fail-open when the manager is unreachable)
     try:
-        _check_worker_ready(report, client, experiment, item)
+        item = _check_worker_ready(
+            report,
+            client,
+            experiment,
+            item,
+            # Always over the tree, required or not: it tells a condition
+            # (no shot stamp, never needed) from a per-shot device, as the
+            # worker does — the item judged here is never the one submitted.
+            expand=lambda tree: expand_preset(
+                preset, catalog=catalog, resolver=resolver, device_tree=tree
+            ),
+        )
     except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning("worker-ready preflight failed: %s", exc)
         report.outcomes.append(("worker_ready", "skipped", str(exc)))
@@ -143,11 +154,21 @@ def run_submit_preflight(
 
     # -- gateway liveness ----------------------------------------------------
     devices = list(item.devices)
-    for device in _trigger_profile_devices(profile):
+    # A fly run never drives the box, and the worker never judges it there.
+    fly = item.kwargs.get("acquisition", "strict") == "fly"
+    box = [] if fly else list(_trigger_profile_devices(profile))
+    for device in [*item.needed, *box]:
         if device not in devices:
             devices.append(device)
     if devices:
-        _liveness_fail_open(report, devices, experiment)
+        _liveness_fail_open(
+            report,
+            devices,
+            experiment,
+            needed={*item.needed, *box},
+            listed=item.devices,
+            loops=True,
+        )
 
     return report
 
@@ -181,13 +202,33 @@ def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) 
     return report
 
 
-def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str) -> None:  # fmt: skip
-    """:func:`_check_liveness`, recorded ``skipped`` (never raised) when the probe itself fails."""
+def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None, listed: Collection[str] = (), loops: bool = False) -> None:  # fmt: skip
+    """:func:`_check_liveness` (then, with *loops*, :func:`_check_loops`), recorded ``skipped`` (never raised) when a probe itself fails."""
+    check = "gateway_liveness"
     try:
-        _check_liveness(report, devices, experiment)
+        down = _check_liveness(
+            report, devices, experiment, needed=needed, listed=listed
+        )
+        if loops:
+            check = "device_loops"
+            _check_loops(report, [d for d in devices if d not in down], experiment)
     except Exception as exc:  # noqa: BLE001 — preflight fails open
-        logger.warning("liveness preflight failed: %s", exc)
-        report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
+        logger.warning("%s preflight failed: %s", check, exc)
+        report.outcomes.append((check, "skipped", str(exc)))
+
+
+def _check_loops(report: PreflightReport, devices: list[str], experiment: str) -> None:
+    """Note the devices whose LabVIEW loop looks frozen (``device_loops``); never a question.
+
+    The worker warns of the same at the run's start
+    (``plans/strict.stale_devices``) for the devices it never waits on (the
+    conditions and the movers); here every probed device is noted.
+    """
+    from geecs_bluesky.devices.ca.liveness import probe_stale, stale_text
+
+    stale = probe_stale(experiment, devices, timeout=_LIVENESS_TIMEOUT_S)
+    note = f"frozen loop, recorded anyway: {stale_text(stale)}" if stale else ""
+    report.outcomes.append(("device_loops", "passed", note))
 
 
 def _make_default_resolver(experiment: str) -> Any:
@@ -295,9 +336,14 @@ _FAIL_OPEN_READINESS_STATES = frozenset({"unreachable", "plans_unknown"})
 
 
 def _check_worker_ready(
-    report: PreflightReport, client: Any | None, experiment: str, item: Any
-) -> None:
-    """Refuse when the manager cannot run the plan about to be queued.
+    report: PreflightReport,
+    client: Any | None,
+    experiment: str,
+    item: Any,
+    *,
+    expand: Callable[[Collection[str]], Any] | None = None,
+) -> Any:
+    """Refuse when the manager cannot run the plan about to be queued; answer the item judged.
 
     The verdict is the shared
     :func:`~geecs_bluesky.qs_client.client.readiness_from_reads` — the
@@ -324,6 +370,17 @@ def _check_worker_ready(
         Passed to the client factory.
     item :
         The expanded queue item (its plan name and device references).
+    expand :
+        Expands the preset again over the manager's device tree
+        (:func:`~geecs_bluesky.qs_client.presets.expand_against_tree`): a
+        device the tree lacks and the run does not require is left out, as
+        the submit leaves it out, and named in the outcome; only what is
+        still unknown is refused.
+
+    Returns
+    -------
+    Any
+        The item the later checks judge: re-expanded when *expand* ran.
     """
     from geecs_bluesky.qs_client.client import StubQueueClient, readiness_from_reads
 
@@ -335,7 +392,7 @@ def _check_worker_ready(
             report.outcomes.append(
                 ("worker_ready", "skipped", "no [qserver] config — submission is off")
             )
-            return
+            return item
         # The ONE assembly of ready (status → plans if the env exists →
         # verdict); any client with status() + allowed_plan_names() qualifies.
         verdict = readiness_from_reads(
@@ -343,20 +400,37 @@ def _check_worker_ready(
         )
         if verdict.ready:
             known = set(client.allowed_device_names())
+            if expand is not None:
+                from geecs_bluesky.exceptions import GeecsConfigurationError
+
+                try:
+                    item = expand(known)
+                except GeecsConfigurationError as exc:  # every device unknown
+                    report.refusal = str(exc)
+                    return item
             unknown = [r for r in item.references if r not in known]
             if unknown:
                 report.refusal = (
                     "the worker does not know these devices: "
                     f"{', '.join(unknown)} — check the spelling (GEECS "
                     "device name, variable as its safe name: U_S1H.current) "
-                    "and that the DB lists them for the experiment"
+                    "and that the DB lists them for the experiment; one the "
+                    "scan neither requires nor moves is left out instead"
                 )
-                return
-            report.outcomes.append(("worker_ready", "passed", ""))
+                return item
+            left_out = getattr(item, "left_out", ())
+            note = (
+                "left out, unknown to the worker and not required: "
+                + ", ".join(left_out)
+                if left_out
+                else ""
+            )
+            report.outcomes.append(("worker_ready", "passed", note))
         elif verdict.state in _FAIL_OPEN_READINESS_STATES:
             report.outcomes.append(("worker_ready", "skipped", verdict.detail))
         else:
             report.refusal = verdict.detail
+        return item
     finally:
         if owned:
             close = getattr(client, "close", None)
@@ -365,36 +439,74 @@ def _check_worker_ready(
 
 
 def _check_liveness(
-    report: PreflightReport, devices: list[str], experiment: str
-) -> None:
-    """Read each device's gateway ``CONNECTED`` PV; question the down ones.
+    report: PreflightReport,
+    devices: list[str],
+    experiment: str,
+    *,
+    needed: Collection[str] | None = None,
+    listed: Collection[str] = (),
+) -> list[str]:
+    """Read each device's gateway ``CONNECTED`` PV; question a down device the run needs; answer the down ones.
 
     The probe (concurrent batch read, fail-open, the DBR_ENUM
     ``datatype=str`` subtlety) is the shared
     :func:`geecs_bluesky.devices.ca.liveness.probe_disconnected` — the
     same one the strict refire gate's verdict rests on, so the two sides
-    cannot drift.  Only the disposition differs: here a down device
-    becomes an operator question; worker-side a frameless down device
-    aborts the run.
+    cannot drift.  Only the disposition differs, worded as the worker's
+    rule (``registry.drop_down_devices``): a *needed* device down refuses
+    the run, so it is an operator question; any other is left out of it
+    by the worker, so it is a ``passed`` note naming it, never a question
+    (named in the question too when one is asked).  ``None`` treats every
+    device as needed (a trigger profile's own dry run).  Every *listed*
+    device down is a question too: the worker then has nothing to record
+    and refuses the run.
     """
     from geecs_bluesky.devices.ca.liveness import probe_disconnected
 
     down = probe_disconnected(experiment, devices, timeout=_LIVENESS_TIMEOUT_S)
     if not down:
         report.outcomes.append(("gateway_liveness", "passed", ""))
-        return
-    names = ", ".join(sorted(down))
+        return []
+    must = set(devices) if needed is None else set(needed)
+    refusing = sorted(d for d in down if d in must)
+    left_out = sorted(d for d in down if d not in must)
+    everything = bool(listed) and set(listed) <= set(down)
+    if not refusing and not everything:
+        report.outcomes.append(
+            (
+                "gateway_liveness",
+                "passed",
+                f"left out, disconnected and not required: {', '.join(left_out)}",
+            )
+        )
+        return down
+    parts: list[str] = []
+    if refusing:
+        parts.append(
+            f"The gateway reports these devices as Disconnected: "
+            f"{', '.join(refusing)}. The scan needs them (required, a sweep "
+            "axis, or the trigger profile's), so the worker refuses the run "
+            "before its first move while any of them is down."
+        )
+    if everything and not refusing:
+        parts.append(
+            f"Every device the scan lists is Disconnected: {', '.join(left_out)}. "
+            "With nothing left to record, the worker refuses the run."
+        )
+    elif left_out:
+        parts.append(
+            f"Not required and Disconnected: {', '.join(left_out)}. The worker "
+            "leaves them out of this scan (no columns); the next scan that "
+            "finds them up records them again."
+        )
     report.questions.append(
         PreflightQuestion(
             check="gateway_liveness",
             title="Devices disconnected",
-            message=(
-                f"The gateway reports these devices of the scan as "
-                f"Disconnected: {names}. The worker refuses the run before "
-                "its first move while any of them is down. Continue anyway?"
-            ),
+            message=" ".join([*parts, "Continue anyway?"]),
         )
     )
+    return down
 
 
 def build_submission_record(

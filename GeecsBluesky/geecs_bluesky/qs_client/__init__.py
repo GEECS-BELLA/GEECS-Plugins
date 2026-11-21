@@ -42,7 +42,11 @@ from geecs_bluesky.qs_client.client import (
     readiness_from_reads,
     readiness_verdict,
 )
-from geecs_bluesky.qs_client.presets import QueueItem, expand_preset
+from geecs_bluesky.qs_client.presets import (
+    QueueItem,
+    expand_against_tree,
+    expand_preset,
+)
 from geecs_bluesky.qs_client.submit_preflight import (
     PreflightQuestion,
     PreflightReport,
@@ -66,6 +70,7 @@ __all__ = [
     "make_queue_client",
     "read_qserver_config",
     "QueueItem",
+    "expand_against_tree",
     "expand_preset",
     "PreflightQuestion",
     "PreflightReport",
