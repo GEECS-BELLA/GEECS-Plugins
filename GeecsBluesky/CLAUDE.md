@@ -453,13 +453,24 @@ read every per-shot counter + the witness count   # frame count / acq_timestamp 
 [mv(scan_mode, ANNOUNCE)]; mv(box, SINGLESHOT); press Software natives
 wait (bounded) for every required counter         # none required: for the witness
 re-read the counters → complete / missing / extra_frames / witness_late / interrupted
+                      → <device>-answered (a required stamped device's stamp, moved)
 create / read / [pause landed inside? drop, read again] / save
 collect every stream
 ```
 
 `required=` names the per-shot devices whose record makes a shot
 complete (default: all; `[]`: none; a condition named is refused at
-bind).  An incomplete shot keeps its row and fires again (a new row,
+bind).  For each required **stamped** device (no plugin, or a `.scalars`
+view: its counter is the `acq_timestamp` monitor) the row records the
+stamp the re-read found when it had moved from the baseline
+(`<device>-answered`, else `NaN`): the plan waited for that record, so it
+writes down which one answered, and on a row with no witness of its own
+the join takes the stream record with exactly that stamp instead of
+comparing clocks (a witnessed row keeps the witness's assignment;
+`EVENT_SCHEMA.md`, "A row without a witness names the record that
+answered it", limits and the `answer-after-miss` flag included).  Not for a framed
+device (its counter is a frame count), a device that is not required, or
+a fly run.  An incomplete shot keeps its row and fires again (a new row,
 `attempt` + 1) up to `max_refires`; exhausted, the last row is flagged
 and the scan continues, and two exhausted shots in a row pause the run.
 A required device whose liveness reads down pauses the run with the
@@ -785,7 +796,9 @@ The rows are `primary`'s events (a run recorded in gated mode: its
 `shots` events, which the live callbacks no longer look for), and every **datum-only** stream's per-frame
 columns — and every per-shot **event** stream's events (a device
 without a plugin, one "frame" per stamp) — are joined onto them by
-offset-corrected stamp.  The join itself is `geecs_data_utils.shot_table`
+offset-corrected stamp (a required stamped device of a strict run, on a
+row without a witness: by the row's `<device>-answered`, the exact stamp
+of the record that answered the fire, no clock compared).  The join itself is `geecs_data_utils.shot_table`
 (over `shot_join`; the clock through `shot_join.clock_stamps`, so a Unix
 witness clock meets LabVIEW device stamps), shared with the offline
 re-export so the two cannot drift, and fed

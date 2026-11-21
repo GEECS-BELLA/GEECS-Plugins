@@ -141,6 +141,7 @@ def test_a_fly_count_writes_soft_tick_rows_and_never_touches_the_box(
     )
     assert all(r["complete"] for r in rows), rows
     assert not {"fire_stamp", "unwitnessed", "witness_late"} & set(rows[0])
+    assert not [k for k in rows[0] if k.endswith("-answered")]  # a strict row's
     assert box.puts == [] and box.fires == 0 and len(presses) == 4
     assert any(BOX_NOT_DRIVEN in m for m in caplog.messages)
     assert col.docs["stop"][-1]["exit_status"] == "success"
