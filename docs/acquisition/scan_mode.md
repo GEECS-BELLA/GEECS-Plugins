@@ -48,8 +48,11 @@ scan-mode profile.
    The worker waits for every device the run records from and the
    profile's shot-control device. If any stays silent (a `ScanStart` can
    be lost on the network), it ends the scan for the devices that did
-   enter and sends one fresh `ScanStart`. If a device is still silent, it
-   refuses the run, naming it. A refused entry claims no scan number.
+   enter and sends one fresh `ScanStart`. If a required device (or the
+   profile's shot-control device) is still silent, it refuses the run,
+   naming it; a refused entry claims no scan number. Any other device
+   still silent is warned about and left out of scan mode for the run (no
+   shot-numbered files, its DB start values unapplied); the run goes on.
    The worker never sends a second `ScanStart` into an open scan: a
    device would hold it and re-enter scan mode after the run's
    `ScanEnd`. If any connection is still open when that first `ScanEnd`
@@ -109,7 +112,28 @@ every device but keeps its readbacks flowing, so a sweep moves it between
 shots exactly as outside scan mode. A mover with the lock `enabled` is a
 database mistake: fix the row, then relaunch the device. A device reads
 its lock only at launch, so a running one keeps the old value. The worker
-neither checks nor warns.
+neither checks a mover's lock nor warns about it.
+
+A run device (a camera, a DAQ) with its lock `disabled` keeps its normal
+acquisition, so the worker does not wait for its `ScanStart`
+acknowledgement (on PW such cameras sent none). It reads the lock from the
+DB at every run, names those devices in the log (a WARNING when one is
+Required), and records them as they acquire, free-running, one row per
+fire. They save no shot-numbered files. The trigger box is always waited
+for. The worker follows the DB, but the device follows the value it read
+at launch: after editing a lock, relaunch the device before the next run.
+
+### Scanning a detector's own variable
+
+A run's per-shot detectors (its cameras, recorded with images or as
+scalars) do pause, so their readbacks freeze between shots. Scanning one
+of their own variables — a camera's exposure, say — therefore cannot wait
+for the readback to reach the new value. For such a move the device's own
+reply settles it: the device has already checked the value against its DB
+tolerance before answering `no error`, and an error reply still fails the
+scan. `scan.log` says so on each step (`confirmed by the device's reply
+(paused in scan mode …)`). Every other move — a stage, a supply, the
+trigger box — still waits for its readback.
 
 ## Preflight refusals
 

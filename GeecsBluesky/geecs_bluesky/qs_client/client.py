@@ -27,7 +27,6 @@ submit verbs surface the queue's front items (``pending_items``): cleared on
 
 from __future__ import annotations
 
-import contextlib
 
 import logging
 import os
@@ -843,21 +842,23 @@ class ZmqQueueClient:
     ) -> SubmitResult:
         """Expand the preset and queue it; an expansion refusal is the message."""
         from geecs_bluesky.exceptions import GeecsConfigurationError
-        from geecs_bluesky.qs_client.presets import expand_preset
+        from geecs_bluesky.qs_client.presets import expand_against_tree
 
         try:
-            item = expand_preset(preset, catalog=catalog, md=md, resolver=resolver)
-            if "required" in item.kwargs:
-                # Some device is not required: the tree tells the conditions
-                # (no shot stamp) apart, which are never required.
-                tree: list[str] | None = None
-                with contextlib.suppress(Exception):  # the submit reports the manager
-                    tree = self.allowed_device_names()
-                item = expand_preset(
-                    preset, catalog=catalog, md=md, resolver=resolver, device_tree=tree
-                )
+            item = expand_against_tree(
+                preset,
+                self.allowed_device_names,
+                catalog=catalog,
+                md=md,
+                resolver=resolver,
+            )
         except GeecsConfigurationError as exc:
             return SubmitResult(ok=False, message=str(exc))
+        if item.left_out:
+            logger.warning(
+                "%s not in the worker's device tree and not required — left out of this scan",
+                ", ".join(item.left_out),
+            )
         return self.submit_plan(
             item.name,
             args=item.args,

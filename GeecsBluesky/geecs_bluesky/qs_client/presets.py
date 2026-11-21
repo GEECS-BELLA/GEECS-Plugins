@@ -27,7 +27,8 @@ A preset must name a scan verb; ``mv`` and ``apply_setup`` go through
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+import contextlib
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
@@ -76,7 +77,14 @@ class QueueItem:
     checks against the manager's device tree.  A literal string argument
     (an enum value in a ``list_scan`` point list, say) is never one.
     ``devices`` contains the final device group, including optimizer-required
-    devices, for gateway liveness checks.
+    devices, for gateway liveness checks.  ``needed`` names the GEECS devices
+    whose being down refuses the run worker-side (``registry.drop_down_devices``):
+    the required per-shot devices and a sweep's axis devices (every device
+    of an ``optimize``); any other listed device down is left out of the run.
+    ``left_out`` names the preset's devices the manager's device tree does
+    not have and the run does not require (expanded with ``device_tree``):
+    their rows are dropped from the item, so the manager is never handed a
+    device it does not know.
     """
 
     name: str
@@ -84,6 +92,8 @@ class QueueItem:
     kwargs: dict[str, Any] = field(default_factory=dict)
     references: list[str] = field(default_factory=list)
     devices: tuple[str, ...] = ()
+    needed: tuple[str, ...] = ()
+    left_out: tuple[str, ...] = ()
 
 
 def scan_variable_reference(
@@ -197,7 +207,11 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         ``acq_timestamp`` nor an ``hdf`` child there is a condition, read in
         every row: never passed as ``required``, whatever its ``required``
         says.  Unset, every non-native device counts as per-shot (the
-        binder refuses a condition named in ``required``).
+        binder refuses a condition named in ``required``).  A row whose
+        device is not in the tree at all and is not ``required`` is left
+        out of the item (:attr:`QueueItem.left_out`), except in an
+        ``optimize``, which reads every device; a required one stays, and
+        the preflight refuses it as unknown.
 
     Raises
     ------
@@ -241,6 +255,23 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     required: list[str] = []
     per_shot: list[str] = []
     devices = merge_required_devices(preset, required_devices).devices
+    left_out: tuple[str, ...] = ()
+    if device_tree is not None and plan.name != "optimize":
+        # Known: the device itself or anything under it is in the tree.
+        tree = {name.split(".", 1)[0] for name in device_tree}
+        unknown = [
+            d
+            for d in devices
+            if not d.required and device_reference(d.device) not in tree
+        ]
+        if unknown and len(unknown) == len(devices):
+            raise GeecsConfigurationError(
+                f"preset {preset.name!r}: the worker knows none of its devices "
+                f"({', '.join(d.device for d in unknown)}) — check that the DB "
+                "lists them for the experiment"
+            )
+        left_out = tuple(d.device for d in unknown)
+        devices = [d for d in devices if d not in unknown]
     if native_devices is None:
         # A stand-in resolver (the scanner's demo) has no registry.
         read = getattr(resolver, "resolve_native_devices", None)
@@ -276,6 +307,8 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             per_shot.append(reference)
         if d.required and reference in per_shot:
             required.append(reference)
+    by_reference = {device_reference(d.device): d.device for d in devices}
+    needed: dict[str, None] = {}
     references: list[str] = list(detectors)
     args = [_resolve(a, catalog, references) for a in plan.args]
     kwargs = {k: _resolve(v, catalog, references) for k, v in plan.kwargs.items()}
@@ -288,6 +321,8 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         try:
             payload = Sweep.model_validate(kwargs.get("sweep"))
             for axis in payload.axis_references():
+                for owner in _axis_devices(axis.axis, catalog, by_reference):
+                    needed.setdefault(owner)
                 if (
                     ":" in axis.axis
                     or (catalog and axis.axis in catalog)
@@ -306,6 +341,19 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     if len(required) < len(per_shot):
         # Explicit whenever a device is not required, an empty list included.
         kwargs["required"] = required
+    if plan.name == "optimize":
+        needed.update(dict.fromkeys(d.device for d in devices))
+    else:
+        for d in devices:
+            reference = (
+                device_reference(d.device)
+                if d.save_images
+                else device_reference(d.device) + ".scalars"
+            )
+            if reference in required or (
+                "required" not in kwargs and reference in per_shot
+            ):
+                needed.setdefault(d.device)
     # The run-level preset fields are the one source of truth for the plan
     # keyword of the same name: a copy in plan.kwargs is refused rather
     # than merged.  Unset stays absent — the worker's default applies.
@@ -325,6 +373,8 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     run_md.setdefault("background", preset.background)
     geecs = dict(run_md.get("geecs") or {})
     geecs.setdefault("preset", preset.name)
+    if left_out:
+        geecs["devices_left_out"] = list(left_out)
     run_md["geecs"] = geecs
     kwargs["md"] = run_md
     return QueueItem(
@@ -333,7 +383,62 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         kwargs=kwargs,
         references=references,
         devices=tuple(d.device for d in devices),
+        needed=tuple(needed),
+        left_out=left_out,
     )
+
+
+def expand_against_tree(
+    preset: Any,
+    read_tree: Callable[[], Collection[str]],
+    **kwargs: Any,
+) -> QueueItem:
+    """:func:`expand_preset`, then again over the manager's device tree when it matters.
+
+    The tree matters only when some device is not required: it tells the
+    conditions (no shot stamp, never required) apart and leaves out a
+    device it does not have (:attr:`QueueItem.left_out`).  *read_tree* is
+    asked only then; one that raises leaves the first expansion (the
+    manager then answers the submit itself).  The one copy the submit and
+    the scanner's preview expand through; the preflight, which judges and
+    never submits, expands over the tree it already holds every time, so
+    its needed set tells conditions apart as the worker does.
+    """
+    item = expand_preset(preset, **kwargs)
+    if "required" not in item.kwargs:
+        return item
+    tree: list[str] | None = None
+    with contextlib.suppress(Exception):  # no tree: the plain expansion stands
+        tree = list(read_tree())
+    if tree is None:
+        return item
+    return expand_preset(preset, device_tree=tree, **kwargs)
+
+
+def _axis_devices(
+    axis: str, catalog: Mapping[str, Any] | None, by_reference: Mapping[str, str]
+) -> list[str]:
+    """The GEECS devices a sweep axis moves: one, or a catalog pseudo's components.
+
+    *axis* as the preset spells it: ``Device:Variable``, a catalog name, or
+    an expanded reference (``U_S1H.current``, mapped back to the listed
+    device's GEECS spelling when it is one).  The worker's rule is
+    ``plans/strict.mover_roots``.
+    """
+    spec = (catalog or {}).get(axis)
+    if spec is not None:
+        if getattr(spec, "kind", None) == "pseudo":
+            devices: list[str] = []
+            for component in spec.targets:
+                for device in _axis_devices(str(component.target), None, by_reference):
+                    if device not in devices:
+                        devices.append(device)
+            return devices
+        axis = str(spec.target)
+    if ":" in axis:
+        return [axis.partition(":")[0]]
+    base = axis.partition(".")[0]
+    return [by_reference.get(base, base)]
 
 
 def _detector_names(native_devices: Collection[str] | Mapping[str, Any]) -> set[str]:

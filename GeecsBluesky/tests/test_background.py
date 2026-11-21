@@ -458,6 +458,28 @@ def test_bound_count_reads_the_background_into_every_row(
     assert col.primary_events()[-1]["data"]["u_dead-x"] == 1.0
 
 
+def test_a_device_left_out_because_it_is_down_is_not_read_as_background(
+    RE, box, profiles
+) -> None:
+    """Dropped at the start (down, not required): no stream and no background columns either."""
+    from ophyd_async.core import set_mock_value
+
+    cam = _camera(RE, box, "UC_Cam")
+    down = _camera(RE, box, "UC_Down")
+    set_mock_value(down.connected_status, "Disconnected")
+    ns = Namespace(
+        {"UC_Cam": cam, "UC_Down": down},
+        [*cam._scalar_signals(), *down._scalar_signals()],
+    )
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bind_plans(profiles, settables=ns)["count"]([cam, down], 1, required=[cam]))
+    start = col.docs["start"][0]
+    assert start["devices_dropped"] == ["UC_Down"]
+    (event,) = col.primary_events()
+    assert not any(key.startswith("uc_down") for key in event["data"])
+
+
 def test_bound_sweep_keeps_the_scanned_devices_other_variables(
     RE, box, profiles
 ) -> None:

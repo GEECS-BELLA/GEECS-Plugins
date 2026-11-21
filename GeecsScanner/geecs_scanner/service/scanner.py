@@ -37,7 +37,6 @@ deliberately not here):
 
 from __future__ import annotations
 
-import contextlib
 
 import logging
 import threading
@@ -779,7 +778,7 @@ class ScannerService:
         """
         from geecs_scanner.service.setups import hazards, provenance, questions
 
-        operator = body.operator.strip()
+        operator = (body.operator or "").strip()
         if not operator:
             raise ScannerError(
                 "invalid_request",
@@ -908,7 +907,8 @@ class ScannerService:
                 f"preset name {stem!r} is not a file name: use letters, digits, "
                 "'_', '-' and '.', no separators",
             )
-        if not body.operator.strip():
+        operator = (body.operator or "").strip()
+        if not operator:
             raise ScannerError(
                 "invalid_request",
                 "enter your name (the operator) first: a saved preset is a commit under it",
@@ -929,7 +929,7 @@ class ScannerService:
                 f"preset {stem!r} already exists; replace it or pick another name",
                 exists=True,
             )
-        saved = self._presets.save(stem, preset.model_dump(mode="json"), operator=body.operator.strip(), overwrite=body.overwrite)  # fmt: skip
+        saved = self._presets.save(stem, preset.model_dump(mode="json"), operator=operator, overwrite=body.overwrite)  # fmt: skip
         return SavePresetOut(
             name=stem, path=saved.path, message=saved.message, commit=saved.commit
         )
@@ -1176,22 +1176,20 @@ class ScannerService:
         return report
 
     def _expand(self, preset: Any, catalog: Mapping[str, Any]) -> Any:
-        from geecs_bluesky.qs_client import expand_preset
+        from geecs_bluesky.qs_client import expand_against_tree
 
+        def tree() -> list[str]:
+            with self._lock:
+                return self.client.allowed_device_names()
+
+        # As the submit expands: over the tree when some device is not
+        # required (conditions told apart, an unknown device left out).
         try:
-            item = expand_preset(preset, catalog=catalog, resolver=self.resolver)
+            return expand_against_tree(
+                preset, tree, catalog=catalog, resolver=self.resolver
+            )
         except Exception as exc:
             raise ScannerError("invalid_request", str(exc)) from exc
-        if "required" not in item.kwargs:
-            return item
-        # Some device is not required: the tree tells the conditions apart
-        # (no shot stamp), which are never required — as the submit does.
-        tree: list[str] | None = None
-        with contextlib.suppress(Exception), self._lock:  # no tree: the default
-            tree = self.client.allowed_device_names()
-        return expand_preset(
-            preset, catalog=catalog, resolver=self.resolver, device_tree=tree
-        )
 
     def _queue_item(
         self,
