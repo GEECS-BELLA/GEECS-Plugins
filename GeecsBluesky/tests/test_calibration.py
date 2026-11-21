@@ -379,6 +379,33 @@ def test_measure_returns_the_measured_offsets(RE: RunEngine) -> None:
     assert box.fires == 4
 
 
+def test_measure_puts_back_a_halted_scan_mode_runs_stamp_choice(
+    RE: RunEngine,
+) -> None:
+    """A halt skips the scan-mode bracket's finalizer: the calibration resets the stamps itself."""
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    sc = _shot_control(RE, box)
+    cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
+
+    def switch():
+        async def on() -> None:
+            cams[0].shot_stamp_from_systimestamp(True)
+
+        yield from bps.wait_for([on])
+
+    RE(switch())  # what a halted scan-mode run leaves behind
+    assert cams[0].shot_stamp is cams[0].systimestamp
+    plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
+    captured: dict[str, Any] = {}
+
+    def runner():
+        captured["result"] = yield from plan(cams, shots=2, quiet_time=0.01)
+
+    RE(runner())
+    assert cams[0].shot_stamp is cams[0].acq_timestamp
+    assert captured["result"].offsets["amp4"] == pytest.approx(0.036, abs=1e-6)
+
+
 def test_measure_leaves_the_box_in_standby(RE: RunEngine) -> None:
     box = _box({"amp3": 0.0, "amp4": 0.036})
     sc = _shot_control(RE, box)
