@@ -17,6 +17,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from geecs_schemas import SCHEMA_REGISTRY
+from geecs_schemas.analysis.scalar import blank_scalar_job
 
 from geecs_configurator.ownership import Ownership
 from geecs_configurator.store import DocumentStore, NotFound
@@ -43,6 +44,8 @@ def schema_blank(kind: str, name: str, input_kind: str, device: str, fields: Jso
     """The schema's fewest-field draft (the portal's absent): raises ``ValidationError`` when it does not validate."""
     if kind == "analysis_group":
         document: Json = {"name": name, "analyzers": []}
+    elif kind == "scalar_job":
+        return blank_scalar_job(name)
     else:
         document = {"schema_version": 3, "device": device or name, "output_name": name, "input": {"kind": input_kind, **fields}, "steps": []}  # fmt: skip
     SCHEMA_REGISTRY[kind].model_validate(document)

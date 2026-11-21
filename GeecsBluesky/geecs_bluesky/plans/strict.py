@@ -11,6 +11,7 @@ slot reports, :func:`name_failed_status`, and :class:`BinCounter`, the
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Mapping, Sequence
@@ -22,8 +23,8 @@ from bluesky.protocols import Triggerable
 from bluesky.utils import FailedStatus, short_uid
 from geecs_schemas.trigger_profile import TriggerState
 
-from geecs_bluesky.devices.ca._view import geecs_device_name, owner_of
-from geecs_bluesky.devices.ca.liveness import read_disconnected
+from geecs_bluesky.devices.ca._view import geecs_device_name, geecs_device_of, owner_of
+from geecs_bluesky.devices.ca.liveness import probe_stale_pvs, read_disconnected
 from geecs_bluesky.devices.native import down_native_cameras, native_cameras
 from geecs_bluesky.devices.native_setpoint import (
     down_native_setpoint_devices,
@@ -102,6 +103,106 @@ def down_devices(devices: Sequence[Any], signals: Mapping[str, Any] | None = Non
     # it for every DB device) and cost the connect timeout: say so.
     down = yield from read_disconnected(to_read, unreadable_level=logging.WARNING)
     return [*native_down, *down]
+
+
+def stale_devices(objs: Sequence[Any]):
+    """Plan: the GEECS devices among *objs* whose LabVIEW loop looks frozen, ``(name, age s | None)``.
+
+    Each object's namespace device (:func:`device_root`) is judged by its
+    ``systimestamp`` (:func:`~geecs_bluesky.devices.ca.liveness.probe_stale_pvs`:
+    older than 30 s, or never set), the sibling of the ``CONNECTED`` PV
+    its ``connected_status`` reads.  A device with no gateway
+    ``connected_status`` (a native one, a pseudo itself — pass its
+    components, :func:`mover_roots`) is not judged.  A
+    warning's evidence, never a refusal.
+    """
+    from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE, normalize_component
+
+    from geecs_bluesky.devices.ca.gateway_put import bare_pv
+
+    status = ":" + normalize_component(DEVICE_STATUS_VARIABLE)
+    stamp = ":" + normalize_component("systimestamp")
+
+    stamp_pvs: dict[str, str] = {}
+    for obj in objs:
+        root = device_root(obj)
+        signal = getattr(root, "connected_status", None)
+        source = getattr(signal, "source", None)
+        if not isinstance(source, str):
+            continue
+        try:
+            pv = bare_pv(source)
+        except ValueError:
+            continue  # not a gateway PV (a native device, a mock)
+        if pv.endswith(
+            status
+        ):  # the device's status PV and its loop stamp are siblings
+            stamp_pvs.setdefault(geecs_name(root), pv[: -len(status)] + stamp)
+    if not stamp_pvs:
+        return []
+    found: list[tuple[str, float | None]] = []
+
+    async def probe() -> None:
+        found.extend(await asyncio.to_thread(probe_stale_pvs, stamp_pvs))
+
+    yield from bps.wait_for([probe])
+    return found
+
+
+def device_root(obj: Any) -> Any | None:
+    """The namespace device behind a plan object: itself, a view's owner, a child's GEECS parent.
+
+    ``None`` when no GEECS device is behind it (a catalog pseudo, the bin
+    counter).  What :func:`down_devices` judges for a mover: a settable
+    child names its device but has no liveness of its own, so the walk goes
+    on to the outermost ancestor carrying the same GEECS name (the
+    namespace noun).
+    """
+    name = geecs_device_of(obj)
+    if name is None:
+        return None
+    node: Any = owner_of(obj)
+    root = node
+    for _ in range(8):
+        node = getattr(node, "parent", None)
+        if node is None:
+            break
+        if getattr(node, "_geecs_device_name", None) == name:
+            root = node
+    return root
+
+
+def mover_roots(movers: Sequence[Any]) -> list[Any]:
+    """The namespace devices a run moves: each mover's :func:`device_root`.
+
+    A pseudo positioner has no GEECS device of its own; it moves its
+    components, so their devices are the ones moved.
+    """
+    roots: list[Any] = []
+    for mover in movers:
+        parts = getattr(mover, "component_settables", None)
+        for part in parts if parts is not None else (mover,):
+            root = device_root(part)
+            if root is not None and all(root is not r for r in roots):
+                roots.append(root)
+    return roots
+
+
+def needed_device_names(
+    required: Sequence[Any], movers: Sequence[Any], shot_control: Any | None
+) -> frozenset[str]:
+    """The GEECS devices a run cannot go without — the one rule of what refuses it.
+
+    The *required* per-shot devices, the devices the run moves (*movers*;
+    a pseudo positioner's components, :func:`mover_roots`), and the
+    trigger profile's box.  Any other device the run lists may be
+    down at its start (``registry.drop_down_devices``: left out) or silent
+    after ``ScanStart`` (left out of scan mode) without refusing it.
+    """
+    names = {geecs_name(obj) for obj in required}
+    names |= {geecs_name(root) for root in mover_roots(movers)}
+    names |= {str(d) for d in getattr(shot_control, "liveness_signals", None) or {}}
+    return frozenset(names)
 
 
 def geecs_name(obj: Any) -> str:

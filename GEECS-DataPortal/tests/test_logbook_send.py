@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -58,6 +59,11 @@ class FakeLogbook:
         #: Answer a GET without ``body_md`` / with a null one (skew).
         self.drop_body_md = False
         self.null_body_md = False
+        #: Settings documents as stored, by the name the store gave them.
+        self.documents: dict[str, dict] = {}
+        #: Answer a JSON upload with this status (415: a logbook from
+        #: before it took them; 503: it could not store the file).
+        self.refuse_json = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:  # noqa: C901
         path = request.url.path
@@ -84,6 +90,25 @@ class FakeLogbook:
                 return httpx.Response(404, json={"detail": "no such entry"})
             entry = self.entries[entry_id]
             if len(parts) == 4 and parts[3] == "attachments":
+                if b"application/json" in request.content:
+                    if self.refuse_json:
+                        return httpx.Response(
+                            self.refuse_json, json={"detail": "refused"}
+                        )
+                    offered = re.search(rb'filename="([^"]+)"', request.content)
+                    assert offered is not None
+                    name = offered.group(1).decode()
+                    start = request.content.index(b"{")
+                    end = request.content.rindex(b"}") + 1
+                    self.documents[name] = json.loads(request.content[start:end])
+                    entry["version"] += 1
+                    return httpx.Response(
+                        201,
+                        json={
+                            "attachment": {"filename": name},
+                            "link": f"attachments/{entry_id}/{name}",
+                        },
+                    )
                 self.uploads.append(request.content)
                 entry["version"] += 1  # an upload moves the version
                 name = f"plot-{len(self.uploads)}.png"
@@ -298,6 +323,124 @@ class TestSendAppends:
         assert len(book.created) == 1
 
 
+_SETTINGS = {"schema_version": 1, "y": "jet_pressure", "y_fit": "gaussian"}
+
+
+class TestSendFreezesTheSettings:
+    """The entry carries the settings the plot was drawn with, not a set's name."""
+
+    def test_the_settings_are_stored_whole_beside_the_image(self) -> None:
+        book = FakeLogbook()
+        result = _send(book, settings=_SETTINGS, settings_name="ada")
+        assert result.settings_link == "attachments/e0001/plot-1-settings.json"
+        assert book.documents["plot-1-settings.json"] == {
+            "kind": "plot_settings",
+            "image": "attachments/e0001/plot-1.png",
+            "day": "2026-07-12",
+            "scan": 2,
+            "set": "ada",
+            "source_url": "http://portal/run/uid-002?y=jet_pressure",
+            "settings": _SETTINGS,
+        }
+
+    def test_a_later_change_to_the_set_does_not_reach_the_entry(self) -> None:
+        book = FakeLogbook()
+        live = dict(_SETTINGS)
+        _send(book, settings=live, settings_name="ada")
+        live["y"] = "something_else"  # the owner's next pick
+        assert book.documents["plot-1-settings.json"]["settings"]["y"] == "jet_pressure"
+
+    def test_the_body_links_the_settings_above_the_images(self) -> None:
+        book = FakeLogbook()
+        first = _send(book, settings=_SETTINGS, settings_name="ada")
+        _send(book, settings=_SETTINGS, settings_name="ada", entry_id=first.entry_id)
+        paragraphs = book.only_entry()["body_md"].strip().split("\n\n")
+        # The portal link stays the entry's first line (its summary).
+        assert paragraphs[0].startswith("[Plotted in the data portal]")
+        assert paragraphs[1] == (
+            "Plot settings as sent: "
+            "[plot-1](attachments/e0001/plot-1-settings.json) · "
+            "[plot-2](attachments/e0001/plot-2-settings.json)"
+        )
+        # The two images are still consecutive paragraphs: one figure grid.
+        assert [p.startswith("![") for p in paragraphs[2:]] == [True, True]
+
+    def test_the_settings_line_never_goes_above_what_someone_wrote(self) -> None:
+        """A heading stays the first line: the logbook shows it as the summary."""
+        body = "# Jet scan, good data\n\nunstable at first\n\n![a](attachments/e/a.png)\n\n![b](attachments/e/b.png)\n"
+        out = logbook_send.with_settings_link(body, "plot-1", "attachments/e/s.json")
+        assert out == (
+            "# Jet scan, good data\n\nunstable at first\n\n"
+            "Plot settings as sent: [plot-1](attachments/e/s.json)\n\n"
+            "![a](attachments/e/a.png)\n\n![b](attachments/e/b.png)\n"
+        )
+        again = logbook_send.with_settings_link(out, "plot-2", "attachments/e/t.json")
+        assert again == out.replace(
+            "s.json)", "s.json) · [plot-2](attachments/e/t.json)"
+        )
+
+    def test_a_body_without_images_gets_the_line_at_its_end(self) -> None:
+        out = logbook_send.with_settings_link("# Notes\n", "p", "attachments/e/s.json")
+        assert out == "# Notes\n\nPlot settings as sent: [p](attachments/e/s.json)\n"
+        only = logbook_send.with_settings_link("", "p", "attachments/e/s.json")
+        assert only == "Plot settings as sent: [p](attachments/e/s.json)\n"
+        first = logbook_send.with_settings_link(
+            "![a](attachments/e/a.png)\n", "p", "attachments/e/s.json"
+        )
+        assert first.startswith("Plot settings as sent:") and first.endswith("a.png)\n")
+
+    def test_an_indented_image_is_still_the_first_image(self) -> None:
+        """The line must not land between two images: that splits their grid."""
+        body = "intro\n\n  ![a](attachments/e/a.png)\n\n![b](attachments/e/b.png)\n"
+        out = logbook_send.with_settings_link(body, "p", "attachments/e/s.json")
+        assert out == (
+            "intro\n\nPlot settings as sent: [p](attachments/e/s.json)\n\n"
+            "  ![a](attachments/e/a.png)\n\n![b](attachments/e/b.png)\n"
+        )
+
+    def test_the_settings_link_survives_a_conflict(self) -> None:
+        """The retry rebuilds the line from the body someone just saved."""
+        book = FakeLogbook()
+        first = _send(book, settings=_SETTINGS, settings_name="ada")
+        book.entries[first.entry_id]["body_md"] += "\n\nthe jet was misaligned\n"
+        book.entries[first.entry_id]["version"] += 1
+        book.conflicts = 1
+        _send(book, settings=_SETTINGS, settings_name="ada", entry_id=first.entry_id)
+        body = book.only_entry()["body_md"]
+        assert "the jet was misaligned" in body
+        assert body.count("Plot settings as sent:") == 1
+        assert body.count("-settings.json") == 2
+
+    def test_a_send_without_settings_is_the_send_it_always_was(self) -> None:
+        book = FakeLogbook()
+        result = _send(book)
+        assert result.settings_link is None and book.documents == {}
+        assert "settings" not in book.only_entry()["body_md"]
+
+    @pytest.mark.parametrize("status", [415, 413, 500, 503])
+    def test_a_logbook_that_refuses_the_settings_still_gets_the_plot(
+        self, status: int
+    ) -> None:
+        """The settings never veto the plot, or each retry leaves an unlinked image."""
+        book = FakeLogbook()
+        book.refuse_json = status
+        result = _send(book, settings=_SETTINGS, settings_name="ada")
+        assert result.settings_link is None
+        body = book.only_entry()["body_md"]
+        assert "attachments/e0001/plot-1.png" in body and "settings" not in body
+
+    @pytest.mark.parametrize(
+        "settings", [{"x": float("nan")}, {"x": "a" * 300_000}, {"x": object()}]
+    )
+    def test_settings_that_are_not_a_small_json_document_are_refused_first(
+        self, settings: dict
+    ) -> None:
+        book = FakeLogbook()
+        with pytest.raises(ValueError, match="settings"):
+            _send(book, settings=settings)
+        assert book.created == []
+
+
 class TestSendRefusals:
     """What comes back when the send cannot happen."""
 
@@ -394,6 +537,7 @@ class TestRouteGate:
             "appended": False,
             "url": "http://logbook.example:8400/entry/e1",
             "link": "attachments/x",
+            "settings_link": None,
         }
         call = stub.calls[0]
         assert call["day"] == "2026-07-12"
@@ -488,19 +632,64 @@ class TestRouteGate:
         assert _post(client).status_code == 404
         assert not stub.calls
 
-    def test_the_page_advertises_the_button_only_when_it_works(self) -> None:
-        """The modebar entry and its dialog appear on the gate, not always."""
-        on = _client().get(f"/run/{_UID}").text
-        off = _client(logbook_url="").get(f"/run/{_UID}").text
-        assert "const LOGBOOK_SEND = true;" in on
-        assert 'id="modal-sendlog"' in on
-        assert "const LOGBOOK_SEND = false;" in off
-        assert 'id="modal-sendlog"' not in off
+    def test_the_gate_is_in_the_run_json_and_the_scan_page_sends_nothing(self) -> None:
+        """Plots are sent from the Plot pages (their gate:
+        ``tests/plotter/test_plot_tools.py``); the scan page draws none."""
+        assert 'id="modal-sendlog"' not in _client().get(f"/run/{_UID}").text
         assert _client().get(f"/api/run/{_UID}").json()["logbook_send"] is True
         assert (
             _client(logbook_url="").get(f"/api/run/{_UID}").json()["logbook_send"]
             is False
         )
+
+
+class TestRouteCarriesTheSettings:
+    def test_the_settings_reach_the_send_and_the_reply_names_them(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stub = _StubSend(
+            logbook_send.SendResult("e1", False, "attachments/x", "attachments/s")
+        )
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        payload = {
+            "author": "Ada",
+            "image": _DATA_URL,
+            "settings": _SETTINGS,
+            "settings_name": "ada",
+        }
+        response = _client().post(f"/api/run/{_UID}/logbook", json=payload)
+        assert response.status_code == 201
+        assert response.json()["settings_link"] == "attachments/s"
+        assert stub.calls[0]["settings"] == _SETTINGS
+        assert stub.calls[0]["settings_name"] == "ada"
+
+    def test_no_settings_is_null_in_the_reply(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        response = _client().post(
+            f"/api/run/{_UID}/logbook", json={"author": "Ada", "image": _DATA_URL}
+        )
+        assert response.json()["settings_link"] is None
+        assert stub.calls[0]["settings"] is None
+
+    def test_settings_do_not_go_with_an_artifact(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        response = _client().post(
+            f"/api/run/{_UID}/logbook",
+            json={"author": "Ada", "path": "a/b.png", "settings": _SETTINGS},
+        )
+        assert response.status_code == 422 and stub.calls == []
+
+    def test_the_plot_page_sends_the_set_it_shows(self) -> None:
+        tools = Path(__file__).resolve().parents[1] / "geecs_portal" / "plotter"
+        script = (tools / "static" / "plot_tools.js").read_text()
+        assert "api/settings/${encodeURIComponent(setName)}" in script
+        assert "settings, settings_name: setName" in script
 
 
 class TestRouteErrors:
@@ -730,9 +919,7 @@ class TestTheDayParamSurvivesTheSend:
         )
         return catalog
 
-    def test_the_page_offers_the_button_and_the_send_then_works(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_send_with_the_day_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
         stub = _StubSend()
         monkeypatch.setattr(logbook_send, "send_plot", stub)
         client = TestClient(
@@ -743,9 +930,6 @@ class TestTheDayParamSurvivesTheSend:
             )
         )
         day = "2026-07-12"
-        assert (
-            "const LOGBOOK_SEND = true;" in client.get(f"/run/uid-007?day={day}").text
-        )
         body = {"author": "Ada", "image": _DATA_URL, "caption": "y vs shot"}
         assert (
             client.post(f"/api/run/uid-007/logbook?day={day}", json=body).status_code
@@ -771,86 +955,13 @@ class TestTheDayParamSurvivesTheSend:
         assert not stub.calls
 
     def test_the_page_fetch_carries_the_day(self) -> None:
-        """The template is the only place this can be got wrong."""
-        page = _client().get(f"/run/{_UID}").text
-        send = page[page.index("/api/run/${UID}/logbook") :][:400]
-        assert 'searchParams.set("day", DAY)' in send
-
-
-@pytest.mark.parametrize("host_id", ["plotdiv", "grid-center", "grid-uncertainty"])
-def test_toolbar_sends_clicked_figure(host_id, tmp_path):
-    """The shared dialog must export its invoking host, including Grid maps."""
-    import shutil
-    import subprocess
-
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node is required for the browser-handler regression")
-    page = _client().get(f"/run/{_UID}").text
-    sender = page[
-        page.index("const LOGBOOK_SEND =") : page.index("function flashNote(")
-    ]
-    harness = r"""
-const assert = require('node:assert/strict');
-const UID = 'uid-002', ROOT = '/portal', DAY = '2026-07-12', EXPORT_SCALE = 2;
-const S = {y:['signal'], x:'fast', view:'shot'};
-const DEFAULT_X = 'fast';
-const GRID_DATA = {config:{value:'signal',x:'fast',y:'slow',average:'median',visit:2},error_label:'Standard deviation'};
-const prettyName = name => name;
-const elements = new Map();
-const document = {getElementById(id) {
-  if (!elements.has(id)) elements.set(id, {id, value:'', hidden:false,
-    classList:{add(){}}, focus(){}, layout:{margin:{l:65,r:14,t:12,b:110}}});
-  return elements.get(id);
-}};
-const storage = new Map();
-const localStorage = {getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)};
-const location = {href:'http://portal.example/portal/run/uid-002?tab=grid&gridcfg=kept&filters=kept',origin:'http://portal.example'};
-const window = {open:()=>null};
-const closeModals = ()=>{};
-const flashNote = ()=>{};
-const dispCfg = ()=>({width:900,height:300});
-let exported, posted;
-const Plotly = {toImage:async(gd,opts)=>{exported={id:gd.id,...opts};return 'data:image/png;base64,stub';}};
-const fetch = async(url,options)=>{posted={url:String(url),...JSON.parse(options.body)};return {ok:true,json:async()=>({entry_id:'saved',url:'http://logbook.example/entry/saved',appended:false})};};
-"""
-    assertions = r"""
-(async()=>{
-  const host = document.getElementById(HOST_ID);
-  remember(ENTRY_KEY, 'existing');
-  openSendToLogbook(host);
-  const caption = document.getElementById('sl-caption').value;
-  document.getElementById('sl-author').value = 'Ada';
-  await confirmSendToLogbook();
-  assert.equal(exported.id, HOST_ID);
-  assert.equal(posted.image, 'data:image/png;base64,stub');
-  assert.equal(posted.entry, 'existing');
-  assert.equal(posted.source_url, location.href);
-  assert.equal(posted.url, 'http://portal.example/portal/api/run/uid-002/logbook?day=2026-07-12');
-  assert.equal(remembered(ENTRY_KEY), 'saved');
-  if (HOST_ID === 'plotdiv') {
-    assert.equal(caption, 'signal vs fast');
-    assert.equal(exported.width, 900);assert.equal(exported.height, 300);
-  } else {
-    assert.equal(exported.width-65-14, exported.height-12-110);
-    assert.ok(caption.includes(HOST_ID === 'grid-center' ? 'median' : 'Standard deviation'));
-    assert.ok(caption.includes('signal'));assert.ok(caption.includes('visit 2'));
-  }
-})().catch(err=>{console.error(err);process.exit(1);});
-"""
-    script = tmp_path / "sender.cjs"
-    script.write_text(
-        harness
-        + sender
-        + "\nconst HOST_ID = "
-        + json.dumps(host_id)
-        + ";\n"
-        + assertions
-    )
-    result = subprocess.run(
-        [node, str(script)], capture_output=True, text=True, timeout=20
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+        """The Plot pages' send script is the only place this can be got wrong."""
+        tools = Path(__file__).resolve().parents[1] / "geecs_portal" / "plotter"
+        script = (tools / "static" / "plot_tools.js").read_text()
+        send = script[
+            script.index("/api/run/${encodeURIComponent(data.uid)}/logbook") :
+        ][:300]
+        assert 'url.searchParams.set("day", data.day)' in send
 
 
 # ----------------------------------------------------- the artifact source

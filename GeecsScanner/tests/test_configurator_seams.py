@@ -281,8 +281,12 @@ def test_without_a_configurator_nothing_is_saved_and_the_answer_says_why() -> No
     assert "--configurator-url" in err.value.message
 
 
-def test_a_save_needs_an_operator(client: TestClient, preset_doc: dict) -> None:
-    r = client.post("/api/configs/presets/jet_v3", json={"preset": preset_doc})
+@pytest.mark.parametrize("body", [{}, {"operator": None}, {"operator": "  "}])
+def test_a_save_needs_an_operator(
+    client: TestClient, preset_doc: dict, body: dict
+) -> None:
+    """The page sends ``null`` for an empty Operator field: the service's own message answers, never a bare 422."""
+    r = client.post("/api/configs/presets/jet_v3", json={"preset": preset_doc, **body})
     assert r.status_code == 400 and "operator" in r.json()["error"]["message"]
 
 

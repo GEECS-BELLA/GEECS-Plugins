@@ -233,6 +233,11 @@ class CaPseudoPositioner(StandardReadable):
         """Physical Device:Variable targets defining this pseudo positioner."""
         return tuple(self._targets)
 
+    @property
+    def component_settables(self) -> tuple[Any, ...]:
+        """The settables this pseudo positioner moves, one per target (in order)."""
+        return tuple(self._components)
+
     async def targets_for(self, value: float) -> dict[str, float]:
         """Resolve a pseudo value into dial positions using the current staged frame.
 

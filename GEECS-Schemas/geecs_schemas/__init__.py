@@ -18,6 +18,7 @@ from geecs_schemas.analysis import (
     AnalysisRecipe,
     AnalyzerRef,
     HimgJob,
+    ScalarJob,
 )
 from geecs_schemas.archive_policy import (
     ARCHIVE_POLICY_FILENAME,
@@ -50,6 +51,7 @@ from geecs_schemas.epics.family import (
     FamilyFile,
     Panel,
     PanelGroup,
+    PanelTrend,
     Role,
     TweakHint,
     load_families,
@@ -251,6 +253,7 @@ __all__ = [
     "FamilyAction",
     "Panel",
     "PanelGroup",
+    "PanelTrend",
     "Role",
     "TweakHint",
     "load_families",
@@ -289,6 +292,7 @@ __all__ = [
     "AnalysisRecipe",
     "AnalyzerRef",
     "HimgJob",
+    "ScalarJob",
     # shot_offsets
     "ShotOffsets",
     "SHOT_OFFSETS_FILENAME",
@@ -367,6 +371,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,
+    "scalar_job": ScalarJob,
     "log_entry": LogEntry,
     "setup": Setup,
 }

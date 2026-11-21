@@ -24,6 +24,7 @@ from geecs_schemas.analysis import (
     AnalysisGroup,
     AnalysisRecipe,
     HimgJob,
+    ScalarJob,
     load_analysis_document,
 )
 
@@ -57,7 +58,7 @@ class TestAnalysisCorpus:
                 failures[key] = str(exc).splitlines()[0]
                 continue
             model = type(diag)
-            versions = {AnalysisRecipe: 3, HimgJob: 1}
+            versions = {AnalysisRecipe: 3, HimgJob: 1, ScalarJob: 1}
             assert diag.schema_version == versions[model]
             # stable through a dump: the editor's save path
             assert model.model_validate(diag.model_dump(mode="json")) == diag

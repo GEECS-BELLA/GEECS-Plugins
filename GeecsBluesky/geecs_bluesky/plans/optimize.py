@@ -41,6 +41,10 @@ from .on_demand import OnDemand, _Progress, start_keys
 from .streams import DeviceStreams, is_per_shot
 from .scan_mode import (
     EnterScanMode,
+    paused_device_names,
+    entered_device_names,
+    in_scan_mode,
+    reset_shot_stamps,
     run_device_names,
     scan_mode_bracket,
     scan_mode_preflight,
@@ -466,6 +470,13 @@ def optimize_plan(  # noqa: C901, PLR0915
         run_devices = run_device_names(detectors, sc)
         if sc.use_scan_mode:
             scan_mode_preflight(sc, scan_mode, run_devices=run_devices)
+            # Every optimize device feeds the run: each one skipped is warned.
+            run_devices = entered_device_names(
+                scan_mode, run_devices, sc, needed=run_devices
+            )
+        # Every stamp from acq_timestamp: a halted scan-mode run's choice undone
+        # (the bracket then chooses for the devices in scan mode).
+        yield from reset_shot_stamps([d for d in detectors if is_per_shot(d)])
         native_files = resolve_native_image_save(native_image_save, resolver)
         snapshot = (
             background_snapshot(namespace, mock=mock)
@@ -763,7 +774,14 @@ def optimize_plan(  # noqa: C901, PLR0915
                 staged = scan_mode_bracket(
                     staged,
                     announce,
-                    EnterScanMode(run_devices, scan_parameter_for("optimize")),
+                    EnterScanMode(
+                        run_devices,
+                        scan_parameter_for("optimize"),
+                        paused=paused_device_names(detectors),
+                    ),
+                    stamped=in_scan_mode(
+                        [d for d in detectors if is_per_shot(d)], run_devices
+                    ),
                 )
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 

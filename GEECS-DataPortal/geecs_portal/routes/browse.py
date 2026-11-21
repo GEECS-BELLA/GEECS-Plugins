@@ -8,16 +8,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
+from geecs_web_theme.web import root_of
+
+from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_catalog import metadata_rows
 
-from geecs_portal import analysis, resources
+from geecs_portal import analysis
+from geecs_portal.day_scans import parse_rules, run_json
 from geecs_portal.routes.common import (
     _LISTING_HEADERS,
     _jump_target,
     _parse_iso_day,
     _portal_version,
     _resolved_folder,
-    _root,
     _summary_json,
 )
 from geecs_portal.state import PortalState, get_state
@@ -62,7 +65,63 @@ def api_day(
         "experiment": exp,
         "filter": filter,
         "runs": [_summary_json(run) for run in runs],
-        "page": f"{_root(request)}/day/{selected.isoformat()}",
+        "page": f"{root_of(request)}/day/{selected.isoformat()}",
+    }
+    return JSONResponse(payload, headers=_LISTING_HEADERS)
+
+
+@router.get("/api/day/{day}/scans")
+def api_day_scans(
+    day: str,
+    experiment: str = "",
+    where: str = "",
+    portal: PortalState = Depends(get_state),
+) -> JSONResponse:
+    """The day's scans judged by their s-files: conditions, and the ``where`` rules.
+
+    On demand only (the day page's button): every scan's s-file is read
+    (cached by its modification time). ``where`` is a JSON list of
+    ``ScanRule`` (a condition's label, or a column's mean in a range); each
+    run's ``verdict`` is ``pass`` / ``mixed`` / ``fail`` / ``missing``.
+    """
+    selected = _parse_iso_day(day)
+    exp = experiment or portal.default_experiment
+    try:
+        rules = parse_rules(where)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"where: {exc}") from exc
+    runs, error = portal.list_day(exp, selected, "")
+    if error:
+        raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
+    numbers = [r.scan_number for r in runs if r.scan_number is not None]
+    means = sorted({r.column for r in rules if r.op == "between"})
+    found = portal.day_scans.summaries(exp, selected, numbers, means)
+    labels: dict[str, list[str]] = {}
+    columns: set[str] = set()
+    for summary in found.values():
+        if summary is not None:
+            columns |= summary.columns
+            for column, names in summary.labels.items():
+                labels.setdefault(column, names)
+    out = [
+        {
+            "uid": r.uid,
+            "scan_number": r.scan_number,
+            **run_json(found.get(r.scan_number), rules),
+        }
+        for r in runs
+    ]
+    counts: dict[str, int] = {}
+    for row in out:
+        counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
+    payload = {
+        "day": selected.isoformat(),
+        "experiment": exp,
+        "rules": [r.model_dump(exclude_none=True) for r in rules],
+        "runs": out,
+        "counts": counts,
+        "condition_labels": labels,
+        "columns": sorted(columns),
     }
     return JSONResponse(payload, headers=_LISTING_HEADERS)
 
@@ -83,9 +142,9 @@ def api_run_jump(
         raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
     target = _jump_target(runs, prefer)
     page = (
-        f"{_root(request)}/run/{target.uid}"
+        f"{root_of(request)}/run/{target.uid}"
         if target
-        else f"{_root(request)}/day/{selected.isoformat()}"
+        else f"{root_of(request)}/day/{selected.isoformat()}"
     )
     payload = {
         "day": selected.isoformat(),
@@ -131,7 +190,7 @@ def api_run(
         "stop_doc": analysis.jsonable_document(detail.stop_doc or {}),
         "event_rows": None if detail.data is None else len(detail.data),
         "scan_folder": str(folder) if folder else None,
-        "devices": resources.image_devices(folder) if folder else [],
+        "devices": shot_images.image_devices(folder) if folder else [],
         "neighbours": {"prev_uid": prev_uid, "next_uid": next_uid},
         "day_runs": [_summary_json(run) for run in day_runs],
         "prev_day": (run_day - timedelta(days=1)).isoformat() if run_day else None,
@@ -141,7 +200,7 @@ def api_run(
         "configurator": portal.configurator_url or None,
         "logbook": portal.logbook_url(request, detail, run_day) or None,
         "logbook_send": portal.logbook_sendable(detail, run_day),
-        "page": f"{_root(request)}/run/{uid}",
+        "page": f"{root_of(request)}/run/{uid}",
         "portal_version": _portal_version(),
     }
     return JSONResponse(payload, headers=_LISTING_HEADERS)
@@ -163,7 +222,7 @@ def api_device(
     run_day, folder = _resolved_folder(detail, day)
     if folder is None:
         raise HTTPException(status_code=404, detail="scan folder not resolvable")
-    probe = resources.device_kind(folder, device)
+    probe = shot_images.device_kind(folder, device)
     if probe.kind == "missing":
         raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
     renderable = probe.kind in ("stack", "native")

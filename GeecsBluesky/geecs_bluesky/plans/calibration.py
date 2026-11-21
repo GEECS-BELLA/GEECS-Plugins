@@ -54,6 +54,7 @@ from geecs_bluesky.plans.shot_gate import (
     open_gate,
     pause_on_lapses,
 )
+from geecs_bluesky.plans.scan_mode import reset_shot_stamps
 from geecs_bluesky.plans.strict import fire_and_await_shot, run_bracket
 from geecs_bluesky.callbacks.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
@@ -969,6 +970,9 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         )
 
         def inner():
+            # A halted scan-mode run skips its finalizer: a device it put on
+            # systimestamp would time a calibration shot by a loop tick.
+            yield from reset_shot_stamps(views)
             # Touch every device once: the message that connects it (the
             # worker's connect_on_demand preprocessor), so a device missing
             # from the gateway fails at the top rather than part-way through
@@ -1181,6 +1185,7 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:  # noqa: C901
         )
 
         def inner():
+            yield from reset_shot_stamps(views)  # against a halted scan-mode run
             for view in views:
                 yield from bps.read(view)
             stalled = yield from _settle_quiet(views, quiet_time, confirm_time)

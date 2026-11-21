@@ -45,6 +45,9 @@ adds:
 | `use_scan_mode` | the bound plan | Whether the run drove GEECS scan mode — the trigger profile's `use_scan_mode` flag: the devices were told the scan (`ScanStart`) and every shot (its number and save path, before the fire) and released at the close (`ScanEnd`), as under Master Control; each `primary` row then carries `announced_shot` |
 | `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view writes no native files whatever it says, nor did a recorded gated run's batch or stream; a device without a file plugin always writes them). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (an earlier strict run), `shots` (a recorded gated run) or its own `<det>_stream` (a shot-table run's device without a plugin, a recorded gated run's streamed device) — a shot-table run's plugin-backed camera in its stream descriptor's configuration instead (`<det>-nonscalar_save_path` under the object `<det>`, a run-long constant: the stream is datum-only). The s-file never carries the column |
 | `background_telemetry` | the bound plan | Whether the run read the background telemetry into its rows: the preset's value, else the experiment default; `False` also when the namespace carries no telemetry set at all (a run whose every candidate is its own device still says `True`, with nothing dropped and no extra column) |
+| `shot_stamp_systimestamp` | the scan-mode bracket (`plans/scan_mode.choose_shot_stamps`) | GEECS device names whose shots this scan-mode run took from `systimestamp` because their `acq_timestamp` read `0.0` at the start (a LabVIEW driver that never sets it): a device in scan mode publishes once per announced shot. Their stream's `<name>-acq_timestamp` column carries that `systimestamp`; `[]` when none and always outside scan mode (`count`, `sweep`; an `optimize` carries it under scan mode only) |
+| `devices_stale` | the bound plan (`plans/strict.stale_devices`) | GEECS devices the run never waits on (its conditions, the sweep's movers) whose LabVIEW loop looked frozen at its start: connected, but its `systimestamp` older than 30 s or never set. WARNED and recorded anyway, never refused; `[]` when none (`count`, `sweep`) |
+| `devices_dropped` | the bound plan (`registry.drop_down_devices`) | GEECS device names the run listed but left out because they were reported down at its start and not required — no stream, no columns, not in `detectors`; `[]` when none (`count`, `sweep`) |
 | `background_dropped` | the bound plan (`background_wrapper`) | GEECS device names the background probe dropped for this run — no answer within its budget (a PV the gateway does not serve, a failed connect or describe); absent when the run read no background |
 | `background_probe_error` | the bound plan (`background_wrapper`) | Present only when the probe itself failed (an unexpected error, logged at ERROR — never a member's failure, which is its own drop): `Type: message`, and the run opened with no background columns |
 | `witness` | the bound plan (`registry.run_witness`) | The run's witness, **recorded only** (never waited on; it cannot refuse, fail or end a run): `null` when no witness is configured (none in `native_devices.yaml`); else `{device, domain, read}` — `read: true` when each strict `primary` row carries `witness_count`, `witness_stamp` and `witness_epoch` — and `read: false` with a `reason`: `down` (no answer within 5 s at the start; the run proceeds), a fly run (clocked by the soft tick), a recorded gated run (never read), a box-less profile (nothing fired for it to count), or `no witness for domain main` (`device: null`: one is configured, for another domain). A `note` (`no triggered device: the row may record the previous shot's count`) when the run has no triggered device, still `read: true`. `optimize` records it as the strict verbs do |
@@ -52,7 +55,7 @@ adds:
 | `shot_gate` | the bound plan (`registry.gate_for_run`; `optimize` the same) | Present only when the run held for its trigger profile's shot gate before every SINGLESHOT: `{address, hold_pause_s, holdoff_s}` (each `primary` row then carries `gate_hold_s`). Absent under a profile naming no gate and in a fly run (no SINGLESHOT to govern). The gate was connected, and had delivered a frame, before the claim — an unreachable or silent one refuses the run |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
-| `geecs` | the client (`md`) | Provenance only: `{preset, submission, operator, scan_log_variables}` — never a worker instruction; `ScanInfoCallback` copies `scan_log_variables` (the web scanner's shared list) into the ini's `[Scan Log]` section as a record |
+| `geecs` | the client (`md`) | Provenance only: `{preset, submission, operator, scan_log_variables, devices_left_out}` (the last: GEECS device names the client left out of the item because the worker's device tree lacked them and they were not required; absent when none) — never a worker instruction; `ScanInfoCallback` copies `scan_log_variables` (the web scanner's shared list) into the ini's `[Scan Log]` section as a record |
 
 Every run the worker opens claims a scan number; a run without one is not a
 GEECS scan.
@@ -132,14 +135,58 @@ What the row carries:
 | `gate_hold_s` | seconds | A gated run only (start `shot_gate` present): how long this fire waited for the shot gate's permission — one fresh safe verdict (on data taken after the previous fire, or received after it when the verdict carries no data stamp) — before its baseline; 0 when the permission was already there. The waiting alone: a pause the hold led to is not counted |
 | `witness_count`, `witness_stamp`, `witness_epoch` | count; Unix s (the count record's CA time); string | A run whose witness is read (start `witness.read`), as below |
 | `<device>-baseline` | a frame count, or LabVIEW s | One per required device: its progress counter read **before** the fire — a plugin or native camera's frame count (`NumCaptured`, the fewest across its plugins), a stamped device's `acq_timestamp` (LabVIEW epoch, `NaN` before its first stamp). A record of row *k* is newer than baseline *k* |
+| `<device>-answered` | LabVIEW s | One per required **stamped** device (a device without a plugin, a `.scalars` view; not a plugin or native camera, which count frames), a strict run only: the device's `acq_timestamp` as the plan read it **after** the wait, when it had moved from the row's baseline — the stamp of the stream record that answered this fire, the same number that record carries. `NaN` when the device did not answer (it is then in `missing`) or its stamp could not be read. Each refire's row carries its own. Written on every strict run; the join's key for that device on rows without a witness of their own (below) |
 | `complete` | boolean | Every required device reported for this fire (the plan's decision to stop refiring; which record is which shot's is the join's — a reader auditing the two flags *complete-mismatch*) |
 | `missing` | string | The required devices that did not report, comma-joined ophyd names; `""` when complete |
 | `extra_frames` | string | Gateway plugin cameras (`GeecsDetector`, not a native camera) that counted more than one frame since the previous fire, comma-joined `<name>=<frames>`; `""` when none. One fire may (a missed shot's late frame before the refire's); two in a row pause the run naming the camera when it is **required** (free-running: put it in trigger mode). A camera that is not required may free-run on purpose (a steady-state monitor): it is listed on every such row, the join keeps one of its frames per row, the rest stay in its stack as extras, and the run logs one WARNING, never a pause. Not in a fly run |
-| `unwitnessed` | boolean | No witness read this run: the join assigns by fire interval |
+| `unwitnessed` | boolean | No witness read this run: the join assigns by fire interval (a device with a `<device>-answered` column: by that column instead) |
 | `witness_late` | boolean | The witness count stayed put while a device reported (a poll or USB stall) — never a stop |
 | `interrupted` | boolean | A pause or suspension landed inside the fire's slot; the counters were re-read after the resume (a pause inside the row's own bundle drops it and reads it again — never a short row) |
 | `bin_number`, the motors, `announced_shot` | as below | As in every strict row |
 | the conditions | as below | Devices with no shot stamp (`CaSnapshotReadable`, setpoint devices) and the background telemetry, read per row |
+
+**A row without a witness names the record that answered it.** On a row
+the witness times, the join (`geecs_data_utils.shot_table`) assigns by the
+witness, as for every device, and does not read `<device>-answered`.  On a
+row with no witness of its own — every row of a run that reads none
+(`unwitnessed`), and in a witnessed run a `witness_late` row or one whose
+count did not advance — a device with the column gets the stream record
+whose `<device>-acq_timestamp` **equals** the row's value: the two are one
+monitor update of one PV, compared as recorded, with no drain offset,
+tolerance, clock or fire time, and a `NaN` row gets no record.  The rule
+is per row, in scan mode or not; there, where the device's stamp falls
+against the fire, and whether its host's clock agrees with the worker's,
+does not matter.  A record no row names stays in its stream as an extra;
+a named stamp no free record carries (a record the stream failed to read,
+or one the witnessed rows took or, sharing a witness stamp, hold back unresolved) is a miss, and the row is flagged
+*complete-mismatch*.  What the value is and is not:
+
+- it is the **latest** stamp the plan saw at its re-read after the wait.
+  When two records arrive within one wait, the row names the later one
+  and the earlier stays an extra;
+- a record that arrives **after the shot timeout** left its own row
+  `NaN` (that row has no record, though the device did acquire) and, if
+  it lands after the refire's baseline was read, answers the refire's
+  row; the refire's own record can then answer the row after it, and so
+  on, every row `complete`.  The witness files such a record on its true
+  row, which is why it keeps precedence.  Without one the join cannot
+  tell, so it flags where such a shift could start:
+  **`answer-after-miss:<device>`** on a row whose `<device>-answered` is
+  finite while the row before listed the device in `missing` — a refire,
+  or the next shot's first attempt when the refires were exhausted (a new
+  motor step or optimizer bin included).  Computed from the rows alone;
+  advisory, it moves no record, and most flagged rows are answered by
+  their own record.  The rows after the flagged one that a shift carries
+  on to carry no flag.  The join's flags for a stamped device are read by
+  offline callers of `shot_table` only: no run-time log, s-file column or
+  optimizer check consumes them (as for the existing flags of event
+  streams);
+- a device that never pauses can publish a record between the baseline
+  read and the fire: it answers that row;
+- every other device keeps the fire interval on such rows: one that is
+  **not required** (the plan never waits for it, so it names nothing), a
+  plugin or native camera (counted by frames), every device of a fly
+  run, and every run recorded before the column existed.
 
 **A fire nothing saw pauses the run.** A fire whose witness count and
 every per-shot counter stayed put was not fired: the row is kept (flags
@@ -330,7 +377,10 @@ The descriptor's configuration carries the device's
 object is named after the device).  A device that published nothing has a
 declared, empty stream (and a WARNING in the log).  The s-file joins these
 events onto the rows as it joins frames — each row takes the nearest event
-inside its own window, by offset-corrected stamp; a row with none reads
+inside its own window, by offset-corrected stamp (on a row without a
+witness, a device the rows carry a `<name>-answered` column for: the event
+with exactly that stamp, "A row without a witness names the record that
+answered it" above); a row with none reads
 `NaN` in the device's columns (a device slower than the rep rate leaves
 `NaN` on the rows it missed; an empty stream gives all-`NaN` columns from
 the descriptor's numeric data keys), an event no row's window reaches

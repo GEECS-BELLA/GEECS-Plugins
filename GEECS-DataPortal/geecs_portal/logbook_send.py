@@ -34,6 +34,21 @@ to upload until an entry exists (``POST /api/entries/{id}/attachments``
 4. ``PATCH /api/entries/{id}`` — the body with the image appended,
    against that version.
 
+The settings a plot was drawn with
+----------------------------------
+A plot sent from the Plot tab comes with the settings set it was drawn
+with, as the page read it at send time. It is stored **in the entry**, as
+a second attachment (``<image name>-settings.json``, the
+:func:`frozen_settings` document), so the entry carries the settings
+themselves and not the name of a set that changes with its owner's next
+pick. One more upload between (2) and (3), and one line of the body: the
+``Plot settings as sent:`` paragraph directly above the first image, which
+links each plot's document (above the images, like the portal link, so it
+never splits their run). The settings are the plot's companion, never its
+gate: when the logbook refuses the document — 415 from one too old to
+take JSON, or its own trouble storing it — the image is still sent, and
+the result says the settings were not kept.
+
 Why append rather than replace
 ------------------------------
 A second plot sent **from the same browser** joins the first *in one
@@ -56,8 +71,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import logging
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Optional
 
 import httpx
@@ -73,6 +90,13 @@ MAX_PLOT_BYTES = 8 * 1024 * 1024
 #: enough for a mirror write to the share, short enough that a wedged
 #: logbook does not hold a portal worker thread.
 TIMEOUT_SECONDS = 15.0
+
+#: A settings set is a few kilobytes; this is room for one a hundred times
+#: that, and a refusal for anything that is not a settings set.
+MAX_SETTINGS_BYTES = 256 * 1024
+
+#: The body paragraph that links each plot's settings document.
+SETTINGS_LINE = "Plot settings as sent:"
 
 
 class LogbookUnreachable(RuntimeError):
@@ -111,6 +135,9 @@ class SendResult:
     appended: bool
     #: The ``attachments/<entry_id>/<file>`` reference now in the body.
     link: str
+    #: The settings document's reference, when settings were given and the
+    #: logbook kept them; ``None`` otherwise.
+    settings_link: Optional[str] = None
 
 
 def _detail_of(response: httpx.Response) -> str:
@@ -197,6 +224,64 @@ def image_markdown(caption: str, link: str) -> str:
     return f"![{safe}]({link})"
 
 
+def frozen_settings(
+    settings: dict, *, name: str, image: str, day: str, scan: int, source_url: str
+) -> bytes:
+    """The document stored beside a plot: the settings it was drawn with.
+
+    ``settings`` is the set as it was at send time, whole, so the plot can
+    be drawn again after the set itself has changed; ``set`` is only the
+    name it had. ``image`` is the plot's own attachment link, which is what
+    pairs the two. The plotter's ``PlotterSettings`` is the shape of
+    ``settings``, but nothing here reads it: the document is kept as sent.
+    """
+    document = {
+        "kind": "plot_settings",
+        "image": image,
+        "day": day,
+        "scan": scan,
+        "set": name,
+        "source_url": source_url,
+        "settings": settings,
+    }
+    return (json.dumps(document, indent=2, allow_nan=False) + "\n").encode()
+
+
+def with_settings_link(body_md: str, label: str, link: str) -> str:
+    """``body_md`` with one more link on its settings line.
+
+    The line is a paragraph of its own, made on the first plot that has
+    settings: directly above the first image, or at the end of a body that
+    has none yet (the image is appended after it). It is never put above
+    what is already written — a heading stays the entry's first line, which
+    the logbook shows as its summary — and never between two images, which
+    would split the run the renderer grids. Later plots extend it in place.
+    """
+    item = f"[{_plain(label)}]({link})"
+    lines = body_md.split("\n")
+    for index, line in enumerate(lines):
+        if line.startswith(SETTINGS_LINE):
+            lines[index] = f"{line.rstrip()} · {item}"
+            return "\n".join(lines)
+    paragraph = f"{SETTINGS_LINE} {item}"
+    for index, line in enumerate(lines):
+        # Up to three spaces of indent is still an image paragraph.
+        if line.lstrip(" ").startswith("![") and len(line) - len(line.lstrip(" ")) < 4:
+            above = "\n".join(lines[:index]).rstrip()
+            below = "\n".join(lines[index:])
+            return (
+                f"{above}\n\n{paragraph}\n\n{below}"
+                if above
+                else f"{paragraph}\n\n{below}"
+            )
+    return appended_body(body_md, paragraph)
+
+
+def _plain(text: str) -> str:
+    """Link text that cannot close its own brackets."""
+    return text.replace("[", "(").replace("]", ")")
+
+
 def appended_body(body_md: str, block: str) -> str:
     """``body_md`` with ``block`` as a new trailing paragraph.
 
@@ -221,6 +306,8 @@ def send_plot(
     client: Optional[httpx.Client] = None,
     content_type: str = "image/png",
     entry_required: bool = False,
+    settings: Optional[dict] = None,
+    settings_name: str = "",
 ) -> SendResult:
     """Put one PNG into the scans book, on ``day`` against ``scan``.
 
@@ -257,6 +344,11 @@ def send_plot(
         The name offered to the store, which may claim a different one.
     client : httpx.Client, optional
         Injected in tests; a short-lived client is made otherwise.
+    settings : dict, optional
+        The settings set the plot was drawn with, as it was at send time.
+        Stored in the entry beside the image (:func:`frozen_settings`).
+    settings_name : str, optional
+        The name that set had; recorded, never dereferenced.
 
     Returns
     -------
@@ -265,7 +357,8 @@ def send_plot(
     Raises
     ------
     ValueError
-        The image is empty or over :data:`MAX_PLOT_BYTES`.
+        The image is empty or over :data:`MAX_PLOT_BYTES`, or the settings
+        are not plain JSON or over :data:`MAX_SETTINGS_BYTES`.
     LogbookUnreachable
         No answer from the logbook.
     LogbookRefused
@@ -278,6 +371,17 @@ def send_plot(
             f"plot is {len(png) // 1024} KiB, over the "
             f"{MAX_PLOT_BYTES // (1024 * 1024)} MiB send cap"
         )
+
+    if settings is not None:
+        try:
+            size = len(json.dumps(settings, allow_nan=False))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"the settings are not plain JSON: {exc}") from exc
+        if size > MAX_SETTINGS_BYTES:
+            raise ValueError(
+                f"the settings are {size // 1024} KiB, over the "
+                f"{MAX_SETTINGS_BYTES // 1024} KiB cap"
+            )
 
     base = base_url.rstrip("/")
     owned = client is None
@@ -296,6 +400,8 @@ def send_plot(
             filename=filename,
             content_type=content_type,
             entry_required=entry_required,
+            settings=settings,
+            settings_name=settings_name,
         )
     except httpx.HTTPError as exc:
         raise LogbookUnreachable(f"no answer from the logbook at {base}") from exc
@@ -338,6 +444,8 @@ def _send(
     filename: str,
     content_type: str = "image/png",
     entry_required: bool = False,
+    settings: Optional[dict] = None,
+    settings_name: str = "",
 ) -> SendResult:
     """The four calls, with the create skipped when appending."""
     # The link goes in at creation, above the images: a paragraph
@@ -375,23 +483,85 @@ def _send(
             entry_id=None,
             filename=filename,
             content_type=content_type,
+            settings=settings,
+            settings_name=settings_name,
         )
 
     link = str(_field(uploaded, "link"))
+    settings_link = None
+    if settings is not None:
+        settings_link = _upload_settings(
+            http,
+            base=base,
+            entry_id=entry_id,
+            link=link,
+            document=frozen_settings(
+                settings,
+                name=settings_name,
+                image=link,
+                day=day,
+                scan=scan,
+                source_url=source_url,
+            ),
+        )
     _append_image(
         http,
         base=base,
         entry_id=entry_id,
         author=author,
         block=image_markdown(caption, link),
+        settings=(PurePosixPath(link).stem, settings_link) if settings_link else None,
     )
-    return SendResult(entry_id=entry_id, appended=appended, link=link)
+    return SendResult(
+        entry_id=entry_id, appended=appended, link=link, settings_link=settings_link
+    )
+
+
+def _upload_settings(
+    http: httpx.Client, *, base: str, entry_id: str, link: str, document: bytes
+) -> Optional[str]:
+    """Store the settings document beside its image; its link, or ``None``.
+
+    Named after the image the store actually kept, so the pair reads as
+    one in a listing. Any refusal of the document (415 from a logbook that
+    does not take JSON yet, a 5xx storing it) is logged and answered with
+    ``None``: the image is already stored, and stopping here would leave it
+    unlinked in an entry the page never learns of, one more per retry. The
+    plot is sent without its settings and the caller is told so. No answer
+    at all is still the send's failure (the body write would fail too).
+    """
+    name = f"{PurePosixPath(link).stem}-settings.json"
+    try:
+        uploaded = _checked(
+            http.post(
+                f"{base}/api/entries/{entry_id}/attachments",
+                files={"file": (name, document, "application/json")},
+            )
+        )
+    except LogbookRefused as exc:
+        logger.warning(
+            "the logbook at %s did not store the plot's settings (%s); "
+            "the plot is sent without them",
+            base,
+            exc,
+        )
+        return None
+    return str(_field(uploaded, "link"))
 
 
 def _append_image(
-    http: httpx.Client, *, base: str, entry_id: str, author: str, block: str
+    http: httpx.Client,
+    *,
+    base: str,
+    entry_id: str,
+    author: str,
+    block: str,
+    settings: Optional[tuple[str, str]] = None,
 ) -> None:
     """Read the body, add the image paragraph, write it back.
+
+    With *settings* (a label and the settings document's link), the same
+    write adds that link to the body's settings line.
 
     Retried once on a conflict: between the read and the write someone
     may have saved the entry from the logbook, and the right answer is to
@@ -413,6 +583,8 @@ def _append_image(
             raise LogbookRefused(
                 502, "the logbook reply's 'body_md' is not text; refusing to overwrite"
             )
+        if settings is not None:
+            body_md = with_settings_link(body_md, *settings)
         patch = http.patch(
             f"{base}/api/entries/{entry_id}",
             json={

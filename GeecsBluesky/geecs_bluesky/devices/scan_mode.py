@@ -7,8 +7,8 @@ device at three points of a strict run (the rules: CLAUDE.md, "Scan mode"):
   before the stage and the claim: ``ScanStart`` on the experiment's
   multicast group, then every run device's acknowledgement (one retry:
   ``ScanEnd``, a fresh ``ScanStart``), every host's connection and a drain.  A
-  silent or refusing device refuses the run by name
-  (:exc:`~geecs_bluesky.exceptions.GeecsScanModeError`): nothing claimed.
+  silent or refusing device the run needs refuses it (nothing claimed); an
+  ``optional`` one is WARNED and left out of scan mode.
 - ``mv(control, ANNOUNCE)`` on every shot, between the detectors' trigger
   and the fire: the run-wide counter advances (never re-sent) and
   ``Path>>…\ScanNNN_xxx_SSS.fileextension`` — the claimed folder on the
@@ -44,6 +44,7 @@ from typing import Any
 from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.data_paths import device_server_save_path
+from geecs_bluesky.devices.scan_pause import mark_paused
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsScanModeError
 from geecs_core.transport.scan_mode import (
     SCAN_END,
@@ -90,10 +91,25 @@ class EnterScanMode:
     scan_parameter :
         The second ``ScanStart`` argument — Master Control's scan-tab
         selection, which the device stores and reads nothing from.
+    paused :
+        The run's per-shot detectors among *devices*: the ones that pause
+        their acquisition between announced shots.  Once acknowledged
+        they are marked paused (:mod:`~geecs_bluesky.devices.scan_pause`);
+        every other run device — a condition, the trigger box — keeps its
+        readbacks flowing and is never marked.
+    optional :
+        The run devices the run can go without (not required, not the
+        box): one silent after the retry, or acknowledging with an error,
+        is WARNED and left out of scan mode for the run rather than
+        refusing it — not waited for at the path channel or at ``ScanEnd``.
+        It stays a device of the run outside scan mode, waited on by
+        nothing.
     """
 
     devices: tuple[str, ...]
     scan_parameter: str = "Shot #"
+    paused: tuple[str, ...] = ()
+    optional: tuple[str, ...] = ()
 
 
 def default_state_file(env: Mapping[str, str] | None = None) -> Path:
@@ -189,6 +205,9 @@ class ScanModeControl:
     boundary_writes, db_root_path :
         The DB's ``set='yes'`` rows per device and its ``RootPath`` —
         carried for the preflight (``plans/scan_mode.py``), unused here.
+    scan_mode_locks :
+        Each device's ``device.scanmode_lock`` (:attr:`scan_mode_disabled`),
+        re-read per run with the boundary rows.
     geecs_db :
         The DB the rows came from; :meth:`refresh_boundary_writes` re-reads
         them from it per run (``None``: the rows stay as given).
@@ -216,6 +235,7 @@ class ScanModeControl:
         device_path: Callable[[str], str] = device_server_save_path,
         boundary_writes: Mapping[str, list[Mapping[str, Any]]] | None = None,
         db_root_path: str | None = None,
+        scan_mode_locks: Mapping[str, str | None] | None = None,
         geecs_db: Any | None = None,
     ) -> None:
         self._experiment = experiment
@@ -238,12 +258,14 @@ class ScanModeControl:
         # process, and the entry's warning about any of them gone quiet.
         self._seen_hosts: set[str] = set()
         self._quiet_warning: str | None = None
+        self._left_out_warning: str | None = None
         self._state_file = state_file or default_state_file()
         self._device_path = device_path
         self.boundary_writes: dict[str, list[Mapping[str, Any]]] = {
             device: list(rows) for device, rows in (boundary_writes or {}).items()
         }
         self.db_root_path = db_root_path
+        self.scan_mode_locks: dict[str, str | None] = dict(scan_mode_locks or {})
 
         self._server: ScanModeServer | None = None
         self._listener: ScanModeAckListener | None = None
@@ -254,8 +276,23 @@ class ScanModeControl:
         self._announced_as: str | None = None
         self._shot = 0
         self._last_path: str | None = None
-        self._acked: tuple[str, ...] = ()
+        self._acked_devices: tuple[str, ...] = ()
+        self._pausing: frozenset[str] = frozenset()
         self._entry_task: asyncio.Task[None] | None = None
+
+    @property
+    def _acked(self) -> tuple[str, ...]:
+        """The devices that acknowledged ``ScanStart``: in scan mode."""
+        return self._acked_devices
+
+    @_acked.setter
+    def _acked(self, devices: tuple[str, ...]) -> None:
+        # The one writer of the paused set (devices/scan_pause.py): every
+        # change of who is in scan mode — the acks, a retry's reset, the
+        # exit — changes it with them.  Only the entry's per-shot detectors
+        # pause; a condition or the box acknowledges and keeps streaming.
+        self._acked_devices = devices
+        mark_paused(d for d in devices if d in self._pausing)
 
     # ------------------------------------------------------------ building
 
@@ -283,6 +320,7 @@ class ScanModeControl:
         endpoint: tuple[str, int] | None = None
         boundary: Mapping[str, list[Mapping[str, Any]]] = {}
         root: str | None = None
+        locks: Mapping[str, str | None] = {}
         try:
             found = geecs_db.get_scan_mode_endpoint(experiment)
             endpoint = (found.group, int(found.port)) if found is not None else None
@@ -298,6 +336,18 @@ class ScanModeControl:
                 exc_info=True,
             )
             endpoint = None
+        if endpoint is not None:
+            try:
+                locks = geecs_db.get_scan_mode_locks(experiment)
+            except Exception as exc:  # every device then counts as taking part
+                logger.error(
+                    "scan mode: the devices' scanmode_lock could not be read "
+                    "from the GEECS DB (%s: %s) — every run device is waited for "
+                    "at ScanStart until it is read",
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
+                )
         if endpoint is None:
             logger.info(
                 "scan mode: %r has no multicast endpoint (expt.MultiCastIP / "
@@ -312,6 +362,7 @@ class ScanModeControl:
             device_endpoints=device_endpoints,
             boundary_writes=boundary,
             db_root_path=root,
+            scan_mode_locks=locks,
             geecs_db=geecs_db,
             **kwargs,
         )
@@ -342,12 +393,49 @@ class ScanModeControl:
             return
         self.boundary_writes = {device: list(r) for device, r in rows.items()}
 
+    def refresh_scan_mode_locks(self) -> None:
+        """Re-read the devices' DB ``scanmode_lock``; on a failure keep the last ones.
+
+        The worker follows the DB; the device follows the value it read at
+        launch, so a lock edited since needs the device relaunched before
+        the next run.  A DB that does not answer leaves the previous values,
+        logged at ERROR.
+        """
+        if self._geecs_db is None:
+            return
+        try:
+            locks = self._geecs_db.get_scan_mode_locks(self._experiment)
+        except Exception as exc:  # the cached locks still sort the run
+            logger.error(
+                "scan mode: the devices' scanmode_lock could not be re-read "
+                "from the GEECS DB (%s: %s) — using the values read earlier",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
+            return
+        self.scan_mode_locks = dict(locks)
+
     # ------------------------------------------------------------- facts
 
     @property
     def experiment(self) -> str:
         """The experiment announced in ``ScanStart``."""
         return self._experiment
+
+    @property
+    def scan_mode_disabled(self) -> frozenset[str]:
+        """The devices whose DB ``scanmode_lock`` is ``disabled``: never in scan mode.
+
+        Such a device keeps its normal acquisition, so the entry does not
+        wait for its acknowledgement (such a device may send none).  A null or any
+        other value counts as taking part (the entry's own wait decides).
+        """
+        return frozenset(
+            device
+            for device, lock in self.scan_mode_locks.items()
+            if lock is not None and lock.strip().lower() == "disabled"
+        )
 
     @property
     def enabled(self) -> bool:
@@ -548,6 +636,7 @@ class ScanModeControl:
         check_announce_address(announced, local_ip)
         server = await self._open_channels(local_ip, announced, ports)
         self._run_devices = devices
+        self._pausing = frozenset(entry.paused) & frozenset(devices)
         self._scan_parameter = entry.scan_parameter
         self._local_ip, self._announced_as = local_ip, announced
         self._shot = 0
@@ -555,7 +644,8 @@ class ScanModeControl:
         self._write_state()
         started = time.monotonic()
         try:
-            acks = await self._scan_start(devices)
+            acks = await self._scan_start(devices, optional=frozenset(entry.optional))
+            devices, hosts = self._leave_out_silent(devices, acks)
             await self._wait_connected(devices, hosts)
             if self._drain_s > 0:
                 await asyncio.sleep(self._drain_s)
@@ -590,6 +680,40 @@ class ScanModeControl:
             time.monotonic() - started,
         )
         del lags
+
+    def _leave_out_silent(
+        self, devices: tuple[str, ...], acks: Mapping[str, ScanModeAck]
+    ) -> tuple[tuple[str, ...], set[str]]:
+        """The run devices that entered and their hosts; the optional rest WARNED and left out.
+
+        :meth:`_scan_start` refused already when a device that is not
+        optional stayed silent or acknowledged with an error, so whatever
+        did not enter here is optional.  The ones left out are dropped from
+        the run's devices (the path-channel wait, ``ScanEnd``'s acks, the
+        state file); the warning is repeated at the first shot, into the
+        run's ``scan.log``.
+        """
+        entered = tuple(d for d in devices if d in acks and acks[d].ok)
+        left_out = [d for d in devices if d not in entered]
+        self._left_out_warning = None
+        if left_out:
+            if not entered:
+                raise GeecsScanModeError(
+                    f"scan mode: no device entered scan mode ({', '.join(left_out)} "
+                    "silent or refusing after ScanStart) — the run was refused "
+                    "before any shot. Check the devices, then resubmit.",
+                    devices=left_out,
+                )
+            self._left_out_warning = (
+                f"scan mode: {', '.join(left_out)} did not enter scan mode "
+                "(silent or refusing after ScanStart) — not required, so the run "
+                "goes on without it in scan mode: no shot-numbered files, its "
+                "DB start values unapplied"
+            )
+            logger.warning(self._left_out_warning)
+            self._run_devices = entered
+            self._write_state()
+        return entered, {self._device_endpoints[d][0] for d in entered}
 
     def _log_quiet_hosts(self, server: ScanModeServer) -> None:
         """Name the experiment's hosts that opened no path-channel connection.
@@ -631,7 +755,9 @@ class ScanModeControl:
                 named(never),
             )
 
-    async def _scan_start(self, devices: tuple[str, ...]) -> dict[str, ScanModeAck]:
+    async def _scan_start(
+        self, devices: tuple[str, ...], *, optional: frozenset[str] = frozenset()
+    ) -> dict[str, ScanModeAck]:
         assert self._sender is not None and self._listener is not None
         assert self._server is not None
         loop = asyncio.get_running_loop()
@@ -678,6 +804,10 @@ class ScanModeControl:
                     devices=silent,
                 )
         errors = {d: ack.status for d, ack in acks.items() if not ack.ok}
+        # An optional device's silence or error is no refusal: the entry
+        # leaves it out (_leave_out_silent).
+        silent = [d for d in silent if d not in optional]
+        errors = {d: status for d, status in errors.items() if d not in optional}
         if silent or errors:
             parts: list[str] = []
             if silent:
@@ -732,8 +862,10 @@ class ScanModeControl:
                 "folder (is the claim_scan preprocessor installed?)"
             )
         number = scan_number_of(folder)
-        if self._shot == 0 and self._quiet_warning:
-            logger.warning(self._quiet_warning)  # into the run's scan.log
+        if self._shot == 0:
+            for warning in (self._left_out_warning, self._quiet_warning):
+                if warning:
+                    logger.warning(warning)  # into the run's scan.log
         self._shot += 1
         path = device_shot_path(self._device_path(str(folder)), number, self._shot)
         count = await self._server.push_path(path)

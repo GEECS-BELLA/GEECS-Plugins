@@ -149,7 +149,7 @@ second confirmation layer is added.
 - **Dry runs are the consumers' own** (`apply.py`): the scanner's
   `POST /api/preflight/trigger-profile`, `geecs-archiver onboard
   --dry-run --policy <draft>` over a temporary file, and for the analysis
-  kinds (recipes, `.himg` jobs, groups) the portal's
+  kinds (recipes, `.himg` and scalar-columns jobs, groups) the portal's
   `POST /api/analysis/validate/{kind}` (`PortalClient`, `_PORTAL_URL`: the
   recipe bound to the analysis core's registry, a stem the loader would
   refuse anywhere in the shared analyzers tree, a group's references; its
@@ -291,7 +291,7 @@ second confirmation layer is added.
   (Save creates it again). Pinned per write by
   `tests/test_embed_write_edits_js.py` and `test_new_document_js.py`.
 - **A new document starts from its consumer's blank.** A kind the
-  catalogue marks `blank` (`kinds.BLANKS`: recipes and groups; a `.himg`
+  catalogue marks `blank` (`kinds.BLANKS`: recipes, groups and scalar-columns jobs; a `.himg`
   job and every other kind are copied, never started blank) is created from
   a draft: `GET /api/blank/{kind}/{folder}/{name}.yaml` refuses first (not
   a stem 422, a folder this box does not own 403, a file there or, in the

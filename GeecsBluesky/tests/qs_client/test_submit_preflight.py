@@ -32,8 +32,10 @@ class _FakeQueueClient:
             [
                 "UC_Cam1",
                 "UC_Cam1.scalars",
+                "UC_Cam1.acq_timestamp",
                 "UC_Cam2",
                 "UC_Cam2.scalars",
+                "UC_Cam2.acq_timestamp",
                 "U_S1H",
                 "U_S1H.current",
             ]
@@ -85,6 +87,11 @@ def engine(monkeypatch):
 
     monkeypatch.setattr(
         "geecs_bluesky.devices.ca.liveness.probe_disconnected", fake_probe
+    )
+    # No real CA: every loop stamp reads fresh unless a test says otherwise.
+    monkeypatch.setattr(
+        "geecs_bluesky.devices.ca.liveness.probe_stale",
+        lambda experiment, names, *, timeout: [],
     )
     monkeypatch.setattr(
         submit_preflight, "_make_default_client", lambda experiment: _FakeQueueClient()
@@ -147,7 +154,51 @@ class TestRunSubmitPreflight:
             ("validate", "passed", ""),
             ("worker_ready", "passed", ""),
             ("gateway_liveness", "passed", ""),
+            ("device_loops", "passed", ""),
         ]
+
+    def test_a_frozen_loop_is_a_note_never_a_question(self, engine, monkeypatch):
+        """Connected but its systimestamp stale: noted in the record, the scan unasked."""
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_stale",
+            lambda experiment, names, *, timeout: [
+                ("UC_Cam2", 95.0),
+                ("UC_Cam1", None),
+            ],
+        )
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None and report.questions == []
+        assert (
+            "device_loops",
+            "passed",
+            "frozen loop, recorded anyway: UC_Cam2 (not updated in 95 s), "
+            "UC_Cam1 (never updated)",
+        ) in report.outcomes
+
+    def test_a_down_device_is_never_also_called_frozen(self, engine, monkeypatch):
+        """Its stamp is stale because it is down: the liveness note says so, the loop note skips it."""
+        asked: list[list[str]] = []
+
+        def stale(experiment, names, *, timeout):
+            asked.append(list(names))
+            return [(n, 3600.0) for n in names]
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected",
+            lambda experiment, names, *, timeout: ["UC_Cam2"],
+        )
+        monkeypatch.setattr("geecs_bluesky.devices.ca.liveness.probe_stale", stale)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Cam2", "save_images": False, "required": False},
+            ]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert asked == [["UC_Cam1"]]
+        notes = dict((c, d) for c, _, d in report.outcomes)
+        assert "UC_Cam2" in notes["gateway_liveness"]
+        assert "UC_Cam2" not in notes["device_loops"]
 
     def test_validation_failure_is_a_refusal(self, engine, monkeypatch):
         monkeypatch.setattr(
@@ -165,6 +216,142 @@ class TestRunSubmitPreflight:
         questions = [q for q in report.questions if q.check == "gateway_liveness"]
         assert len(questions) == 1
         assert "UC_Cam1" in questions[0].message and "UC_Cam2" in questions[0].message
+
+    def test_the_question_says_which_down_devices_refuse_and_which_are_left_out(
+        self, engine
+    ):
+        # The worker's rule (registry.drop_down_devices): required refuses,
+        # the rest is left out of the scan.
+        engine["CONNECTED"] = "Disconnected"
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Cam2", "save_images": False, "required": False},
+            ]
+        )
+        (question,) = run_submit_preflight(preset, "Undulator").questions
+        refuses, _, left_out = question.message.partition("Not required")
+        assert "UC_Cam1" in refuses and "refuses the run" in refuses
+        assert "UC_Cam2" not in refuses
+        assert "UC_Cam2" in left_out and "leaves them out" in left_out
+
+    def test_a_down_device_the_run_does_not_need_is_a_note_not_a_question(
+        self, engine, monkeypatch
+    ):
+        """The worker leaves it out by itself: nothing for the operator to acknowledge."""
+
+        def probe(experiment, device_names, *, timeout):
+            return ["UC_Cam2"]
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected", probe
+        )
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Cam2", "save_images": False, "required": False},
+            ]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is None and report.questions == []
+        assert (
+            "gateway_liveness",
+            "passed",
+            "left out, disconnected and not required: UC_Cam2",
+        ) in report.outcomes
+
+    def test_a_down_condition_in_an_all_required_preset_is_a_note(
+        self, engine, monkeypatch
+    ):
+        """Every row required (the default): a condition is still not needed, as on the worker."""
+        tree = ["UC_Cam1", "UC_Cam1.scalars", "UC_Cam1.acq_timestamp"]
+        tree += ["U_Gauge", "U_Gauge.scalars", "U_Gauge.pressure"]  # no stamp
+        monkeypatch.setattr(
+            submit_preflight,
+            "_make_default_client",
+            lambda experiment: _FakeQueueClient(devices=tree),
+        )
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected",
+            lambda experiment, device_names, *, timeout: ["U_Gauge"],
+        )
+        preset = _preset(
+            devices=[{"device": "UC_Cam1"}, {"device": "U_Gauge", "save_images": False}]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is None and report.questions == []
+        assert (
+            "gateway_liveness",
+            "passed",
+            "left out, disconnected and not required: U_Gauge",
+        ) in report.outcomes
+
+    def test_a_fly_run_never_needs_the_box(self, engine, monkeypatch):
+        """The worker drives no box in fly mode and never judges it: its being down asks nothing."""
+        probed: list[list[str]] = []
+
+        def probe(experiment, device_names, *, timeout):
+            probed.append(list(device_names))
+            return ["U_DG645_ShotControl"]
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected", probe
+        )
+        preset = _preset(
+            plan={"name": "count", "kwargs": {"num": 2, "acquisition": "fly"}},
+            trigger_profile="HTU-Test",
+        )
+        report = run_submit_preflight(preset, "Undulator", trigger_profile=_profile())
+        assert report.refusal is None and report.questions == []
+        assert all("U_DG645_ShotControl" not in names for names in probed)
+
+    def test_every_listed_device_down_is_still_a_question(self, engine, monkeypatch):
+        """None needed, all down: the worker refuses the run, so the operator is told."""
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected",
+            lambda experiment, device_names, *, timeout: list(device_names),
+        )
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1", "required": False},
+                {"device": "UC_Cam2", "save_images": False, "required": False},
+            ]
+        )
+        (question,) = run_submit_preflight(preset, "Undulator").questions
+        assert "Every device the scan lists is Disconnected" in question.message
+        assert "refuses the run" in question.message
+
+    def test_a_sweep_axis_device_is_probed_and_refuses(self, engine, monkeypatch):
+        calls: list[list[str]] = []
+
+        def probe(experiment, device_names, *, timeout):
+            calls.append(list(device_names))
+            return ["U_S1H"]
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected", probe
+        )
+        sweep = {
+            "trajectory": {
+                "kind": "axes",
+                "axes": [
+                    {
+                        "kind": "range",
+                        "axis": "U_S1H:Current",
+                        "start": 0,
+                        "stop": 1,
+                        "num": 2,
+                    }
+                ],
+            }
+        }
+        preset = _preset(
+            devices=[{"device": "UC_Cam1"}],
+            plan={"name": "sweep", "kwargs": {"sweep": sweep}},
+        )
+        (question,) = run_submit_preflight(preset, "Undulator").questions
+        assert calls == [["UC_Cam1", "U_S1H"]]
+        assert "U_S1H" in question.message and "Not required" not in question.message
 
     def test_unreadable_liveness_is_fail_open(self, engine):
         engine["CONNECTED"] = None  # CA read failed — not a verdict
@@ -303,6 +490,38 @@ class TestWorkerReady:
         report = run_submit_preflight(preset, "Undulator")
         assert report.refusal is None
         assert ("worker_ready", "passed", "") in report.outcomes
+
+    def test_an_unknown_device_not_required_is_left_out_not_refused(
+        self, engine, monkeypatch
+    ):
+        """As the submit leaves it out: the outcome names it, nothing refuses."""
+        fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.acq_timestamp"])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Off", "required": False, "save_images": False},
+            ]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is None
+        assert (
+            "worker_ready",
+            "passed",
+            "left out, unknown to the worker and not required: UC_Off",
+        ) in report.outcomes
+
+    def test_an_unknown_required_device_is_still_refused(self, engine, monkeypatch):
+        fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.acq_timestamp"])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1", "required": False},
+                {"device": "UC_Need", "save_images": False},
+            ]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal and "UC_Need.scalars" in report.refusal
 
     def test_unknown_device_reference_is_a_refusal(self, engine, monkeypatch):
         fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.scalars"])
@@ -538,3 +757,12 @@ class TestInlineTriggerProfile:
 
         report = run_trigger_profile_preflight({"states": "nonsense"}, "X")
         assert report.refusal and report.outcomes == []
+
+
+def test_a_preset_whose_every_device_is_unknown_is_refused(engine, monkeypatch):
+    """The expansion's refusal is the preflight's, never a fail-open skip."""
+    fake = _FakeQueueClient(devices=["UC_Other", "UC_Other.acq_timestamp"])
+    monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+    preset = _preset(devices=[{"device": "UC_Gone", "required": False}])
+    report = run_submit_preflight(preset, "Undulator")
+    assert report.refusal and "knows none of its devices" in report.refusal

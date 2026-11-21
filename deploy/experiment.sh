@@ -372,6 +372,10 @@ up)
     echo "  manager      $(env_value "$f" QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER) / $(env_value "$f" QSERVER_ZMQ_INFO_ADDRESS_FOR_SERVER); documents $(env_value "$f" QS_DOC_PROXY_OUT)"
     echo "  logbook      port $(env_value "$f" GEECS_LOGBOOK_PORT)"
     echo "  scanner      http://$(env_value "$f" EPICS_CAS_INTF_ADDR_LIST):$(env_value "$f" GEECS_SCANNER_PORT)/"
+    # A front door is the site's own proxy, not configured here: these are
+    # the two routes to add to it (docs/platform/site_profile.md, "A front door").
+    slug="$(lc "$EXPT")"
+    echo "  front door   /$slug/scanner -> :$(env_value "$f" GEECS_SCANNER_PORT), /$slug/logbook -> :$(env_value "$f" GEECS_LOGBOOK_PORT)   (where the site has one: add, or repoint, both routes in its proxy)"
     ;;
 *) usage ;;
 esac

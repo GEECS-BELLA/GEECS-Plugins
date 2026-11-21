@@ -125,6 +125,8 @@ def test_up_writes_slot_one_and_enables_the_six_instance_units(profile) -> None:
         f"{u}@PulsedWire.service" for u in UNITS
     )
     assert "http://127.0.0.1:8310/" in result.stdout
+    # The front door's two routes, named for the DB experiment in lowercase.
+    assert "/benchstand/scanner -> :8310, /benchstand/logbook -> :8410" in result.stdout
 
 
 def test_a_new_experiment_folder_is_never_scaffolded_into_the_configurators_checkout(

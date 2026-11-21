@@ -26,21 +26,24 @@ The device is :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`;
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
 import socket
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
+from bluesky.utils import Msg
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_core.epics_env import pva_addr_tokens
 
 from geecs_bluesky.data_paths import local_data_root
-from geecs_bluesky.devices.ca._view import geecs_device_of
+from geecs_bluesky.devices.ca._view import geecs_device_of, owner_of
+from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.scan_mode import (
     EXIT,
     EnterScanMode,
@@ -49,6 +52,7 @@ from geecs_bluesky.devices.scan_mode import (
     resolve_ipv4,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plans.streams import is_per_shot
 from geecs_core.configs_repo import read_config_entry
 
 logger = logging.getLogger(__name__)
@@ -82,25 +86,188 @@ def run_device_names(
     return tuple(names)
 
 
+def paused_device_names(detectors: Sequence[Any]) -> tuple[str, ...]:
+    """The run devices that pause between announced shots: its per-shot detectors' owners.
+
+    A GEECS detector, its ``.scalars`` view or a native camera
+    (:func:`~geecs_bluesky.plans.streams.is_per_shot`).  A condition (a
+    stampless scalar device) and the trigger box acknowledge ``ScanStart``
+    but keep their readbacks flowing, so a move on them still confirms on
+    its readback.
+    """
+    names: dict[str, None] = {}
+    for obj in detectors:
+        device = geecs_device_of(obj)
+        if device and is_per_shot(obj):
+            names.setdefault(device)
+    return tuple(names)
+
+
+def entered_device_names(
+    control: ScanModeControl,
+    run_devices: Sequence[str],
+    shot_control: Any,
+    *,
+    needed: Collection[str] = (),
+) -> tuple[str, ...]:
+    """*run_devices* without those whose DB ``scanmode_lock`` is disabled (never the box).
+
+    A device with the lock disabled keeps its normal acquisition: the entry
+    does not wait for its acknowledgement, and it records as it acquires
+    (its stream, joined by stamp).  Read after :func:`scan_mode_preflight`,
+    which re-reads the locks.  The box is always waited for.  A *needed*
+    one (required) is WARNED: it free-runs, out of step with the announced
+    shots (under a box-less profile nothing triggers it per shot).
+    """
+    box = {str(d) for d in getattr(shot_control, "liveness_signals", None) or {}}
+    off = control.scan_mode_disabled
+    skipped = [d for d in run_devices if d in off and d not in box]
+    if skipped:
+        logger.info(
+            "scan mode: %s — scanmode_lock disabled in the DB, never in scan "
+            "mode: not waited for at ScanStart, recorded as they acquire",
+            ", ".join(skipped),
+        )
+    required = [d for d in skipped if d in set(needed)]
+    if required:
+        logger.warning(
+            "scan mode: %s required but scanmode_lock disabled — it free-runs "
+            "and saves no shot-numbered files; its shots are its own, not the "
+            "announced ones",
+            ", ".join(required),
+        )
+    return tuple(d for d in run_devices if d not in skipped)
+
+
+def in_scan_mode(objs: Sequence[Any], entered: Sequence[str]) -> list[Any]:
+    """The objects among *objs* whose GEECS device is one of *entered*."""
+    names = set(entered)
+    return [o for o in objs if geecs_device_of(o) in names]
+
+
 def scan_parameter_for(plan_name: str) -> str:
     """The second ``ScanStart`` argument: Master Control sends ``Shot #`` for a NoScan."""
     return "Shot #" if plan_name == "count" else plan_name
 
 
-def scan_mode_bracket(plan: Any, control: ScanModeControl, entry: EnterScanMode):
+def _stamped_owners(per_shot: Sequence[Any]) -> list[GeecsDetector]:
+    """The GEECS detectors among *per_shot* whose shot is a stamp (no file plugin), once each."""
+    owners: dict[int, GeecsDetector] = {}
+    for obj in per_shot:
+        owner = owner_of(obj)
+        if isinstance(owner, GeecsDetector) and not owner.plugin_backed:
+            owners.setdefault(id(owner), owner)
+    return list(owners.values())
+
+
+def _set_stamp(owner: GeecsDetector, on: bool):
+    """Retarget *owner*'s stamp monitor on the RunEngine's loop (a CA subscription)."""
+
+    async def do() -> None:
+        owner.shot_stamp_from_systimestamp(on)
+
+    return do
+
+
+def _read_stamp(owner: GeecsDetector):
+    """``acq_timestamp`` read uncached on the RunEngine's loop; ``None`` when it fails."""
+
+    async def do() -> float | None:
+        with contextlib.suppress(Exception):
+            return float(await owner.acq_timestamp.get_value(cached=False))
+        return None
+
+    return do
+
+
+def choose_shot_stamps(per_shot: Sequence[Any]):
+    """Plan: set each stamped per-shot device's shot stamp for a scan-mode run; return the GEECS names on ``systimestamp``.
+
+    A device whose ``acq_timestamp`` reads ``0.0`` (its LabVIEW driver never
+    sets it; the gateway's placeholder) takes its shots from
+    ``systimestamp``, which a device in scan mode publishes once per
+    announced shot; every other device keeps ``acq_timestamp``, and so does
+    one whose ``acq_timestamp`` cannot be read (the liveness gate judged it
+    up).  Run by :func:`scan_mode_bracket` before the entry, and undone by
+    :func:`reset_shot_stamps` in its finalizer; a run outside scan mode
+    resets first, so it never inherits a halted run's choice.
+    """
+    chosen: list[str] = []
+    for owner in _stamped_owners(per_shot):
+        (task,) = yield from bps.wait_for([_read_stamp(owner)])
+        value = task.result()
+        if value is None:
+            logger.warning(
+                "%s: acq_timestamp could not be read — its shots stay on it",
+                owner._geecs_device_name,
+            )
+        use = value is not None and value <= 0
+        yield from bps.wait_for([_set_stamp(owner, use)])
+        if use:
+            chosen.append(owner._geecs_device_name)
+    if chosen:
+        logger.info(
+            "%s: acq_timestamp is never set — in scan mode its shots are its "
+            "systimestamp (once per announced shot), recorded as its acq_timestamp",
+            ", ".join(chosen),
+        )
+    return chosen
+
+
+def reset_shot_stamps(per_shot: Sequence[Any]):
+    """Plan: every stamped per-shot device back on ``acq_timestamp`` (the run's finalizer)."""
+    for owner in _stamped_owners(per_shot):
+        yield from bps.wait_for([_set_stamp(owner, False)])
+
+
+def scan_mode_bracket(
+    plan: Any,
+    control: ScanModeControl,
+    entry: EnterScanMode,
+    *,
+    stamped: Sequence[Any] = (),
+):
     """Enter scan mode before *plan*; end it in a finalizer (every exit path but a halt).
 
     The entry sits inside the finalizer too: an abort while it waits for
     the acknowledgements, the connections or the drain still ends scan
-    mode (the exit cancels the entry's outstanding task first).
+    mode (the exit cancels the entry's outstanding task first).  Before
+    the entry the run's per-shot devices (*stamped*) take their scan-mode
+    shot stamp (:func:`choose_shot_stamps`); the names are set on *plan*'s
+    ``open_run`` as ``shot_stamp_systimestamp`` (a plan that copied its
+    metadata when it was built still records them).  The finalizer ends
+    scan mode, then puts the stamps back, whether or not the exit failed.
     """
 
     def body():
+        chosen = yield from choose_shot_stamps(stamped)
         yield from bps.mv(control, entry)
-        return (yield from plan)
+        # An optional device the entry left out (silent, or acknowledging
+        # with an error) runs outside scan mode, where its systimestamp is
+        # the loop tick, never a shot: it goes back on acq_timestamp.
+        entered = {d.casefold() for d in control.run_devices}
+        left_out = [
+            o
+            for o in _stamped_owners(stamped)
+            if o._geecs_device_name.casefold() not in entered
+        ]
+        yield from reset_shot_stamps(left_out)
+        dropped = {o._geecs_device_name for o in left_out}
+        chosen = [name for name in chosen if name not in dropped]
+
+        def name_them(msg: Msg) -> Msg:
+            if msg.command != "open_run":
+                return msg
+            return msg._replace(
+                kwargs={**msg.kwargs, "shot_stamp_systimestamp": chosen}
+            )
+
+        return (yield from bpp.msg_mutator(plan, name_them))
 
     def leave():
-        yield from bps.mv(control, EXIT)
+        yield from bpp.finalize_wrapper(
+            bps.mv(control, EXIT), reset_shot_stamps(stamped)
+        )
 
     return (yield from bpp.finalize_wrapper(body(), leave()))
 
@@ -283,6 +450,7 @@ def scan_mode_preflight(
             f"{control.experiment!r}"
         )
     control.refresh_boundary_writes()  # the rows the device will apply now
+    control.refresh_scan_mode_locks()  # which devices the entry waits for
     conflicts = boundary_conflicts(shot_control, control.boundary_writes)
     if conflicts:
         raise GeecsConfigurationError(
@@ -323,9 +491,14 @@ def release_scan_mode_plan(control: ScanModeControl | None):
 __all__ = [
     "boundary_conflicts",
     "check_gateway_host",
+    "choose_shot_stamps",
     "device_root_check",
+    "entered_device_names",
     "gateway_hosts",
+    "in_scan_mode",
+    "paused_device_names",
     "release_scan_mode_plan",
+    "reset_shot_stamps",
     "root_path_check",
     "run_device_names",
     "scan_mode_bracket",

@@ -68,6 +68,7 @@ nav:
       - analysis/index.md
       - Analysis without the portal: analysis/examples/analysis_without_the_portal.ipynb
       - HASO wavefront (WaveKit): analysis/haso.md
+      - Spectral interferometry: analysis/spectral_interferometry.md
       - Scan Analysis:
           - Overview: scan_analysis/overview.md
           - API Reference:

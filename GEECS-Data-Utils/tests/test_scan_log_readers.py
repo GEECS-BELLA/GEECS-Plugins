@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from geecs_data_utils.data.sfile import (
+    column_alias,
     header_for_variable,
     read_sfile_head,
     sfile_column,
@@ -78,3 +79,11 @@ def test_columns_are_matched_bare_or_aliased() -> None:
     assert sfile_column("U_Hexapod ypos", header) == "U_Hexapod ypos Alias:Hex Y"
     assert sfile_column("U_S1H Current", header) == "U_S1H Current"
     assert sfile_column("U_S1H Curr", header) is None
+
+
+def test_a_column_alias_is_the_text_after_the_separator() -> None:
+    assert (
+        column_alias("DDG-AA-ShotCntrl Delay.Ch C Alias:JetDelay (s)") == "JetDelay (s)"
+    )
+    assert column_alias("U_S1H Current") is None
+    assert column_alias("U_S1H Current Alias:") is None  # an empty alias is none

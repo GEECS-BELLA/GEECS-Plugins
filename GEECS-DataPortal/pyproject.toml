@@ -21,18 +21,20 @@ plotly = "^7.0"
 # as a dev dependency — TestClient rides on it — and is now needed at
 # run time too.
 httpx = ">=0.27"
-geecs-analysis = { path = "../GEECS-Analysis", develop = true, optional = true }
-scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
+# The plotter's numerics (the Fit menu, the image clean-ups) are
+# GEECS-Analysis's, imported when the plot pages load: a hard edge.
+geecs-analysis = { path = "../GEECS-Analysis", develop = true }
 # Imported directly (the analysis documents in processing.py and app.py):
-# declared, not ridden transitively via the analysis packages.
-geecs-schemas = { path = "../GEECS-Schemas", develop = true, optional = true }
+# declared, not ridden transitively via GEECS-Analysis.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
 
 [tool.poetry.extras]
-# The Images tab's core processing
-# AND the Analysis tab's runs (ScanAnalysis executed directly);
-# without it the portal serves raw images, the selector stays
-# hidden and the run endpoints 404.
-analysis = ["geecs-analysis", "geecs-schemas", "scananalysis"]
+# The Images tab's processing selector (ScanAnalysis' preview over the
+# analysis core) AND the Analysis tab's runs (ScanAnalysis executed
+# directly); without it the portal serves raw images and the plot
+# pages, the selector stays hidden and the run endpoints 404.
+analysis = ["scananalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"

@@ -33,6 +33,9 @@ def test_without_a_portal_the_draft_is_the_schemas_and_says_so(committing: TestC
     assert r.json()["document"] == {"schema_version": 3, "device": "UC_Cold", "output_name": "UC_Cold", "input": {"kind": "camera"}, "steps": []}  # fmt: skip
     group = committing.get("/api/blank/analysis_group/Ns/g_new.yaml").json()
     assert group["document"] == {"name": "g_new", "analyzers": []}
+    job = committing.get("/api/blank/scalar_job/Ns/ratio.yaml").json()["document"]
+    assert job["kind"] == "scalar_columns" and job["output_name"] == "ratio"
+    assert [c["name"] for c in job["columns"]] == ["ratio"]
     assert git("rev-parse", "main", cwd=origin) == before  # a draft writes nothing
 
 
@@ -82,4 +85,5 @@ def test_off_the_commit_path_there_is_no_new_document(
 def test_the_catalogue_says_which_kinds_start_blank(client: TestClient) -> None:
     blank = {k["kind"]: k["blank"] for k in client.get("/api/kinds").json()}
     assert bool(blank["analysis_recipe"]) and bool(blank["analysis_group"])
+    assert bool(blank["scalar_job"])
     assert (blank["himg_job"], blank["setup"], blank["preset"]) == ("", "", "")

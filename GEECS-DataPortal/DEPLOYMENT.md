@@ -33,14 +33,18 @@ restart between runs.
 - Ubuntu with **Python 3.11** and **Poetry** on the service account
   (same account and tooling as the other services on the box).
 - `~/.config/geecs_python_api/config.ini` with a `[tiled]` section
-  (`uri`, `api_key`) and a `[Paths]` section whose
+  (`uri`, `api_key`), read because the unit passes `--tiled` (without it
+  the portal lists the share's scan folders alone — the default, for a
+  laptop that cannot reach Tiled; a unit installed before `--tiled`
+  existed lists folders only until it is re-rendered, which every deploy
+  does), and a `[Paths]` section whose
   `geecs_data_local_base_path` points at the mounted data share —
   the same file every GEECS-Plugins package reads.
 - The data share mounted at that path (e.g. `/mnt/<share>/data/`) —
   read-write if analysis runs are enabled (above).
 - For the Images tab's processing selector and the Analysis tab's
-  runs: `poetry install -E analysis` (GEECS-Analysis + GEECS-Schemas +
-  ScanAnalysis and their closure) and
+  runs: `poetry install -E analysis` (ScanAnalysis and its closure;
+  GEECS-Analysis and GEECS-Schemas are installed either way) and
   `--processing-configs <scan_analysis_configs tree>` on the command
   line. Omit both for a read-only viewer.
 - Port **8200** free (`ss -tlnp | grep 8200`).
@@ -69,7 +73,7 @@ poetry env use python3.11
 poetry install --extras analysis
 ```
 
-The `analysis` extra installs the analysis core and ScanAnalysis for the Images tab's
+The `analysis` extra installs ScanAnalysis for the Images tab's
 **processing selector** (0.13.0+) and the Analysis tab. The feature
 needs both the extra and the scan-analysis configs tree on the command
 line; the rendered unit supplies the latter from the site profile —
@@ -90,14 +94,38 @@ selector hides itself; nothing else changes.
 Smoke-test in the foreground before installing the unit:
 
 ```bash
-poetry run geecs-data-portal --experiment Undulator
+poetry run geecs-data-portal --tiled --experiment Undulator
 # in another shell:
 curl -s http://localhost:8200/health
 ```
 
 `/health` returns the catalog probe — `ok` requires the Tiled server
-reachable with the configured key. Then load a real day page in a
+reachable with the configured key (with `--tiled`, as the unit runs it;
+without it the probe is the scan folders'). Then load a real day page in a
 browser and open one run's image gallery (exercises the share mount).
+
+## The Plot tab's settings sets
+
+The Plot tab (GEECSplotter's page, `/plot`) saves each viewer's named
+settings set as a JSON file — the portal's one durable write outside the
+analysis tree. The folder is the service's own state directory: the unit
+declares `StateDirectory=geecs-data-portal geecs-data-portal/settings`
+and passes `--settings-dir %S/geecs-data-portal/settings`
+(`/var/lib/geecs-data-portal/settings`). The unit names the `settings`
+folder itself, not only its parent, so systemd creates both when the
+service starts and owns them to the service account: the folder exists
+from the first start of the rendered unit, before any set is saved, is
+the same on every host and is not a `site.env` value. Sets saved in an
+older location (the data share's `DataPortal/settings/`, or a checkout's
+`user data/DataPortal/settings/`) are copied in by hand, once, after
+that first start: `sudo cp <old folder>/*.json
+/var/lib/geecs-data-portal/settings/`, then `sudo chown <service
+account>: /var/lib/geecs-data-portal/settings/*.json`. The sets are never on the data share and never in the
+checkout, so a redeploy or a re-clone leaves them alone; back the
+directory up with the host. A portal started by hand, with no
+`--settings-dir`, keeps its sets in the user's state folder
+(`~/.local/state/geecs-data-portal/settings`, or
+`%LOCALAPPDATA%\geecs-data-portal\settings` on Windows).
 
 ## systemd unit
 
@@ -179,8 +207,15 @@ the proxy to **strip the prefix and name it** in `X-Forwarded-Prefix`
 location /portal/ {
     proxy_pass http://<worker-host>:8200/;
     proxy_set_header X-Forwarded-Prefix /portal;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+`Host` must stay the browser's (with its port): the portal's redirects
+are built from it, and nginx's default — the upstream's address — sends
+the browser to `<worker-host>:8200` after a trailing-slash redirect.
+`X-Forwarded-Proto` is trusted only from `FORWARDED_ALLOW_IPS`.
 
 The header is per-request and needs no portal-side config; any mount
 name works, including ones that collide with portal route heads
@@ -192,22 +227,22 @@ Two proxy shapes, one setting each — they are **not interchangeable**
 (the rule lives in `geecs_web_theme.web`'s middleware docstring):
 
 - **Prefix-stripping** (the nginx block above; Caddy `handle_path`):
-  forwards `/run/…` and sends the header. No flag.
-- **Prefix-preserving** (forwards `/portal/run/…` as is, sends no
-  header): start the service with `geecs-data-portal --root-path
-  /portal`. The page then links `/portal/theme/…`, and the mounted
-  assets (`/theme`) answer at the prefixed path **only** —
-  plain routes answer either way, which is why the wrong pairing fails
-  quietly: a stripping proxy without the header serves the HTML and
-  loses every stylesheet and script. In this mode also avoid mount names
-  that collide with a portal route head, and know that trailing-slash
-  redirects drop the prefix (Starlette builds them from the un-prefixed
-  path; the header mode re-prefixes the path and has neither
-  limitation).
+  forwards `/run/…` and sends the header. **No flag** — remove
+  `--root-path` when switching to the header: uvicorn prepends it to
+  every request and the header's middleware prepends the prefix again,
+  so every page 404s (`/portal/portal/…`; reproduced 2026-11-20).
+- **Prefix-stripping without the header**: start the service with
+  `geecs-data-portal --root-path /portal`. The flag goes to
+  `uvicorn.run`, which adds the prefix back to every request, so the
+  portal answers `/run/…` and `/theme/…` and 404s `/portal/…`
+  (verified with uvicorn 0.52.4, 2026-11-16; this page said the
+  opposite before, which held for `FastAPI(root_path=…)`, the logbook's
+  and the scanner's shape). A prefix-preserving proxy has no setting
+  here: make it strip and send the header.
 
-The header, when present, wins over the flag. A proxy that does **not**
-strip the prefix must not send it (the symptom of that misconfiguration
-is loud — every page 404s).
+The header does not override the flag here: never set both. A proxy that
+does **not** strip the prefix must not send the header either (the
+symptom of either misconfiguration is loud: every page 404s).
 
 For a panel health LED, probe `GET /health` — 200 always (the JSON
 `ok` field reports the catalog probe, so a down Tiled shows as a
@@ -220,6 +255,22 @@ cd <root>/portal-checkout && git pull      # the portal's clone only — never a
 cd GEECS-DataPortal && poetry install --extras analysis
 sudo systemctl restart geecs-data-portal
 ```
+
+**Do the three in one go.** The package is installed editable, so the
+running portal reads the pulled templates and static files at once, under
+its old code: until the restart a page whose template changed can answer
+500. The logbook runs from the same clone the same way
+(`GeecsLogbook/`, its own environment and unit), so a pull is a deploy of
+both: install and restart both. On a services host,
+`deploy/bootstrap_host.sh <site.env> --only portal,logbook` does the two
+installs and renders both units; run it straight after the pull, install
+the units it staged, and restart.
+
+When the unit template changed (`git diff` on
+`deploy/geecs-data-portal.service`), re-render and reinstall it before the
+restart. A unit from before the settings sets moved has no
+`--settings-dir`: the portal then saves them in the service account's own
+state folder (`~/.local/state/geecs-data-portal/settings`), not the unit's.
 
 (Drop `--extras analysis` only on a deployment that deliberately runs
 without the processing selector.)
@@ -355,10 +406,11 @@ portal refuses over 8 MiB first, with its own message).
 **Upgrading a host that ran `--scan-log`** (portal 0.22–0.26): the flag
 and the `log` extra are gone, so the old `GEECS_PORTAL_EXTRA_ARGS` value
 fails argument parsing at start — replace `--scan-log` with `--logbook-url
-…` in `site.env`, re-render the unit (it no longer declares a
-`StateDirectory`), and move the entries out of
+…` in `site.env`, re-render the unit, and move the entries out of
 `/var/lib/geecs-data-portal` per the logbook runbook **before** starting
-the portal on the new unit.
+the portal on the new unit (the unit's `StateDirectory` is that folder
+again, for the Plot tab's settings sets under `settings/`; the logbook's
+files have no place in it).
 
 
 ## The analysis documents: edited in the configurator
