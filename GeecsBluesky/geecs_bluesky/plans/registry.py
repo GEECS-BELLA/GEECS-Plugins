@@ -50,6 +50,7 @@ from geecs_bluesky.plans.calibration import (
 )
 from geecs_bluesky.plans.scan_mode import (
     EnterScanMode,
+    paused_device_names,
     release_scan_mode_plan,
     run_device_names,
     scan_mode_bracket,
@@ -803,7 +804,11 @@ def strict_plan(  # noqa: C901, PLR0915
             inner = scan_mode_bracket(
                 inner,
                 announce,
-                EnterScanMode(run_devices, scan_parameter_for(stock.__name__)),
+                EnterScanMode(
+                    run_devices,
+                    scan_parameter_for(stock.__name__),
+                    paused=paused_device_names(detectors),
+                ),
             )
         if fly:
             # Nothing on the box: no state, no fire, no liveness read.

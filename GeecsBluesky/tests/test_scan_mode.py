@@ -51,6 +51,7 @@ from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
 from geecs_bluesky.plans.scan_mode import (
     boundary_conflicts,
     check_gateway_host,
+    paused_device_names,
     run_device_names,
     scan_mode_preflight,
     values_agree,
@@ -279,6 +280,37 @@ def test_enter_announce_exit_round_trip(RE: RunEngine, stack: Stack) -> None:
         assert not device.in_scan_mode and len(device.scan_ends) == 1
     # the multicast ScanEnd went out too (a dead letter, sent for fidelity)
     assert _received(stack)[-1] == "ScanEnd"
+
+
+def test_the_acknowledged_devices_are_paused_until_the_exit(
+    RE: RunEngine, stack: Stack
+) -> None:
+    # A device in scan mode freezes its readbacks between shots; the paused
+    # set is what tells a readback-confirming move so (devices/scan_pause.py).
+    from geecs_bluesky.devices.scan_pause import is_paused
+
+    stack.start()
+    control = stack.make_control()
+    assert not is_paused(CAM)
+    RE(bps.mv(control, EnterScanMode((CAM, BOX), "Shot #", paused=(CAM,))))
+    assert is_paused(CAM)
+    assert is_paused(CAM.upper())  # GEECS names compare case-insensitively
+    # The box acknowledged too, but it is not a per-shot detector: its
+    # readbacks keep flowing, so a move on it keeps the readback confirm.
+    assert not is_paused(BOX)
+    RE(bps.mv(control, EXIT))
+    assert not is_paused(CAM) and not is_paused(BOX)
+
+
+def test_a_refused_entry_leaves_nothing_paused(RE: RunEngine, stack: Stack) -> None:
+    from geecs_bluesky.devices.scan_pause import is_paused
+
+    stack.start(**{BOX: {"miss_scan_starts": 2}})
+    control = stack.make_control(ack_timeout_s=0.3)
+    with pytest.raises(FailedStatus):
+        RE(bps.mv(control, _entry()))
+    assert not control.entered
+    assert not is_paused(CAM) and not is_paused(BOX)
 
 
 def _control_with_other_host(stack: Stack) -> ScanModeControl:
@@ -981,6 +1013,18 @@ def test_run_device_names_lists_owners_once_plus_the_box(RE: RunEngine) -> None:
     # a detector's signal names its device (the one naming walk); a plan-side
     # object with no device behind it is skipped
     assert run_device_names([cam.acq_timestamp, SimpleNamespace(name="bins")]) == (CAM,)
+
+
+def test_paused_device_names_are_the_per_shot_detectors_only(RE: RunEngine) -> None:
+    # A camera (or its .scalars view) pauses between shots; a stampless
+    # condition and a plan-side object do not, and the box is never listed.
+    from geecs_bluesky.devices.ca import CaSnapshotReadable
+
+    cam = _camera(RE, FakeBox(), CAM)
+    stage = CaSnapshotReadable("U_Stage", ["Position"], experiment="TestExp", name="st")
+    listed = [cam.scalars, stage, SimpleNamespace(name="bins")]
+    assert paused_device_names(listed) == (CAM,)
+    assert run_device_names(listed) == (CAM, "U_Stage")  # both still acknowledge
 
 
 def test_values_agree_is_numeric_aware() -> None:
