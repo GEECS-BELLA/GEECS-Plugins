@@ -76,7 +76,10 @@ class QueueItem:
     checks against the manager's device tree.  A literal string argument
     (an enum value in a ``list_scan`` point list, say) is never one.
     ``devices`` contains the final device group, including optimizer-required
-    devices, for gateway liveness checks.
+    devices, for gateway liveness checks.  ``needed`` names the GEECS devices
+    whose being down refuses the run worker-side (``registry.drop_down_devices``):
+    the required per-shot devices and a sweep's axis devices (every device
+    of an ``optimize``); any other listed device down is left out of the run.
     """
 
     name: str
@@ -84,6 +87,7 @@ class QueueItem:
     kwargs: dict[str, Any] = field(default_factory=dict)
     references: list[str] = field(default_factory=list)
     devices: tuple[str, ...] = ()
+    needed: tuple[str, ...] = ()
 
 
 def scan_variable_reference(
@@ -276,6 +280,8 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             per_shot.append(reference)
         if d.required and reference in per_shot:
             required.append(reference)
+    by_reference = {device_reference(d.device): d.device for d in devices}
+    needed: dict[str, None] = {}
     references: list[str] = list(detectors)
     args = [_resolve(a, catalog, references) for a in plan.args]
     kwargs = {k: _resolve(v, catalog, references) for k, v in plan.kwargs.items()}
@@ -288,6 +294,9 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         try:
             payload = Sweep.model_validate(kwargs.get("sweep"))
             for axis in payload.axis_references():
+                owner = _axis_device(axis.axis, catalog, by_reference)
+                if owner is not None:
+                    needed.setdefault(owner)
                 if (
                     ":" in axis.axis
                     or (catalog and axis.axis in catalog)
@@ -306,6 +315,19 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     if len(required) < len(per_shot):
         # Explicit whenever a device is not required, an empty list included.
         kwargs["required"] = required
+    if plan.name == "optimize":
+        needed.update(dict.fromkeys(d.device for d in devices))
+    else:
+        for d in devices:
+            reference = (
+                device_reference(d.device)
+                if d.save_images
+                else device_reference(d.device) + ".scalars"
+            )
+            if reference in required or (
+                "required" not in kwargs and reference in per_shot
+            ):
+                needed.setdefault(d.device)
     # The run-level preset fields are the one source of truth for the plan
     # keyword of the same name: a copy in plan.kwargs is refused rather
     # than merged.  Unset stays absent — the worker's default applies.
@@ -333,7 +355,28 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         kwargs=kwargs,
         references=references,
         devices=tuple(d.device for d in devices),
+        needed=tuple(needed),
     )
+
+
+def _axis_device(
+    axis: str, catalog: Mapping[str, Any] | None, by_reference: Mapping[str, str]
+) -> str | None:
+    """The GEECS device a sweep axis moves, or ``None`` for a catalog pseudo.
+
+    *axis* as the preset spells it: ``Device:Variable``, a catalog name, or
+    an expanded reference (``U_S1H.current``, mapped back to the listed
+    device's GEECS spelling when it is one).
+    """
+    spec = (catalog or {}).get(axis)
+    if spec is not None:
+        if getattr(spec, "kind", None) == "pseudo":
+            return None
+        axis = str(spec.target)
+    if ":" in axis:
+        return axis.partition(":")[0]
+    base = axis.partition(".")[0]
+    return by_reference.get(base, base)
 
 
 def _detector_names(native_devices: Collection[str] | Mapping[str, Any]) -> set[str]:

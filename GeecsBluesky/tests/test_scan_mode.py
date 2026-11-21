@@ -426,6 +426,60 @@ def test_an_error_acknowledgement_is_refused(RE: RunEngine, stack: Stack) -> Non
     assert not control.entered
 
 
+def test_an_optional_silent_device_is_left_out_not_refused(
+    RE: RunEngine, stack: Stack, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Not required: silent after the retry, it is warned (again at the first
+    # shot, into scan.log) and the run goes on with the devices that entered.
+    stack.start(**{CAM: {"acknowledge": False}})
+    control = stack.make_control(ack_timeout_s=0.3)
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.scan_mode"):
+        RE(bps.mv(control, EnterScanMode((CAM, BOX), "Shot #", optional=(CAM,))))
+        assert control.entered and control.run_devices == (BOX,)
+        assert json.loads(stack.state_file.read_text())["devices"] == [BOX]
+        assert caplog.text.count("UC_Cam did not enter scan mode") == 1
+        RE(bps.mv(control, ANNOUNCE))
+        RE(bps.mv(control, ANNOUNCE))
+    assert caplog.text.count("UC_Cam did not enter scan mode") == 2
+    t0 = time.monotonic()
+    RE(bps.mv(control, EXIT))
+    # ScanEnd's acks are not waited for from the device left out (2.0 s)
+    assert time.monotonic() - t0 < 1.8 and not control.entered
+
+
+def test_an_optional_device_refusing_scan_start_is_left_out(
+    RE: RunEngine, stack: Stack
+) -> None:
+    stack.start(**{CAM: {"ack_status": "error, not ready,"}})
+    control = stack.make_control()
+    RE(bps.mv(control, EnterScanMode((CAM, BOX), "Shot #", optional=(CAM,))))
+    assert control.entered and control.run_devices == (BOX,)
+    RE(bps.mv(control, EXIT))
+
+
+def test_a_required_silent_device_still_refuses_beside_an_optional_one(
+    RE: RunEngine, stack: Stack
+) -> None:
+    stack.start(**{CAM: {"acknowledge": False}, BOX: {"acknowledge": False}})
+    control = stack.make_control(ack_timeout_s=0.2)
+    with pytest.raises(FailedStatus) as info:
+        RE(bps.mv(control, EnterScanMode((CAM, BOX), "Shot #", optional=(CAM,))))
+    cause = _cause(info)
+    assert isinstance(cause, GeecsScanModeError) and cause.devices == (BOX,)
+    assert not control.entered and not stack.state_file.exists()
+
+
+def test_no_device_entering_refuses_even_when_all_are_optional(
+    RE: RunEngine, stack: Stack
+) -> None:
+    stack.start(**{CAM: {"acknowledge": False}})
+    control = stack.make_control(ack_timeout_s=0.2)
+    with pytest.raises(FailedStatus) as info:
+        RE(bps.mv(control, EnterScanMode((CAM,), "Shot #", optional=(CAM,))))
+    assert "no device entered scan mode" in str(_cause(info))
+    assert not control.entered and not stack.state_file.exists()
+
+
 def test_a_host_that_never_connects_is_refused(RE: RunEngine, stack: Stack) -> None:
     # The box is declared on a host that never opens a path-channel
     # connection (the fake connects from loopback, the roster says 127.0.0.2).
@@ -1025,6 +1079,40 @@ def test_paused_device_names_are_the_per_shot_detectors_only(RE: RunEngine) -> N
     listed = [cam.scalars, stage, SimpleNamespace(name="bins")]
     assert paused_device_names(listed) == (CAM,)
     assert run_device_names(listed) == (CAM, "U_Stage")  # both still acknowledge
+
+
+def test_the_entry_of_a_bound_count_spares_every_device_not_needed(
+    RE: RunEngine, stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The bound plan hands the entry its optional devices: every run device
+    # but the required ones and the box.
+    import geecs_bluesky.plans.registry as registry
+
+    entries: list[EnterScanMode] = []
+
+    class Seen(Exception):
+        pass
+
+    def bracket(plan, control, entry):
+        entries.append(entry)
+        raise Seen
+        yield  # a generator
+
+    monkeypatch.setattr(registry, "scan_mode_bracket", bracket)
+    box = FakeBox()
+    cam, other = _camera(RE, box, CAM), _camera(RE, box, "UC_Other")
+    stack.start()
+    endpoints = {name: (LOOPBACK, port) for name, port in stack.ports.items()}
+    endpoints["UC_Other"] = (LOOPBACK, _free_port(socket.SOCK_DGRAM))
+    control = stack.make_control(device_endpoints=endpoints)
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    with pytest.raises(Seen):
+        RE(bound["count"]([cam, other.scalars], num=1, required=[cam]))
+    (entry,) = entries
+    assert entry.devices[:2] == (CAM, "UC_Other")
+    assert entry.optional == ("UC_Other",)
 
 
 def test_values_agree_is_numeric_aware() -> None:

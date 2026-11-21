@@ -11,7 +11,7 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from inspect import Parameter
 from types import SimpleNamespace
 from typing import Any
@@ -67,7 +67,10 @@ from geecs_bluesky.plans.on_demand import (
 from geecs_bluesky.plans.shot_gate import open_gate
 from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
 from geecs_bluesky.plans.strict import (
+    device_root,
     down_devices,
+    geecs_name,
+    needed_device_names,
     name_failed_status,
     run_bracket,
 )
@@ -167,8 +170,13 @@ class TriggerProfiles:
             ) from None
 
 
-def liveness_gate(shot_control: Any, devices: Sequence[Any]):
-    """Plan: refuse the run if any of its devices is reported Disconnected.
+def liveness_gate(
+    shot_control: Any,
+    devices: Sequence[Any],
+    *,
+    optional: Sequence[Any] = (),
+):
+    """Plan: refuse the run if a device it needs is reported down; return the optional ones that are.
 
     The verdict is :func:`~geecs_bluesky.plans.strict.down_devices` over
     *devices* and the trigger box's device(s)
@@ -178,23 +186,93 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     Runs before the bracket's first move and before ``open_run``: nothing
     is driven and nothing is claimed for a run this refuses.
 
+    Parameters
+    ----------
+    shot_control :
+        The resolved trigger profile; its device(s) down always refuse.
+    devices :
+        Every device the run lists.
+    optional :
+        The listed devices the run can go without — in a bound scan verb,
+        every one not ``required``.  One reported down is no refusal: its
+        GEECS name is returned and the caller leaves it out of the run.
+
+    Returns
+    -------
+    list of str
+        The GEECS names of the *optional* devices reported down.
+
     Raises
     ------
     GeecsDeviceDownError
-        Naming every device reported down.
+        Naming every device reported down that is not *optional*.
     """
     signals = getattr(shot_control, "liveness_signals", {})
     down = yield from down_devices(devices, signals)
-    if down:
-        names = ", ".join(down)
+    spare = {geecs_name(d) for d in optional} - set(signals)
+    needed = [name for name in down if name not in spare]
+    if needed:
+        names = ", ".join(needed)
         raise GeecsDeviceDownError(
             f"{names} DISCONNECTED (the gateway's CONNECTED, a native "
             "camera's IOC not answering, or a native setpoint device's readback "
-            "INVALID) — the run was refused before the "
-            "trigger box was driven (nothing claimed, no scan folder). Check "
-            "the device(s), then resubmit.",
-            device_name=down[0],
+            "INVALID) — needed by the run (required, moved, or the trigger "
+            "profile's box), so it was refused before the trigger box was "
+            "driven (nothing claimed, no scan folder). Check the device(s), "
+            "then resubmit.",
+            device_name=needed[0],
         )
+    return [name for name in down if name in spare]
+
+
+def drop_down_devices(
+    shot_control: Any,
+    detectors: Sequence[Any],
+    needed: Collection[str],
+    movers: Sequence[Any] = (),
+):
+    """Plan: the run's detectors minus the ones reported down that it can go without.
+
+    The one rule of a bound scan verb's start: :func:`liveness_gate` over
+    the detectors and the devices the run moves (*movers*), every detector
+    whose GEECS name is not in *needed*
+    (:func:`~geecs_bluesky.plans.strict.needed_device_names`) optional.  A
+    needed device down — required, moved, or the box — refuses the run; any
+    other listed device down is left out of it — no stream, no columns, not
+    waited on for scan mode, and not read as background telemetry either
+    (the caller keeps the full list as the background's ``own``) — WARNED
+    by name and recorded in the start document as ``devices_dropped``.  It
+    is back in the next run that finds it up: the preset is never changed.
+
+    Returns
+    -------
+    tuple
+        ``(kept detectors, dropped GEECS names)``.
+    """
+    judged = list(detectors)
+    for mover in movers:
+        root = device_root(mover)
+        if root is not None and all(root is not d for d in judged):
+            judged.append(root)
+    optional = [d for d in detectors if geecs_name(d) not in needed]
+    dropped = yield from liveness_gate(shot_control, judged, optional=optional)
+    if not dropped:
+        return list(detectors), []
+    kept = [d for d in detectors if geecs_name(d) not in dropped]
+    if not kept:
+        raise GeecsDeviceDownError(
+            f"{', '.join(dropped)} DISCONNECTED — every device the run lists "
+            "is down, so it was refused before the trigger box was driven "
+            "(nothing claimed, no scan folder). Check the device(s), then "
+            "resubmit.",
+            device_name=dropped[0],
+        )
+    logger.warning(
+        "%s DISCONNECTED — not required, so left out of this run (no stream, "
+        "no columns); listed again the next run that finds it up",
+        ", ".join(dropped),
+    )
+    return kept, dropped
 
 
 def set_tolerance_gate(movers: Sequence[Any]):
@@ -706,6 +784,21 @@ def strict_plan(  # noqa: C901, PLR0915
         per_shot = [d for d in detectors if is_per_shot(d)]
         _refuse_twice_listed(per_shot)
         required = resolve_required(per_shot, required_arg)
+        payload = bound_args.get("sweep")
+        movers = (
+            sweep_movers(payload, settables)
+            if payload is not None and settables is not None
+            else []
+        )
+        # Before the box is driven and before the claim: a needed device
+        # (required, moved, the box) down refuses; any other listed device
+        # down is left out.
+        needed = needed_device_names(required, movers, None if fly else shot_control)
+        listed_detectors = detectors
+        detectors, dropped = yield from drop_down_devices(
+            None if fly else shot_control, detectors, needed, movers
+        )
+        per_shot = [d for d in detectors if is_per_shot(d)]
         # Scan mode (#1084): the profile's flag selects it; refuse what it
         # cannot carry before the box is driven, then thread the control
         # through the hook (the announce before every fire, the row's
@@ -723,6 +816,7 @@ def strict_plan(  # noqa: C901, PLR0915
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
         md["native_image_save"] = native_files
+        md["devices_dropped"] = dropped
         gate = gate_for_run(shot_control, fly=fly)
         if gate is not None:
             md["shot_gate"] = gate.describe()
@@ -780,7 +874,7 @@ def strict_plan(  # noqa: C901, PLR0915
         # The stock key keeps naming every device the run records.
         md["detectors"] = [getattr(d, "name", str(d)) for d in [*detectors, *extras]]
         listed = list(bound_args.get("detectors") or ())
-        if extras or len(rows) != len(listed):
+        if extras or dropped or len(rows) != len(listed):
             bound = signature.bind_partial(*args, **kwargs)
             bound.arguments["detectors"] = [*rows, *extras]
             args, kwargs = bound.args, dict(bound.kwargs)
@@ -789,14 +883,12 @@ def strict_plan(  # noqa: C901, PLR0915
         if tick is not None:
             inner = tick.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
-        payload = bound_args.get("sweep")
-        movers = (
-            sweep_movers(payload, settables)
-            if payload is not None and settables is not None
-            else []
-        )
         if snapshot is not None:
-            inner = background_wrapper(inner, snapshot, own=detectors, movers=movers)
+            # The listed devices, dropped ones included: a device left out
+            # because it is down is not read as background telemetry either.
+            inner = background_wrapper(
+                inner, snapshot, own=listed_detectors, movers=movers
+            )
         inner = native_image_save_wrapper(inner, detectors, native_files)
         if announce is not None:
             # Inside the trigger bracket: ARMED, then ScanStart (a refused
@@ -808,11 +900,12 @@ def strict_plan(  # noqa: C901, PLR0915
                     run_devices,
                     scan_parameter_for(stock.__name__),
                     paused=paused_device_names(detectors),
+                    optional=tuple(d for d in run_devices if d not in needed),
                 ),
             )
         if fly:
-            # Nothing on the box: no state, no fire, no liveness read.
-            yield from liveness_gate(None, detectors)
+            # Nothing on the box: no state, no fire (its devices were judged
+            # at the start, drop_down_devices).
             inner = bpp.inject_md_wrapper(
                 inner, (yield from set_tolerance_gate(movers))
             )
@@ -820,7 +913,6 @@ def strict_plan(  # noqa: C901, PLR0915
             return (yield from name_failed_status(inner))
         # Before the first move, before the claim.
         yield from open_gate(gate)
-        yield from liveness_gate(shot_control, detectors)
         inner = bpp.inject_md_wrapper(inner, (yield from set_tolerance_gate(movers)))
         # A failure outside the stock plan's run_wrapper (the bracket's own
         # move) is named here; one inside it is named by the hook, before
@@ -1119,6 +1211,7 @@ __all__ = [
     "background_wrapper",
     "bind_plans",
     "gate_for_run",
+    "drop_down_devices",
     "liveness_gate",
     "set_tolerance_gate",
     "native_image_save_wrapper",

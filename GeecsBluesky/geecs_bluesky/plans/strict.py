@@ -22,7 +22,7 @@ from bluesky.protocols import Triggerable
 from bluesky.utils import FailedStatus, short_uid
 from geecs_schemas.trigger_profile import TriggerState
 
-from geecs_bluesky.devices.ca._view import geecs_device_name, owner_of
+from geecs_bluesky.devices.ca._view import geecs_device_name, geecs_device_of, owner_of
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.native import down_native_cameras, native_cameras
 from geecs_bluesky.devices.native_setpoint import (
@@ -102,6 +102,48 @@ def down_devices(devices: Sequence[Any], signals: Mapping[str, Any] | None = Non
     # it for every DB device) and cost the connect timeout: say so.
     down = yield from read_disconnected(to_read, unreadable_level=logging.WARNING)
     return [*native_down, *down]
+
+
+def device_root(obj: Any) -> Any | None:
+    """The namespace device behind a plan object: itself, a view's owner, a child's GEECS parent.
+
+    ``None`` when no GEECS device is behind it (a catalog pseudo, the bin
+    counter).  What :func:`down_devices` judges for a mover: a settable
+    child names its device but has no liveness of its own, so the walk goes
+    on to the outermost ancestor carrying the same GEECS name (the
+    namespace noun).
+    """
+    name = geecs_device_of(obj)
+    if name is None:
+        return None
+    node: Any = owner_of(obj)
+    root = node
+    for _ in range(8):
+        node = getattr(node, "parent", None)
+        if node is None:
+            break
+        if getattr(node, "_geecs_device_name", None) == name:
+            root = node
+    return root
+
+
+def needed_device_names(
+    required: Sequence[Any], movers: Sequence[Any], shot_control: Any | None
+) -> frozenset[str]:
+    """The GEECS devices a run cannot go without — the one rule of what refuses it.
+
+    The *required* per-shot devices, the devices the run moves (*movers*),
+    and the trigger profile's box.  Any other device the run lists may be
+    down at its start (``registry.drop_down_devices``: left out) or silent
+    after ``ScanStart`` (left out of scan mode) without refusing it.
+    """
+    names = {geecs_name(obj) for obj in required}
+    for mover in movers:
+        root = device_root(mover)
+        if root is not None:
+            names.add(geecs_name(root))
+    names |= {str(d) for d in getattr(shot_control, "liveness_signals", None) or {}}
+    return frozenset(names)
 
 
 def geecs_name(obj: Any) -> str:
