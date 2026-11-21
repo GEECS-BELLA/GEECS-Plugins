@@ -83,3 +83,65 @@ def test_the_snapshot_is_a_copy() -> None:
     snap.shots_done = 5
     assert stream.snapshot().shots_done == 0
     assert isinstance(snap, RunProgress)
+
+
+def test_the_rates_and_the_devices_that_held_the_shots() -> None:
+    """Current = 1 / the last period, average over the run's fires; the slowest ranked by rows held."""
+    stream = ProgressStream(clock=lambda: 3.0)
+    stream.on_document("start", {"uid": "r", "plan_name": "count", "num_points": 4})
+    stream.on_document("descriptor", {"uid": "p", "name": "primary"})
+    rows = [
+        (100.0, "CAM-Wedge", 1.8),
+        (102.0, "CAM-Wedge", 1.6),
+        (104.0, "CAM-Ghost", 1.9),
+    ]
+    for seq, (fire, device, delay) in enumerate(rows, start=1):
+        stream.on_document(
+            "event",
+            {
+                "descriptor": "p",
+                "seq_num": seq,
+                "data": {
+                    "fire_stamp": fire,
+                    "slowest_device": device,
+                    "slowest_s": delay,
+                },
+            },
+        )
+    mid = stream.snapshot()
+    assert mid.current_rate_hz == 0.5
+    assert abs(mid.worker_s - (2.0 - 1.6)) < 1e-9  # the period less row 2's wait
+    # an event page (columns of lists) of the fourth row
+    stream.on_document(
+        "event_page",
+        {
+            "descriptor": "p",
+            "seq_num": [4],
+            "data": {
+                "fire_stamp": [105.0],
+                "slowest_device": ["CAM-Wedge"],
+                "slowest_s": [0.7],
+            },
+        },
+    )
+    snap = stream.snapshot()
+    assert snap.current_rate_hz == 1.0
+    assert snap.worker_s == 0.0  # a period shorter than the previous wait
+    assert snap.average_rate_hz == 3 / 5.0
+    assert (snap.waiting_on, snap.waiting_s) == ("CAM-Wedge", 0.7)
+    top = snap.slowest[0]
+    assert (top.device, top.held, top.max_s) == ("CAM-Wedge", 3, 1.8)
+    assert abs(top.mean_s - (1.8 + 1.6 + 0.7) / 3) < 1e-9
+    assert [d.device for d in snap.slowest] == ["CAM-Wedge", "CAM-Ghost"]
+    # a new run starts clean
+    stream.on_document("start", {"uid": "r2"})
+    fresh = stream.snapshot()
+    assert fresh.current_rate_hz is None and fresh.slowest == []
+
+
+def test_a_run_without_timing_columns_has_no_rates() -> None:
+    stream = ProgressStream(clock=lambda: 3.0)
+    _strict_run(stream)
+    snap = stream.snapshot()
+    assert snap.current_rate_hz is None and snap.average_rate_hz is None
+    assert snap.waiting_on is None and snap.slowest == []

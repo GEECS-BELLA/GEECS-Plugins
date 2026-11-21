@@ -93,7 +93,10 @@
           <div class="live"><span class="k">planned</span><span class="v" id="lv-planned">—</span><span class="age" id="ag-planned"></span></div>
           <div class="live" id="live-docs"><span class="k">documents</span><span class="v" id="lv-docs">—</span><span class="age" id="ag-docs"></span></div>
           <div class="live" id="live-manager"><span class="k">manager</span><span class="v" id="lv-manager">—</span><span class="age" id="ag-manager"></span></div>
+          <div class="live" id="live-rate" title="Current: 1 / the time since the previous fire. Average: the run's fires over their span."><span class="k">rate</span><span class="v" id="lv-rate">—</span><span class="age" id="ag-rate"></span></div>
+          <div class="live" id="live-wait" title="The required device the last shot waited for longest, and how long after the fire it delivered; worker: the rest of the time between the fires (the worker's reads, the row, the collects)."><span class="k">waiting on</span><span class="v" id="lv-wait">—</span><span class="age" id="ag-wait"></span></div>
         </div>
+        <p class="dim note" id="slowest-note"></p>
 
         <div class="row">
           <button class="btn" type="button" id="btn-pause" disabled>Pause</button>

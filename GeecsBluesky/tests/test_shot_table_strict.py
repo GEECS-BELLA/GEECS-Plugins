@@ -35,6 +35,8 @@ SHOT_KEYS = {
     "shot_index",
     "attempt",
     "fire_stamp",
+    "slowest_device",
+    "slowest_s",
     "complete",
     "missing",
     "extra_frames",
