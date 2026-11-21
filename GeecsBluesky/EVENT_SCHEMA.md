@@ -167,10 +167,15 @@ or one a witnessed row took) is a miss, and the row is flagged
   row, which is why it keeps precedence.  Without one the join cannot
   tell, so it flags where such a shift could start:
   **`answer-after-miss:<device>`** on a row whose `<device>-answered` is
-  finite while the previous attempt of the same shot (the row before,
-  `attempt` one less) listed the device in `missing`.  Computed from the
-  rows alone; advisory, it moves no record, and most flagged rows are a
-  refire answered by its own record;
+  finite while the row before listed the device in `missing` — a refire,
+  or the next shot's first attempt when the refires were exhausted (a new
+  motor step or optimizer bin included).  Computed from the rows alone;
+  advisory, it moves no record, and most flagged rows are answered by
+  their own record.  The rows after the flagged one that a shift carries
+  on to carry no flag.  The join's flags for a stamped device are read by
+  offline callers of `shot_table` only: no run-time log, s-file column or
+  optimizer check consumes them (as for the existing flags of event
+  streams);
 - a device that never pauses can publish a record between the baseline
   read and the fire: it answers that row;
 - every other device keeps the fire interval on such rows: one that is

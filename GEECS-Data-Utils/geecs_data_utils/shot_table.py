@@ -25,8 +25,8 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   / count not advanced, with    value, uncorrected on both sides and not
   ``<device>-answered`` in      already a witnessed row's; ``NaN`` is a
   the rows (a strict run's      miss.  No clock, interval or fire time is
-  required stamped device)      read; *answer-after-miss* where the shot's
-                                previous attempt missed the device
+  required stamped device)      read; *answer-after-miss* where the row
+                                before missed the device
   unwitnessed / witness late    the interval (fire *k* − m, fire *k*+1],
   / count not advanced          *m* the stamp budget; the overlap by the
                                 run's phase, else *interval-ambiguous*;
@@ -680,11 +680,12 @@ def _assign_answered(
     assignment, because the name can be wrong where the witness is not —
     a record landing after the shot timeout, just after the refire's
     baseline read, answers the refire's row, and the refire's own record
-    then answers the row after it.  That can start only on a refire the
-    device had missed the attempt before, so such a row — a finite answer
-    after the same shot's previous attempt listed the device in
-    ``missing`` — is flagged ``answer-after-miss:<device>``, from the rows
-    alone; the flag moves no record.
+    then answers the row after it.  That can start only on the row after
+    one the device missed — a refire, or the next shot's first attempt
+    when the refires were exhausted — so a row with a finite answer whose
+    previous row listed the device in ``missing`` is flagged
+    ``answer-after-miss:<device>``, from the rows alone.  The flag moves
+    no record, and the rows a shift carries on to are not flagged.
     """
     name = source.device
     claimed = {i for i in assigned if i is not None}
@@ -692,7 +693,7 @@ def _assign_answered(
     for index, stamp in enumerate(np.asarray(source.records.stamps, dtype=float)):
         if np.isfinite(stamp) and index not in claimed:
             free.setdefault(float(stamp), []).append(index)
-    after_miss = _missed_the_attempt_before(rows, name)
+    after_miss = _missed_on_the_row_before(rows, name)
     for k in np.flatnonzero(clock.loose & np.isfinite(answered)):
         indices = free.get(float(answered[k]))
         if indices:
@@ -701,27 +702,20 @@ def _assign_answered(
             clock.flags[k].append(f"answer-after-miss:{name}")
 
 
-def _missed_the_attempt_before(rows: pd.DataFrame, name: str) -> np.ndarray:
-    """Rows that refire a shot whose previous attempt listed *name* in ``missing``.
+def _missed_on_the_row_before(rows: pd.DataFrame, name: str) -> np.ndarray:
+    """Rows whose previous row listed *name* in ``missing``.
 
-    The previous attempt is the row before, when this row's ``attempt`` is
-    one more than its own.  ``missing`` holds comma-joined object names,
-    matched ignoring case and separators.  All ``False`` when the rows
-    lack either column.
+    ``missing`` holds comma-joined object names, matched ignoring case and
+    separators.  All ``False`` when the rows lack the column.
     """
     out = np.zeros(len(rows), dtype=bool)
-    attempts = _column(rows, "attempt")
-    if attempts is None or "missing" not in rows:
+    if "missing" not in rows:
         return out
     key = _squash(name)
-    missed = [
-        key in {_squash(part) for part in str(value).split(",")}
-        if isinstance(value, str)
-        else False
+    out[1:] = [
+        isinstance(value, str) and key in {_squash(part) for part in value.split(",")}
         for value in rows["missing"]
-    ]
-    for k in range(1, len(rows)):
-        out[k] = missed[k - 1] and attempts[k] == attempts[k - 1] + 1
+    ][:-1]
     return out
 
 

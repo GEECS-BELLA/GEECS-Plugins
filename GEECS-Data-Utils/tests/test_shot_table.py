@@ -1081,11 +1081,11 @@ def test_an_answer_after_a_miss_is_matched_by_name_ignoring_case_and_separators(
     assert _flagged(shot_table(start, rows, [cam]), "answer-after-miss:cam") == []
 
 
-def test_a_first_attempt_after_another_shots_miss_is_not_flagged() -> None:
-    """The flag is the same shot's refire: an exhausted shot does not mark the next."""
+def test_a_first_attempt_after_an_exhausted_shots_miss_is_flagged_too() -> None:
+    """The late record can answer the next shot's first attempt: no refire is needed."""
     start, rows, cam = _late_record(witnessed=False)
     rows["attempt"] = [1, 1, 1, 1, 1]
-    assert _flagged(shot_table(start, rows, [cam]), "answer-after-miss:cam") == []
+    assert _flagged(shot_table(start, rows, [cam]), "answer-after-miss:cam") == [3]
 
 
 def test_an_old_layout_run_never_reads_the_column() -> None:
