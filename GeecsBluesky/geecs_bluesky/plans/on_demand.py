@@ -8,7 +8,9 @@ says so (``layout: "shot-table/1"``, :func:`start_keys`).  The slot's
 steps are :class:`OnDemand`'s.
 
 ``complete`` is the plan's decision to stop refiring; which record is
-which shot's is the join's (``geecs_data_utils.shot_table``).  The slot is
+which shot's is the join's (``geecs_data_utils.shot_table``) — except
+for a required stamped device, whose row names the record that answered
+its fire (``<device>-answered``) and the join takes that one.  The slot is
 not rewindable: a resume replays nothing.
 """
 
@@ -25,6 +27,7 @@ import bluesky.plan_stubs as bps
 from bluesky.preprocessors import rewindable_wrapper
 from bluesky.utils import FailedStatus, separate_devices
 from geecs_data_utils.shot_table import (
+    ANSWERED_SUFFIX,
     LAYOUT_KEY,
     SHOT_TABLE_LAYOUT,
     STREAM_META_KEY,
@@ -126,6 +129,10 @@ class _Progress:
     def recorded(base: tuple[float, ...]) -> float:
         return min(base) if base else math.nan
 
+    def answered(self, base: tuple[float, ...], now: tuple[float, ...]) -> float:
+        """The stamp a stamped device answered the fire with; ``NaN`` when it did not."""
+        return now[0] if not self.framed and self.moved(base, now) else math.nan
+
 
 # The waits poll to a deadline and are never cancelled from outside: an
 # outer ``asyncio.wait_for`` cancelling an inner one can lose the
@@ -162,8 +169,10 @@ class SlotColumns:
         scan_mode: bool,
         fly: bool = False,
         gated: bool = False,
+        answered: Sequence[str] = (),
     ) -> None:
         self._required = list(required)
+        self._answered = list(answered)
         self._scan_mode = scan_mode
         self._fly = fly
         self._gated = gated
@@ -172,7 +181,11 @@ class SlotColumns:
         self.reset(1, {})
 
     def reset(self, attempt: int, baselines: dict[str, float]) -> None:
-        """A new row: its attempt, its baselines, every flag cleared.
+        """A new row: its attempt, its baselines, every flag and answer cleared.
+
+        *answered* names the required stamped devices of a strict run: each
+        gets a ``<device>-answered`` column, ``NaN`` until the slot's
+        verdict writes the stamp the device answered the fire with.
 
         A fly row has no fire and no hardware witness: no ``fire_stamp``,
         ``unwitnessed`` or ``witness_late`` (an ``unwitnessed`` column would
@@ -191,6 +204,7 @@ class SlotColumns:
             **witness,
             "interrupted": False,
             **{f"{n}-baseline": baselines.get(n, math.nan) for n in self._required},
+            **{f"{n}{ANSWERED_SUFFIX}": math.nan for n in self._answered},
         }
         if self._scan_mode:
             self.values["announce_stamp"] = math.nan
@@ -247,7 +261,13 @@ class OnDemand:
        to advance (with no required device, for the witness count);
     5. re-read every counter: the wait's return is never the verdict, so a
        pause or suspension that cut into the slot (``pause_count`` moved;
-       ``interrupted``) costs nothing — a counter that advanced counts;
+       ``interrupted``) costs nothing — a counter that advanced counts; a
+       required stamped device's re-read stamp, when it moved from the
+       baseline, is recorded in the row (``<device>-answered``, else
+       ``NaN``): the record that answered this fire, which the join takes
+       by that stamp.  It is the latest stamp at the re-read, so of two
+       records landing within one wait the row names the later, and a
+       record landing after the shot timeout answers the refire's row;
     6. the witness: only when neither the witness nor any per-shot device
        advanced is the fire reported as not fired — the row is kept and the
        run pauses with the reason; a witness that stayed put while devices
@@ -325,6 +345,7 @@ class OnDemand:
             [p.name for p in self.required],
             scan_mode=scan_mode is not None,
             gated=self.gate is not None,
+            answered=[p.name for p in self.required if not p.framed],
         )
         self._last_fire: float | None = None
         self._exhausted = 0
@@ -493,6 +514,11 @@ class OnDemand:
         missing = [p for p in self.required if p.name not in moved]
         values["missing"] = ",".join(p.name for p in missing)
         values["complete"] = not missing
+        for p in self.required:
+            if not p.framed:
+                values[f"{p.name}{ANSWERED_SUFFIX}"] = p.answered(
+                    base[p.name], now[p.name]
+                )
         if self.witness is None:
             values["unwitnessed"] = True
         elif None in (now[""], base[""]):

@@ -865,3 +865,148 @@ def test_a_frozen_witness_attribute_is_no_poll_noise() -> None:
     )
     assert "attribute-lag-noisy" not in table.device_flags.get("cam", ())
     assert all("clock-step:cam" in table.flags[k] for k in range(181, 200))
+
+
+# ------------------------------ rows that name the record that answered the fire
+# Two real unwitnessed strict runs, every row complete in the plan, whose
+# stamps the fire interval misfiles; times relative to the first fire (s).
+#: A camera triggered at 1 Hz: each frame is stamped 25-60 ms before the
+#: *next* fire, so it sits in two intervals' overlap.
+PHASE_LOCKED = {
+    "fires": [0.0, 0.447, 1.404, 2.368, 3.37, 4.376, 5.372, 6.396, 7.38, 8.377],
+    "records": [0.346, 1.346, 2.344, 3.344, 4.344, 5.343, 6.343, 7.342, 8.342, 9.341],
+}
+#: A scan-mode exposure sweep: stamps 0.10-0.26 s before their fire (two
+#: just after it), one stamp 1 ms behind the record before it.
+_EARLY = np.array([-0.04, -0.035, 0.127, 0.095, 0.247, 0.103, 0.257, 0.101])
+_BEFORE = 0.3 * np.arange(8) - _EARLY
+_BEFORE[2] = _BEFORE[1] - 0.001
+STAMPED_EARLY = {"fires": list(0.3 * np.arange(8)), "records": list(_BEFORE)}
+#: What the fire interval makes of each (the rule a run without the column keeps).
+BY_INTERVAL = {
+    "phase-locked": (0, 1, None, 2, 3, None, 5, 7, 8, 9),
+    "stamped-early": (0, 2, 3, 4, 5, 6, 7, None),
+}
+RUNS = {"phase-locked": PHASE_LOCKED, "stamped-early": STAMPED_EARLY}
+
+
+def _answered_run(
+    run, *, missed: tuple[int, ...] = (), name: str = "cam"
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """An unwitnessed strict run as the plan writes it, and the device's stamps.
+
+    Each row carries the stamp *name* answered its fire with
+    (``<name>-answered``) and the one it held before (``-baseline``); a
+    *missed* row answered nothing (``NaN``) and has no record.
+    """
+    n = len(run["fires"])
+    own = T0 + LV + np.asarray(run["records"], dtype=float)
+    answered = np.where(np.isin(np.arange(n), missed), np.nan, own)
+    last, baseline = np.nan, []
+    for k in range(n):
+        baseline.append(last)
+        last = last if k in missed else own[k]
+    rows = pd.DataFrame(
+        {
+            "shot_index": np.arange(1, n + 1),
+            "fire_stamp": T0 + np.asarray(run["fires"], dtype=float),
+            "unwitnessed": [True] * n,
+            "complete": [k not in missed for k in range(n)],
+            "missing": [name if k in missed else "" for k in range(n)],
+            f"{name}-baseline": baseline,
+            f"{name}-answered": answered,
+        }
+    )
+    return rows, own[np.isfinite(answered)]
+
+
+@pytest.mark.parametrize("shape", list(RUNS))
+def test_a_row_naming_its_record_gets_exactly_that_record(shape) -> None:
+    rows, stamps = _answered_run(RUNS[shape])
+    value = 10.0 * np.arange(len(stamps))
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", stamps, value=value)])
+    assert table.record_for_shot["cam"] == tuple(range(len(rows)))
+    assert table.extras["cam"] == ()
+    assert list(table.rows["cam-meancounts"]) == list(value)
+    assert all(flags == ("unwitnessed",) for flags in table.flags)
+    assert "cam" not in table.device_flags
+
+
+@pytest.mark.parametrize("shape", list(RUNS))
+def test_a_run_without_the_column_keeps_the_fire_interval(shape) -> None:
+    """The gate: a run recorded before the column is joined as it always was."""
+    rows, stamps = _answered_run(RUNS[shape])
+    table = shot_table(
+        FIRE_CLOCK, rows.drop(columns="cam-answered"), [_device("cam", stamps)]
+    )
+    assert table.record_for_shot["cam"] == BY_INTERVAL[shape]
+
+
+@pytest.mark.parametrize("shape", list(RUNS))
+def test_a_row_that_answered_nothing_gets_no_record_and_later_rows_keep_theirs(
+    shape,
+) -> None:
+    rows, stamps = _answered_run(RUNS[shape], missed=(3,))
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", stamps)])
+    expected = (0, 1, 2, None, *range(3, len(rows) - 1))
+    assert table.record_for_shot["cam"] == expected
+    assert _flagged(table, "missing:cam") == [4]
+    assert _flagged(table, "complete-mismatch") == []
+
+
+def test_a_device_that_is_not_required_keeps_the_fire_interval() -> None:
+    """The plan names no record for it: the same stamps, filed by the clock."""
+    rows, stamps = _answered_run(STAMPED_EARLY)
+    start = {**FIRE_CLOCK, "per_shot_streams": ["cam_stream", "mon_stream"]}
+    table = shot_table(start, rows, [_device("cam", stamps), _device("mon", stamps)])
+    assert table.record_for_shot["cam"] == tuple(range(8))
+    assert table.record_for_shot["mon"] == BY_INTERVAL["stamped-early"]
+
+
+def test_the_named_stamp_is_matched_uncorrected_whatever_the_drain_offset() -> None:
+    """The row and the record hold one number; the offset only times records."""
+    rows, stamps = _answered_run(PHASE_LOCKED)
+    table = shot_table(
+        FIRE_CLOCK, rows, [_device("cam", stamps)], drain_offsets={"cam": 0.2}
+    )
+    assert table.record_for_shot["cam"] == tuple(range(10))
+
+
+def test_a_named_record_the_stream_lost_is_a_miss_the_row_says_so() -> None:
+    rows, stamps = _answered_run(STAMPED_EARLY)
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", np.delete(stamps, 4))])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, None, 4, 5, 6)
+    assert _flagged(table, "missing:cam") == [5]
+    assert _flagged(table, "complete-mismatch") == [5]
+
+
+def test_of_two_records_in_one_wait_the_row_keeps_the_one_it_names() -> None:
+    """The plan read the later stamp: the earlier record stays an extra."""
+    rows, stamps = _answered_run(PHASE_LOCKED)
+    doubled = np.insert(stamps, 4, stamps[4] - 0.02)
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", doubled)])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 5, 6, 7, 8, 9, 10)
+    assert table.extras["cam"] == (4,)
+
+
+def test_the_named_record_wins_on_witnessed_rows_too() -> None:
+    """Stamps most of a period before their edge: the nearest edge is the wrong row's."""
+    rows = _rows(6)
+    stamps = rows["witness_stamp"].to_numpy() + LV - 0.7
+    named = rows.assign(**{"cam-answered": stamps})
+    assert shot_table(START, rows, [_device("cam", stamps)]).record_for_shot[
+        "cam"
+    ] != tuple(range(6))
+    table = shot_table(START, named, [_device("cam", stamps)])
+    assert table.record_for_shot["cam"] == tuple(range(6))
+
+
+def test_an_old_layout_run_never_reads_the_column() -> None:
+    rows, stamps = _answered_run(PHASE_LOCKED)
+    old = {"shot_clock_column": "fire_stamp", "shot_period": 1.0}
+    cam = _device("cam", stamps)
+    with_column = shot_table(old, rows, [cam], row_stream="primary")
+    without = shot_table(
+        old, rows.drop(columns="cam-answered"), [cam], row_stream="primary"
+    )
+    assert with_column.record_for_shot == without.record_for_shot

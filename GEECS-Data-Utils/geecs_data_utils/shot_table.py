@@ -10,12 +10,17 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   stacks under ``shots`` rows, a streamed ``<name>_stream``) is
   joined exactly as the s-file joins it (:mod:`geecs_data_utils.shot_join`).
 - **Shot-table layout** (``layout: "shot-table/1"``).  ``primary`` is the
-  shot table and every device is in its own stream.  Time assigns,
-  counters audit — a counter never moves a record:
+  shot table and every device is in its own stream.  A device the rows
+  name the answering record of is filed by that name; for every other,
+  time assigns.  Counters audit — a counter never moves a record:
 
   ============================  ==============================================
   rows / device                 assignment
   ============================  ==============================================
+  ``<device>-answered`` in      the record whose stamp equals the row's
+  the rows (a strict run's      value, uncorrected on both sides; ``NaN`` is
+  required stamped device)      a miss.  Every row, witnessed or not: no
+                                clock, interval or fire time is read
   witnessed, synchronous        nearest offset-corrected stamp, globally
                                 nearest pair first (the s-file's join)
   unwitnessed / witness late    the interval (fire *k* − m, fire *k*+1],
@@ -90,6 +95,12 @@ COUNTER_KEYS = ("NDArrayUniqueId", "UniqueId", "ArrayCounter")
 #: in this repo writes a per-frame ``witness_count`` (that name is the
 #: ``primary`` row's column, ``devices/witness.py``).
 WITNESS_ATTRIBUTE_KEY = "WitnessCount"
+
+#: The row column naming the record of a required stamped device that
+#: answered the row's fire, ``<device>`` + this: that record's stamp as the
+#: plan read it after the wait (LabVIEW epoch, uncorrected), ``NaN`` when
+#: the device did not answer.
+ANSWERED_SUFFIX = "-answered"
 
 #: How far before its fire an unwitnessed record may be stamped, seconds:
 #: a LabVIEW host's clock runs up to 16 ms off the box and a stored
@@ -379,7 +390,13 @@ def shot_table(
                 a is not None and not s for a, s in zip(assigned, stale)
             )
         else:
-            assigned = clock.assign(source, records, positional=positional)
+            answered = _column(rows, f"{name}{ANSWERED_SUFFIX}") if new else None
+            if answered is None:
+                assigned = clock.assign(source, records, positional=positional)
+            else:
+                assigned = _assign_answered(
+                    answered, source.records.stamps, name, clock.flags
+                )
             claimed = set(assigned)
             extras[name] = tuple(i for i in range(len(records)) if i not in claimed)
             run_flags = clock.audit(
@@ -619,6 +636,36 @@ def _gathered(values: Any, indices: Sequence[int | None]) -> np.ndarray:
     return out
 
 
+def _assign_answered(
+    answered: np.ndarray, stamps: np.ndarray, name: str, flags: list[list[str]]
+) -> list[int | None]:
+    """Per row, the record whose stamp is the one the row names; a miss is flagged.
+
+    *answered* is the rows' ``<device>-answered`` column: the device's
+    stamp as the plan read it after the wait, when it had moved from the
+    row's baseline.  The plan's read and the stream's record are the same
+    monitor update of one PV, the same float64, so the match is equality
+    of the stamps as recorded — no drain offset on either side (the join
+    subtracts it from the records only to compare them with a row clock),
+    no tolerance and no clock.  ``NaN`` (the device did not answer) and a
+    stamp no record carries (the stream lost it) are misses.  Rows go in
+    order and a record is taken once: when a stamp repeats in the stream,
+    each row naming it takes the earliest such record still free.  A row
+    with no record gets ``None`` and ``missing:<name>`` in *flags*.
+    """
+    free: dict[float, list[int]] = {}
+    for index, stamp in enumerate(np.asarray(stamps, dtype=float)):
+        if np.isfinite(stamp):
+            free.setdefault(float(stamp), []).append(index)
+    assigned: list[int | None] = []
+    for stamp in answered:
+        indices = free.get(float(stamp)) if np.isfinite(stamp) else None
+        assigned.append(indices.pop(0) if indices else None)
+        if assigned[-1] is None:
+            flags[len(assigned) - 1].append(f"missing:{name}")
+    return assigned
+
+
 def _last_before(
     clocks: np.ndarray, records: np.ndarray
 ) -> tuple[list[int | None], np.ndarray]:
@@ -694,7 +741,9 @@ def _assign_intervals(
     interval closes a period after its fire.  The plan also records each
     row's pre-fire baseline per required device (``<device>-baseline``):
     a record newer than baseline *k* is row *k*'s or later.  This join
-    does not read it.
+    does not read it; a device the rows name the answering record of
+    (``<device>-answered``) never reaches this rule
+    (:func:`_assign_answered`).
     """
     claimed = {i for i in assigned if i is not None}
     fires, n = clock.fires, clock.fires.size
@@ -1122,6 +1171,7 @@ def _attribute_audit(
 
 
 __all__ = [
+    "ANSWERED_SUFFIX",
     "ASYNCHRONOUS",
     "COUNTER_KEYS",
     "STREAM_META_KEY",

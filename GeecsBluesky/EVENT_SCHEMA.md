@@ -130,14 +130,43 @@ What the row carries:
 | `gate_hold_s` | seconds | A gated run only (start `shot_gate` present): how long this fire waited for the shot gate's permission — one fresh safe verdict (on data taken after the previous fire, or received after it when the verdict carries no data stamp) — before its baseline; 0 when the permission was already there. The waiting alone: a pause the hold led to is not counted |
 | `witness_count`, `witness_stamp`, `witness_epoch` | count; Unix s (the count record's CA time); string | A run whose witness is read (start `witness.read`), as below |
 | `<device>-baseline` | a frame count, or LabVIEW s | One per required device: its progress counter read **before** the fire — a plugin or native camera's frame count (`NumCaptured`, the fewest across its plugins), a stamped device's `acq_timestamp` (LabVIEW epoch, `NaN` before its first stamp). A record of row *k* is newer than baseline *k* |
-| `complete` | boolean | Every required device reported for this fire (the plan's decision to stop refiring; which record is which shot's is the join's — a reader auditing the two flags *complete-mismatch*) |
+| `<device>-answered` | LabVIEW s | One per required **stamped** device (a device without a plugin, a `.scalars` view; not a plugin or native camera, which count frames), a strict run only: the device's `acq_timestamp` as the plan read it **after** the wait, when it had moved from the row's baseline — the stamp of the stream record that answered this fire, the same number that record carries. `NaN` when the device did not answer (it is then in `missing`) or its stamp could not be read. Each refire's row carries its own. The join's key for that device (below) |
+| `complete` | boolean | Every required device reported for this fire (the plan's decision to stop refiring; which record is which shot's is the join's — by the row's `<device>-answered` where it has one — a reader auditing the two flags *complete-mismatch*) |
 | `missing` | string | The required devices that did not report, comma-joined ophyd names; `""` when complete |
 | `extra_frames` | string | Gateway plugin cameras (`GeecsDetector`, not a native camera) that counted more than one frame since the previous fire, comma-joined `<name>=<frames>`; `""` when none. One fire may (a missed shot's late frame before the refire's); two in a row pause the run naming the camera when it is **required** (free-running: put it in trigger mode). A camera that is not required may free-run on purpose (a steady-state monitor): it is listed on every such row, the join keeps one of its frames per row, the rest stay in its stack as extras, and the run logs one WARNING, never a pause. Not in a fly run |
-| `unwitnessed` | boolean | No witness read this run: the join assigns by fire interval |
+| `unwitnessed` | boolean | No witness read this run: the join assigns by fire interval (a device with a `<device>-answered` column by that column instead) |
 | `witness_late` | boolean | The witness count stayed put while a device reported (a poll or USB stall) — never a stop |
 | `interrupted` | boolean | A pause or suspension landed inside the fire's slot; the counters were re-read after the resume (a pause inside the row's own bundle drops it and reads it again — never a short row) |
 | `bin_number`, the motors, `announced_shot` | as below | As in every strict row |
 | the conditions | as below | Devices with no shot stamp (`CaSnapshotReadable`, setpoint devices) and the background telemetry, read per row |
+
+**A row names the record that answered it.** For a device with a
+`<device>-answered` column the join (`geecs_data_utils.shot_table`) gives
+row *k* the stream record whose `<device>-acq_timestamp` **equals** the
+row's value — the two are one monitor update of one PV, compared as
+recorded, with no drain offset, tolerance, clock, fire time or witness —
+and a `NaN` row no record.  It holds on every row of the run, witnessed or
+not, in scan mode or not: where the device's stamp falls against the fire,
+and whether its host's clock agrees with the worker's, does not matter.  A
+record no row names stays in its stream as an extra; a named stamp the
+stream does not hold (a record the stream failed to read) is a miss, and
+the row is flagged *complete-mismatch*.  A witnessed run's audits still
+read the pairing against the witness (`clock-step`), flagging and never
+moving a record.  What the value is and is not:
+
+- it is the **latest** stamp the plan saw at its re-read after the wait.
+  When two records arrive within one wait, the row names the later one
+  and the earlier stays an extra;
+- a record that arrives **after the shot timeout** left its own row
+  `NaN` (that row has no record, though the device did acquire) and, if
+  it lands after the refire's baseline was read, answers the refire's
+  row; the refire's own record can then answer the row after it;
+- a device that never pauses can publish a record between the baseline
+  read and the fire: it answers that row;
+- every other device keeps the rules below: one that is **not required**
+  (the plan never waits for it, so it names nothing), a plugin or native
+  camera (counted by frames), every device of a fly run, and every run
+  recorded before the column existed.
 
 **A fire nothing saw pauses the run.** A fire whose witness count and
 every per-shot counter stayed put was not fired: the row is kept (flags
@@ -328,7 +357,9 @@ The descriptor's configuration carries the device's
 object is named after the device).  A device that published nothing has a
 declared, empty stream (and a WARNING in the log).  The s-file joins these
 events onto the rows as it joins frames — each row takes the nearest event
-inside its own window, by offset-corrected stamp; a row with none reads
+inside its own window, by offset-corrected stamp (a device the rows carry
+a `<name>-answered` column for: the event with exactly that stamp,
+"A row names the record that answered it" above); a row with none reads
 `NaN` in the device's columns (a device slower than the rep rate leaves
 `NaN` on the rows it missed; an empty stream gives all-`NaN` columns from
 the descriptor's numeric data keys), an event no row's window reaches
