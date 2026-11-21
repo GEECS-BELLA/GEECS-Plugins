@@ -538,11 +538,13 @@ class _RowClock:
             )
             if answered is None:
                 ambiguous = _assign_intervals(assigned, records, self)
-            else:
-                _assign_answered(assigned, answered, source, rows, self)
+            # Every witnessed row first, the stamp-shared groups included:
+            # a row naming its record never takes one the witness files.
             unresolved, self.held[source.device] = _assign_shared(
                 assigned, records, source.counter, self
             )
+            if answered is not None:
+                _assign_answered(assigned, answered, source, rows, self)
         for k in range(n):
             if k in unresolved:
                 self.flags[k].append(f"witness-stamp-shared-unresolved:{source.device}")
@@ -671,7 +673,8 @@ def _assign_answered(
     subtracts it from the records only to compare them with a row clock),
     no tolerance and no clock.  ``NaN`` (the device did not answer) and a
     stamp no free record carries (the stream lost it, or a witnessed row
-    took it) are misses.  Rows go in order and a record is taken once:
+    took it — a stamp-shared group's rows included, and the records an
+    unresolved group holds back) are misses.  Rows go in order and a record is taken once:
     when a stamp repeats in the stream, each row naming it takes the
     earliest such record still free.
 
@@ -688,7 +691,7 @@ def _assign_answered(
     no record, and the rows a shift carries on to are not flagged.
     """
     name = source.device
-    claimed = {i for i in assigned if i is not None}
+    claimed = {i for i in assigned if i is not None} | clock.held.get(name, set())
     free: dict[float, list[int]] = {}
     for index, stamp in enumerate(np.asarray(source.records.stamps, dtype=float)):
         if np.isfinite(stamp) and index not in claimed:

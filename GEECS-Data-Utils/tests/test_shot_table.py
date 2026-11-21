@@ -1088,6 +1088,42 @@ def test_a_first_attempt_after_an_exhausted_shots_miss_is_flagged_too() -> None:
     assert _flagged(shot_table(start, rows, [cam]), "answer-after-miss:cam") == [3]
 
 
+def _stalled_with_a_late_row_naming_the_groups_record():
+    """A stamp-shared witnessed group (shots 4, 5); shot 6 is witness-late and names shot 5's record."""
+    rows, cam = _stalled()
+    rows["witness_late"] = np.arange(len(rows)) == 5
+    answered = np.array(cam.records.stamps, dtype=float)
+    answered[5] = answered[4]
+    return rows, rows.assign(**{"cam-answered": answered}), cam
+
+
+def test_a_stamp_shared_witnessed_group_keeps_its_records_from_a_row_naming_one() -> (
+    None
+):
+    """The witness wins a contested record in a shared group as on any witnessed row."""
+    plain, named, cam = _stalled_with_a_late_row_naming_the_groups_record()
+    table = shot_table(START, named, [cam])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4, None, 6, 7)
+    assert table.extras["cam"] == (5,)
+    assert _flagged(table, "missing:cam") == [6]
+    assert _flagged(table, "witness-stamp-shared-unresolved:cam") == []
+    # The group resolves exactly as it does in a run without the column.
+    assert shot_table(START, plain, [cam]).record_for_shot["cam"][:5] == (0, 1, 2, 3, 4)
+
+
+def test_an_unresolved_shared_groups_held_records_are_not_given_to_a_naming_row() -> (
+    None
+):
+    """A group one record short is left unresolved; what it holds back stays held."""
+    rows, cam = _stalled(drop=(3,))
+    rows["witness_late"] = np.arange(len(rows)) == 5
+    answered = np.full(len(rows), np.nan)
+    answered[5] = cam.records.stamps[3]  # shot 5's record, held by the group
+    table = shot_table(START, rows.assign(**{"cam-answered": answered}), [cam])
+    assert table.record_for_shot["cam"][3:6] == (None, None, None)
+    assert table.held["cam"] == (3,)
+
+
 def test_an_old_layout_run_never_reads_the_column() -> None:
     rows, stamps = _answered_run(PHASE_LOCKED)
     old = {"shot_clock_column": "fire_stamp", "shot_period": 1.0}

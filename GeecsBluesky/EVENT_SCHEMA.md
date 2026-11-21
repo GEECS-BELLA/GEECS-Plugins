@@ -153,7 +153,7 @@ is per row, in scan mode or not; there, where the device's stamp falls
 against the fire, and whether its host's clock agrees with the worker's,
 does not matter.  A record no row names stays in its stream as an extra;
 a named stamp no free record carries (a record the stream failed to read,
-or one a witnessed row took) is a miss, and the row is flagged
+or one the witnessed rows took or, sharing a witness stamp, hold back unresolved) is a miss, and the row is flagged
 *complete-mismatch*.  What the value is and is not:
 
 - it is the **latest** stamp the plan saw at its re-read after the wait.
