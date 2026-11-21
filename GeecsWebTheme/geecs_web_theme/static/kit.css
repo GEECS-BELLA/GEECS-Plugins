@@ -550,6 +550,10 @@ body.kit{
 /* The one state a room watches, at a size the room can read. */
 .kit .chip.lg{font-size:13px;padding:4px 13px}
 .kit .chip.lg::before{width:8px;height:8px}
+/* A verdict read across the room (the interlocks' SAFE / TRIPPED): the
+   whole page answers to it, so it outranks every heading on the page. */
+.kit .chip.xl{font-size:26px;font-weight:600;padding:8px 24px;gap:12px}
+.kit .chip.xl::before{width:14px;height:14px}
 
 /* A live reading with its age built in. The pane-level `stale` doctrine at
    value granularity: every number says how old it is, and past a threshold

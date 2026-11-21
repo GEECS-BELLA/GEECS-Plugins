@@ -50,6 +50,7 @@ diagnose the package the current task is about.
    | `GEECS-Core` | `poetry install` (self-contained) |
    | `GEECS-LogTriage` | `poetry install` |
    | `GEECS-DataPortal` | `poetry install --extras analysis` |
+   | `GEECS-Interlocks` | `poetry install --extras gui` (PyQt6: the server window's tests) |
 
    Symptom of missing `ca`: the whole GeecsBluesky mock-device test layer
    collects as "1 skipped" (`pytest.importorskip("aioca")`).

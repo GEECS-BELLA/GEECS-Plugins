@@ -1,12 +1,14 @@
 # Web Services
 
-Five pages in a browser cover the day-to-day work at the beamline: watch
+Six pages in a browser cover the day-to-day work at the beamline: watch
 and set the devices, run a scan, look at what it recorded, write down
 what happened, and change the configuration. Nothing is
 installed on an operator machine. Each is a service on a fleet host,
 on its own port, so each gets its own bookmark:
 `http://<worker-host>:<port>/`. The host and the units behind each
-service are on the [fleet map](../platform/fleet_map.md).
+service are on the [fleet map](../platform/fleet_map.md). The one exception is
+the [Interlocks](interlocks.md): their server runs by hand on the lab PC
+beside Master Control, and serves its page from there.
 
 Where the site runs a **front door**, the same pages also have names
 under one `https://` address, and the pages link to each other by name:
@@ -76,6 +78,16 @@ the Configurator's, which does not have one yet.
     pull request for the maintainer.
 
     [:octicons-arrow-right-24: Configurator](configurator.md)
+
+-   :material-shield-alert:{ .lg .middle } **Interlocks** · port 8600
+
+    ---
+
+    Watch the software interlocks Master Control reads: the verdict, each
+    interlock and its checks, a trend against the limit. The server and its
+    builder run in a window on the lab PC; this page is read only.
+
+    [:octicons-arrow-right-24: Interlocks](interlocks.md)
 
 </div>
 

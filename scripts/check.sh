@@ -44,7 +44,7 @@ cd "$REPO_ROOT"
 # breaking a dependent. So a green check.sh is not a promise that CI is
 # green, and never was.
 ROOT_ENV_PKGS="GEECS-Analysis ScanAnalysis GEECS-Data-Utils GEECS-Schemas"
-OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme GeecsArchiver GeecsCanopy GeecsControlRoom GeecsConfigurator GeecsAnalysisWorker"
+OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme GeecsArchiver GeecsCanopy GeecsControlRoom GeecsConfigurator GeecsAnalysisWorker GEECS-Interlocks"
 
 MODE="changed"      # changed | all | lint
 BASE=""
@@ -335,6 +335,19 @@ run_bluesky_suite() {
     rm -f "$report"
 }
 
+run_interlocks_suite() {
+    local report
+    report="$(mktemp)"
+    poetry run pytest tests --tb=short -q -rs | tee "$report" \
+        || { rm -f "$report"; return 1; }
+    if grep -E "could not import 'PyQt6" "$report"; then
+        rm -f "$report"
+        echo "check.sh: GEECS-Interlocks' window tests skipped — install the gui extra (see /env-doctor)" >&2
+        return 1
+    fi
+    rm -f "$report"
+}
+
 run_suite() {
     case "$1" in
         root-tests)
@@ -345,6 +358,8 @@ run_suite() {
             poetry run pytest "$1/tests" -m "not integration and not gui" --tb=short -q ;;
         GeecsBluesky)
             (cd GeecsBluesky && run_bluesky_suite) ;;
+        GEECS-Interlocks)
+            (cd GEECS-Interlocks && run_interlocks_suite) ;;
         GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsScanner|GeecsWebTheme|GeecsArchiver|GeecsCanopy|GeecsControlRoom|GeecsConfigurator|GeecsAnalysisWorker)
             (cd "$1" && poetry run pytest tests --tb=short -q) ;;
         *)
