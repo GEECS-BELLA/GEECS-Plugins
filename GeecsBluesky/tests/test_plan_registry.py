@@ -16,6 +16,7 @@ from bluesky.utils import FailedStatus, is_plan
 from ophyd_async.core import Device, callback_on_mock_put, set_mock_value
 
 from geecs_bluesky.devices.ca import CaMotor
+from geecs_bluesky.plans.strict import geecs_name
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
@@ -870,3 +871,102 @@ def test_optimize_signature_and_classification(profiles):
     ]
     assert parameters["optimizer_config"].kind is inspect.Parameter.KEYWORD_ONLY
     assert parameters["optimizer_config"].default is inspect.Parameter.empty
+
+
+# ------------------------------------------------ a frozen loop (warned)
+
+
+def test_the_in_plan_check_reads_each_devices_stamp_beside_its_connected_pv(
+    RE, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from geecs_bluesky.plans import strict
+
+    seen: list[dict[str, str]] = []
+
+    def probe(stamp_pvs, **_):
+        seen.append(dict(stamp_pvs))
+        return [("U_Gauge", 45.0)]
+
+    monkeypatch.setattr(strict, "probe_stale_pvs", probe)
+    gauge = SimpleNamespace(
+        name="u_gauge",
+        _geecs_device_name="U_Gauge",
+        connected_status=SimpleNamespace(source="ca://bella:u_gauge:connected"),
+    )
+    native = SimpleNamespace(
+        name="n",
+        _geecs_device_name="N_Motor",
+        connected_status=SimpleNamespace(source="soft://n:connected"),
+    )
+    out: list = []
+
+    def plan():
+        out.append((yield from strict.stale_devices([gauge, native])))
+
+    RE(plan())
+    assert seen == [{"U_Gauge": "bella:u_gauge:systimestamp"}]  # the native not judged
+    assert out == [[("U_Gauge", 45.0)]]
+
+
+def test_a_frozen_condition_is_warned_and_named_but_the_run_goes_on(
+    RE, box, profiles, caplog, monkeypatch
+):
+    import geecs_bluesky.plans.registry as registry
+    from geecs_bluesky.devices.ca import CaSnapshotReadable
+
+    judged: list[list[str]] = []
+
+    def stale(objs):
+        judged.append([getattr(o, "name", "") for o in objs])
+        return [("U_Gauge", 120.0)]
+        yield  # a generator
+
+    monkeypatch.setattr(registry, "stale_devices", stale)
+    cam = _camera(RE, box, "UC_Cam")
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    col = DocCollector()
+    RE.subscribe(col)
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.registry"):
+        RE(bind_plans(profiles)["count"]([cam, gauge.scalars], 1))
+    assert judged == [["u_gauge-scalars"]]  # the condition, never the camera
+    assert col.docs["start"][0]["devices_stale"] == ["U_Gauge"]
+    lines = [
+        r.getMessage()
+        for r in caplog.records
+        if "U_Gauge (not updated" in r.getMessage()
+    ]
+    assert len(lines) == 2  # at bind (the journal), again after open_run (scan.log)
+    assert box.fires == 1  # a warning, never a refusal
+
+
+def test_a_sweeps_mover_is_judged_for_a_frozen_loop(RE, box, profiles, monkeypatch):
+    import geecs_bluesky.plans.registry as registry
+    from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+
+    judged: list[list[str]] = []
+
+    def stale(objs):
+        judged.append([geecs_name(o) for o in objs])
+        return []
+        yield  # a generator
+
+    monkeypatch.setattr(registry, "stale_devices", stale)
+    cam = _camera(RE, box, "UC_Cam")
+    magnet = CaSnapshotReadable(
+        "U_S1H", ["Voltage"], experiment="TestExp", name="u_s1h"
+    )
+    magnet.current = CaMotor("U_S1H", "Current", experiment="TestExp", tolerance=0.01)
+    magnet.add_readables([magnet.current])
+    connect_mock(RE, magnet)
+    follow_setpoint(magnet.current)
+    RE(
+        bind_plans(profiles, settables={"U_S1H": magnet})["sweep"](
+            [cam], sweep=payload()
+        )
+    )
+    assert judged == [["U_S1H"]]  # the mover, not the camera

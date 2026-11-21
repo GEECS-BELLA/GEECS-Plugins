@@ -162,6 +162,7 @@ def run_submit_preflight(
             experiment,
             needed={*item.needed, *box},
             listed=item.devices,
+            loops=True,
         )
 
     return report
@@ -196,13 +197,33 @@ def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) 
     return report
 
 
-def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None, listed: Collection[str] = ()) -> None:  # fmt: skip
-    """:func:`_check_liveness`, recorded ``skipped`` (never raised) when the probe itself fails."""
+def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None, listed: Collection[str] = (), loops: bool = False) -> None:  # fmt: skip
+    """:func:`_check_liveness` (then, with *loops*, :func:`_check_loops`), recorded ``skipped`` (never raised) when a probe itself fails."""
+    check = "gateway_liveness"
     try:
-        _check_liveness(report, devices, experiment, needed=needed, listed=listed)
+        down = _check_liveness(
+            report, devices, experiment, needed=needed, listed=listed
+        )
+        if loops:
+            check = "device_loops"
+            _check_loops(report, [d for d in devices if d not in down], experiment)
     except Exception as exc:  # noqa: BLE001 — preflight fails open
-        logger.warning("liveness preflight failed: %s", exc)
-        report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
+        logger.warning("%s preflight failed: %s", check, exc)
+        report.outcomes.append((check, "skipped", str(exc)))
+
+
+def _check_loops(report: PreflightReport, devices: list[str], experiment: str) -> None:
+    """Note the devices whose LabVIEW loop looks frozen (``device_loops``); never a question.
+
+    The worker warns of the same at the run's start
+    (``plans/strict.stale_devices``) for the devices it never waits on (the
+    conditions and the movers); here every probed device is noted.
+    """
+    from geecs_bluesky.devices.ca.liveness import probe_stale, stale_text
+
+    stale = probe_stale(experiment, devices, timeout=_LIVENESS_TIMEOUT_S)
+    note = f"frozen loop, recorded anyway: {stale_text(stale)}" if stale else ""
+    report.outcomes.append(("device_loops", "passed", note))
 
 
 def _make_default_resolver(experiment: str) -> Any:
@@ -419,8 +440,8 @@ def _check_liveness(
     *,
     needed: Collection[str] | None = None,
     listed: Collection[str] = (),
-) -> None:
-    """Read each device's gateway ``CONNECTED`` PV; question a down device the run needs.
+) -> list[str]:
+    """Read each device's gateway ``CONNECTED`` PV; question a down device the run needs; answer the down ones.
 
     The probe (concurrent batch read, fail-open, the DBR_ENUM
     ``datatype=str`` subtlety) is the shared
@@ -440,7 +461,7 @@ def _check_liveness(
     down = probe_disconnected(experiment, devices, timeout=_LIVENESS_TIMEOUT_S)
     if not down:
         report.outcomes.append(("gateway_liveness", "passed", ""))
-        return
+        return []
     must = set(devices) if needed is None else set(needed)
     refusing = sorted(d for d in down if d in must)
     left_out = sorted(d for d in down if d not in must)
@@ -453,7 +474,7 @@ def _check_liveness(
                 f"left out, disconnected and not required: {', '.join(left_out)}",
             )
         )
-        return
+        return down
     parts: list[str] = []
     if refusing:
         parts.append(
@@ -480,6 +501,7 @@ def _check_liveness(
             message=" ".join([*parts, "Continue anyway?"]),
         )
     )
+    return down
 
 
 def build_submission_record(
