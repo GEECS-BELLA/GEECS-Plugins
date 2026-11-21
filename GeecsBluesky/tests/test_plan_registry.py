@@ -653,6 +653,8 @@ def test_a_dead_device_not_required_is_left_out_of_the_run(
         RE(count([live, dead], 2, required=[live]))
     (start,) = col.docs["start"]
     assert start["devices_dropped"] == ["UC_Dead"]
+    # at bind (the journal) and again after open_run (the scan's scan.log)
+    assert caplog.text.count("UC_Dead DISCONNECTED") == 2
     assert "uc_dead" not in start["detectors"]
     assert "uc_dead_stream" not in start["per_shot_streams"]
     assert col.stream_events("uc_dead_stream") == []

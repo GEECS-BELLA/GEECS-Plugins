@@ -836,6 +836,13 @@ def strict_plan(  # noqa: C901, PLR0915
             [*(d for d in detectors if not is_per_shot(d)), *mover_roots(movers)]
         )
         start_warnings: list[str] = []
+        if dropped:
+            # drop_down_devices WARNED it at bind, before scan.log exists:
+            # again after open_run, so the scan's own log says it too.
+            start_warnings.append(
+                f"{', '.join(dropped)} DISCONNECTED — not required, so left out "
+                "of this run (no stream, no columns)"
+            )
         if stale:
             start_warnings.append(
                 f"{stale_text(stale)} — connected, but its LabVIEW loop has not "
