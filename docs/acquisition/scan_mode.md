@@ -111,6 +111,18 @@ database mistake: fix the row, then relaunch the device. A device reads
 its lock only at launch, so a running one keeps the old value. The worker
 neither checks nor warns.
 
+### Scanning a detector's own variable
+
+A run's per-shot detectors (its cameras, recorded with images or as
+scalars) do pause, so their readbacks freeze between shots. Scanning one
+of their own variables — a camera's exposure, say — therefore cannot wait
+for the readback to reach the new value. For such a move the device's own
+reply settles it: the device has already checked the value against its DB
+tolerance before answering `no error`, and an error reply still fails the
+scan. `scan.log` says so on each step (`confirmed by the device's reply
+(paused in scan mode …)`). Every other move — a stage, a supply, the
+trigger box — still waits for its readback.
+
 ## Preflight refusals
 
 The worker refuses a scan-mode run before it starts when:
