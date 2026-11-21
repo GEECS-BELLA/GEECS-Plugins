@@ -188,7 +188,14 @@ after a clone appears; it fetches existing clones but never moves their
 HEAD (a pull is a deploy — do it per service, deliberately, then restart
 that unit). Each unit is rendered from **its own service's clone**, so a
 unit always matches the code it runs even when the clones sit at
-different pins; re-rendering a unit is part of that service's deploy. A
+different pins; re-rendering a unit is part of that service's deploy.
+The script itself, and the list of services it knows, are the clone's
+you run it from: run it from a clone at least as new as the service
+being staged (an older clone answers `--only: unknown service` for a
+service added since, and without `--only` never stages it). A pull of an
+editable install is half a deploy until the restart (the running process
+reads the new templates under its old code), so pull, bootstrap, install
+the staged units and restart in one go. A
 clone pinned *before* the templated units exist has no template to
 render: the render refuses it by name ("not a site-profile template")
 rather than passing the old hand-edit unit through — pull that clone

@@ -256,6 +256,16 @@ cd GEECS-DataPortal && poetry install --extras analysis
 sudo systemctl restart geecs-data-portal
 ```
 
+**Do the three in one go.** The package is installed editable, so the
+running portal reads the pulled templates and static files at once, under
+its old code: until the restart a page whose template changed can answer
+500. The logbook runs from the same clone the same way
+(`GeecsLogbook/`, its own environment and unit), so a pull is a deploy of
+both: install and restart both. On a services host,
+`deploy/bootstrap_host.sh <site.env> --only portal,logbook` does the two
+installs and renders both units; run it straight after the pull, install
+the units it staged, and restart.
+
 When the unit template changed (`git diff` on
 `deploy/geecs-data-portal.service`), re-render and reinstall it before the
 restart. A unit from before the settings sets moved has no
