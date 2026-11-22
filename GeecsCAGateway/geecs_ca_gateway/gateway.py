@@ -29,7 +29,7 @@ from caproto import (
     ChannelString,
     SubscriptionType,
 )
-from caproto.asyncio.server import start_server
+from caproto.asyncio.server import Context
 
 from geecs_core.exceptions import GeecsConnectionError
 from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
@@ -49,6 +49,15 @@ from .channels import (
 )
 from .config import GatewayConfig, VariableSpec
 from .derived import DerivedChannelSpec, ExpressionEvaluator, derived_pv_name
+from . import watchdog as _watchdog
+from .watchdog import (
+    WATCHDOG_EXIT_CODE,
+    DeliveryWatchdog,
+    MonitorDeliveryStalledError,
+    arm_hard_exit,
+    install_counting_queue,
+    stall_report,
+)
 from geecs_core.pv_naming import (
     GATEWAY_DEVICE,
     GATEWAY_DEVICES_CONNECTED,
@@ -62,6 +71,12 @@ from geecs_core.pv_naming import (
 from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET as _LABVIEW_EPOCH_OFFSET
 
 logger = logging.getLogger(__name__)
+
+#: Exit status for "relaunch me": a CA put to ``CAGateway:RESTART``. The
+#: systemd unit lists it in ``SuccessExitStatus`` and ``RestartForceExitStatus``,
+#: so the exit is a clean relaunch (which also resyncs the served set with the
+#: DB). A monitor-delivery stall exits with ``watchdog.WATCHDOG_EXIT_CODE``.
+RESTART_EXIT_CODE = 86
 
 # Sentinel for "no value written yet" in the deadband cache.
 _UNSET = object()
@@ -191,6 +206,11 @@ class GeecsCaGateway:
         last known endpoint.  Production wiring passes
         ``GeecsDb.find_device``; the default ``None`` disables re-resolve
         (startup endpoints are retried forever, the pre-0.20 behavior).
+    hard_exit_grace_s : float, optional
+        After a monitor-delivery stall, seconds the orderly shutdown may take
+        before the process ends outright with the watchdog's exit status
+        (``watchdog.arm_hard_exit``). ``None`` (the default) arms nothing; the
+        entrypoint arms it, since it ends the whole process.
     """
 
     def __init__(
@@ -201,8 +221,10 @@ class GeecsCaGateway:
         reconnect_max_s: float = 30.0,
         set_timeout_s: float = _SET_REPLY_CEILING_S,
         endpoint_resolver: Callable[[str], tuple[str, int] | None] | None = None,
+        hard_exit_grace_s: float | None = None,
     ) -> None:
         self.config = config
+        self._hard_exit_grace_s = hard_exit_grace_s
         self._reconnect_min = reconnect_min_s
         self._reconnect_max = reconnect_max_s
         self._set_timeout = set_timeout_s
@@ -1164,18 +1186,59 @@ class GeecsCaGateway:
             self._restart_requested.set()
 
     async def serve(self) -> None:
-        """Run the CA server until cancelled (serves ``self.pvdb``)."""
-        await start_server(self.pvdb, log_pv_names=True)
+        """Run the CA server (serves ``self.pvdb``) under the delivery watchdog.
 
-    async def run(self) -> bool:
+        The caproto context's subscription queue is swapped for a counting
+        one before the server starts, and a ``DeliveryWatchdog`` reads it
+        every ``watchdog.CHECK_PERIOD_S``. If monitor delivery stalls for
+        ``watchdog.STALL_LIMIT_S``, the evidence (``watchdog.stall_report``)
+        is logged as one ERROR record, the server is stopped, and
+        ``MonitorDeliveryStalledError`` is raised.
+
+        Raises
+        ------
+        MonitorDeliveryStalledError
+            Monitor delivery stalled; the evidence is already logged.
+        """
+        context = Context(self.pvdb)
+        queue = install_counting_queue(context)
+        server = asyncio.create_task(context.run(log_pv_names=True), name="ca-context")
+        dog = DeliveryWatchdog(queue, stall_limit_s=_watchdog.STALL_LIMIT_S)
+        watch = asyncio.create_task(
+            dog.watch(_watchdog.CHECK_PERIOD_S), name="monitor-watchdog"
+        )
+        try:
+            await asyncio.wait({server, watch}, return_when=asyncio.FIRST_COMPLETED)
+            if server.done():
+                server.result()  # propagate a server crash
+                return
+            stalled_s = watch.result()
+            try:
+                logger.error("%s", stall_report(context, queue, stalled_s))
+            except Exception:  # the exit must not depend on the report
+                logger.exception(
+                    "CA monitor delivery STALLED for %.1f s; the evidence report "
+                    "failed",
+                    stalled_s,
+                )
+            if self._hard_exit_grace_s is not None:
+                arm_hard_exit(WATCHDOG_EXIT_CODE, self._hard_exit_grace_s)
+            raise MonitorDeliveryStalledError(stalled_s, queue.qsize())
+        finally:
+            for task in (server, watch):
+                task.cancel()
+            await asyncio.gather(server, watch, return_exceptions=True)
+
+    async def run(self) -> int | None:
         """Connect, subscribe, and serve — the full gateway lifecycle.
 
         Returns
         -------
-        bool
-            True if shutdown was requested via the ``CAGateway:RESTART`` PV
-            (the entrypoint turns this into the restart exit code), False if
-            the server ended any other way.
+        int or None
+            ``RESTART_EXIT_CODE`` if shutdown was requested via the
+            ``CAGateway:RESTART`` PV; ``watchdog.WATCHDOG_EXIT_CODE`` if the
+            watchdog stopped the server on a monitor-delivery stall; None if
+            the server ended any other way. The entrypoint exits with it.
         """
         await self.connect()
         await self.subscribe()
@@ -1188,13 +1251,16 @@ class GeecsCaGateway:
                 {serve_task, restart_task}, return_when=asyncio.FIRST_COMPLETED
             )
             if serve_task.done():
-                serve_task.result()  # propagate a server crash
+                try:
+                    serve_task.result()  # propagate a server crash
+                except MonitorDeliveryStalledError:
+                    return WATCHDOG_EXIT_CODE
         finally:
             for task in (serve_task, restart_task):
                 task.cancel()
             await asyncio.gather(serve_task, restart_task, return_exceptions=True)
             await self.close()
-        return self._restart_requested.is_set()
+        return RESTART_EXIT_CODE if self._restart_requested.is_set() else None
 
     async def close(self) -> None:
         """Cancel supervisors and tear down all subscriptions and UDP clients."""

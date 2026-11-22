@@ -37,7 +37,12 @@ geecs_ca_gateway/
                      #   push-frame fan-out (timestamps last), INVALID marking,
                      #   CONNECTED + CAGateway:* status PVs (incl. the writable
                      #   RESTART control → exit 86 → systemd relaunch = DB resync),
-                     #   UDP setter closures
+                     #   UDP setter closures; serve() runs caproto's Context
+                     #   under the monitor-delivery watchdog
+  watchdog.py        # monitor-delivery watchdog: counting queue swapped into
+                     #   caproto's Context, the stall verdict, the ERROR
+                     #   evidence block (circuits + every task's await chain),
+                     #   exit 87 → systemd relaunch
   channels.py        # caproto channel construction: readback (client-read-only)
                      #   vs setpoint (write forwards to GEECS first), enum
                      #   index/label resolution, path long-string channels,
@@ -74,7 +79,7 @@ One asyncio event loop runs everything:
 - **`GeecsCaGateway` (the supervisor)** builds the `pvdb` at construction time
   (no network), then `run()` = `connect()` (UDP clients) → `subscribe()` (one
   supervising task per device + a 5 s status loop) → `serve()` (caproto CA
-  server). The **manifest** (`PV → (device, geecs_var, kind)`) is both the
+  server under the monitor-delivery watchdog, below). The **manifest** (`PV → (device, geecs_var, kind)`) is both the
   authoritative reverse map (PV naming is lossy) and the startup collision
   guard: exact DB duplicates are tolerated, genuine collisions raise.
 - **Per-device UDP client** (`GeecsUdpClient`) handles sets/gets: send command,
@@ -96,6 +101,20 @@ One asyncio event loop runs everything:
   cast/enum-resolved per spec, exact repeats suppressed (deadband default 0.0),
   and **timestamp-ladder variables are posted last** so a client triggering on
   `acq_timestamp` observes the completed frame (PV_CONTRACT.md §3).
+- **Monitor-delivery watchdog** (`watchdog.py`): caproto's asyncio server
+  delivers every monitor update through one context-wide task, which can
+  park for good on one client's full queue (next section), leaving every
+  channel connected and every get answering while no client gets a
+  monitor. `serve()` builds the `Context` itself, swaps its subscription
+  queue for a `CountingQueue` before `run()`, and reads it every
+  `CHECK_PERIOD_S`; updates queued with none taken for `STALL_LIMIT_S`
+  (30 s) is a stall. On a stall: one ERROR block (`stall_report`), the
+  server stopped, `run()` returns `WATCHDOG_EXIT_CODE` (87, a failure to
+  systemd, so `Restart=on-failure` relaunches), and the entrypoint arms a
+  hard `os._exit` should the orderly shutdown hang. The signal is read in
+  the process, not through a CA client of itself: an empty queue is idle,
+  so a quiet gateway never trips it, and a busy healthy one takes updates
+  between every two reads.
 - **channels/naming**: `channels.py` is the only caproto-typed layer (kept
   swappable per DESIGN.md's per-device-class PVA plan — images already run
   on PVA via `GeecsPvaGateway/`; scalars stay CA). Readback channels deny client
@@ -144,6 +163,17 @@ One asyncio event loop runs everything:
   monitor, whatever flags the write passed. The archive deadband therefore
   needs `channels.archive_gated`, which applies the mask match for flagged
   writes only.
+- **caproto 1.3.0's monitor delivery parks on one unread client.** The
+  context's one delivery task awaits `put` on each circuit's bounded queue
+  (`MAX_TOTAL_SUBSCRIPTION_BACKLOG`, 10000); an awaited `put` waits rather
+  than raising, so caproto's `except QueueFull` drop never runs. A client
+  that stops reading fills its queue and stops monitors for every client;
+  if it then disconnects, its delivery task is cancelled with the queue
+  full and the park is permanent. Reproduced in `tests/test_watchdog.py`;
+  the watchdog above recovers by restart. The fix itself (drop or
+  disconnect a circuit whose queue is full, without awaiting) is not here;
+  caproto's own drop path would not do as written (it calls
+  `asyncio.Queue.clear()`, which does not exist).
 - **Local-IP detection at connect time** — binding UDP to `""` raises
   `EADDRNOTAVAIL` on macOS PPP/VPN links; the client probes the OS route and
   binds explicitly. One device's bind failure must not abort the gateway
@@ -162,7 +192,9 @@ One asyncio event loop runs everything:
 - Test files map to layers: `test_naming` (DeviceSpec PV assembly) /
   `test_channels` / `test_config_from_db` (pure units), `test_gateway`
   (fake-server end-to-end), `test_pv_contract` (thin example-tests pinning
-  PV_CONTRACT.md claims), `test_entrypoint` (CLI). The wire-protocol and DB
+  PV_CONTRACT.md claims), `test_entrypoint` (CLI), `test_watchdog` (the
+  verdict on a fake clock, and on localhost a real caproto server with raw
+  CA clients: the delivery park reproduced, the gateway's exit on it). The wire-protocol and DB
   suites (`test_transport`, `test_udp_reply_correlation`, `test_geecs_db`,
   `test_coerce`, `test_pv_naming`) moved to `GEECS-Core/tests/` with the
   code they pin.

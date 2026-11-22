@@ -8,7 +8,8 @@ import pytest
 
 from geecs_ca_gateway.__main__ import _parse_args
 from geecs_ca_gateway.config import GatewayConfig
-from geecs_ca_gateway.gateway import _SET_REPLY_CEILING_S
+from geecs_ca_gateway.gateway import RESTART_EXIT_CODE, _SET_REPLY_CEILING_S
+from geecs_ca_gateway.watchdog import SHUTDOWN_GRACE_S, WATCHDOG_EXIT_CODE
 
 
 def test_defaults() -> None:
@@ -55,19 +56,30 @@ def test_experiment_required() -> None:
         _parse_args([])
 
 
-def test_main_exits_with_restart_code(monkeypatch) -> None:
-    """A restart-requested run makes main() exit with RESTART_EXIT_CODE."""
+@pytest.mark.parametrize(
+    "code",
+    [RESTART_EXIT_CODE, WATCHDOG_EXIT_CODE],
+    ids=["restart-request", "delivery-stall"],
+)
+def test_main_exits_with_the_run_status(monkeypatch, code: int) -> None:
+    """main() exits with the status run() reports: a restart request or a stall."""
     from geecs_ca_gateway import __main__ as entry
 
-    async def fake_run(experiment: str, **kwargs: object) -> bool:
-        return True
+    async def fake_run(experiment: str, **kwargs: object) -> int:
+        return code
 
     monkeypatch.setattr(entry, "_run", fake_run)
     # --show-missing: without it main() installs a process-global log filter
     # that would swallow the warning test_transport asserts later in the run.
     with pytest.raises(SystemExit) as exc_info:
         entry.main(["--experiment", "X", "--show-missing"])
-    assert exc_info.value.code == entry.RESTART_EXIT_CODE
+    assert exc_info.value.code == code
+
+
+def test_the_two_exit_statuses_differ() -> None:
+    """The unit treats 86 as a clean relaunch; a stall must exit as a failure."""
+    assert RESTART_EXIT_CODE == 86
+    assert WATCHDOG_EXIT_CODE not in (0, RESTART_EXIT_CODE)
 
 
 def test_main_returns_normally_without_restart(monkeypatch) -> None:
@@ -76,9 +88,8 @@ def test_main_returns_normally_without_restart(monkeypatch) -> None:
 
     seen: dict[str, object] = {}
 
-    async def fake_run(experiment: str, **kwargs: object) -> bool:
+    async def fake_run(experiment: str, **kwargs: object) -> None:
         seen.update(kwargs)
-        return False
 
     monkeypatch.setattr(entry, "_run", fake_run)
     entry.main(
@@ -141,19 +152,19 @@ derived_channels:
             seen["init_kwargs"] = kwargs
             self.pvdb = {}
 
-        async def run(self) -> bool:
-            return False
+        async def run(self) -> int | None:
+            return None
 
     monkeypatch.setattr(entry, "GeecsCaGateway", FakeGateway)
 
-    restart = await entry._run(
+    exit_code = await entry._run(
         "Undulator",
         subscribed_only=True,
         enabled_only=True,
         include_settable=True,
     )
 
-    assert restart is False
+    assert exit_code is None
     assert seen["config"].derived_channels[0].device == "U_ChamberVac"
     # The production endpoint-resolver wiring (#611) — without this pin,
     # dropping the kwarg from _run would silently disable re-resolve in
@@ -161,3 +172,6 @@ derived_channels:
     assert seen["init_kwargs"]["endpoint_resolver"] is entry._db_endpoint_resolver
     # The CLI's exe-reply ceiling reaches the gateway (default when unset).
     assert seen["init_kwargs"]["set_timeout_s"] == pytest.approx(_SET_REPLY_CEILING_S)
+    # The production process arms the hard exit after a delivery stall; the
+    # gateway's default (None) leaves it unarmed for tests and the demo.
+    assert seen["init_kwargs"]["hard_exit_grace_s"] == pytest.approx(SHUTDOWN_GRACE_S)

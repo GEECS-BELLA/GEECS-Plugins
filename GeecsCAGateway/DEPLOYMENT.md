@@ -555,6 +555,8 @@ A healthy steady state is **quiet**. What you should see:
 - State changes only, once per episode: `X: unreachable/dropped; retrying (up
   to every 30s)` (warning) and `X: reconnected` (info). No per-attempt
   tracebacks for devices that are simply off.
+- An ERROR `CA monitor delivery STALLED` block, then an exit with status
+  87: the monitor-delivery watchdog (§6, *Gets answer, no monitors*).
 - One-time warnings worth acting on: `PV name collision` (fatal),
   `UDP bind/connect ... failed — starting without it` (that device's `:SP` is
   dead until restart), per-variable coercion/enum-mismatch warnings (DB type
@@ -611,9 +613,77 @@ while `caget` answers with fresh values. Diagnosis: `caproto-monitor
 [experiment:]cagateway:heartbeat` prints nothing, not even the current
 value, while `caproto-get` on it advances every 5 s.
 `scripts/lab_status.sh --hardware` makes this check (`gateway answers
-gets but its monitors are not flowing`). Remedy: restart the gateway.
-The cause is not known (#1406); before the restart, capture the process's
-task state (`py-spy dump --pid <MainPID>`, as root) for that issue.
+gets but its monitors are not flowing`).
+
+**The gateway now recovers by itself.** A watchdog in the process
+(`geecs_ca_gateway/watchdog.py`) reads caproto's context-wide monitor
+queue every second; once that queue has held updates for 30 s with none
+taken, it logs one ERROR block and exits with status **87**, which the
+unit's `Restart=on-failure` relaunches 10 s later. Expect under a
+minute without monitors, then a restart, instead of hours. 87 is a failure to
+systemd (86, the restart PV's, is a clean relaunch), so the journal shows
+`Main process exited, code=exited, status=87/n/a` and the unit's restart
+counter (`systemctl show -p NRestarts geecs-ca-gateway`) counts it. A
+quiet gateway (nothing changing, or nobody subscribed) never trips it:
+an empty queue is idle, not stalled.
+
+Read the block with `journalctl -u geecs-ca-gateway | grep -A60 'delivery
+STALLED'`. This one is from the localhost reproduction (the test's 1 s
+limit and 50-entry client queues; in service, 30 s and 10000), trimmed:
+
+```text
+ERROR geecs_ca_gateway.gateway: CA monitor delivery STALLED: the context subscription queue has held updates for 1.0 s with none taken (depth 5445, 115 taken since start). Every client is without monitors; gets still answer. Exiting with status 87 for a service restart.
+delivery loop is waiting on circuit: 127.0.0.1:52620 connected=True queue=50/50 FULL events_on=True subscriptions=1 delivery_task=running
+circuits (2):
+  127.0.0.1:52619 connected=True queue=0/50 events_on=True subscriptions=1 delivery_task=running
+  127.0.0.1:52620 connected=True queue=50/50 FULL events_on=True subscriptions=1 delivery_task=running
+asyncio tasks (16), grouped by await chain:
+  ...
+  [1 task(s)] Task-11
+      caproto/server/common.py:949 in subscription_queue_loop
+      caproto/server/common.py:971 in _subscription_queue_iteration
+      caproto/server/common.py:1107 in _subscription_queue_send
+      python3.11/asyncio/queues.py:120 in put
+  ...
+  [1 task(s)] Task-26
+      caproto/server/common.py:450 in subscription_queue_loop
+      caproto/server/common.py:193 in send
+      caproto/asyncio/server.py:79 in _send_buffers
+      caproto/asyncio/utils.py:97 in send
+      python3.11/asyncio/streams.py:377 in drain
+      python3.11/asyncio/streams.py:172 in _drain_helper
+```
+
+- The first line: how long delivery stood still and how many updates
+  were waiting.
+- `delivery loop is waiting on circuit:` names the client whose full
+  queue the loop is parked on. That client is the trigger: note its
+  address and what runs there.
+- One line per circuit: client address, whether caproto still counts it
+  connected, its subscription-queue depth against its cap (`FULL` at the
+  cap), whether the client has events on, its subscription count, and
+  the state of its own delivery task.
+- Every asyncio task's await chain, identical chains grouped. The
+  context's loop ending in `_subscription_queue_send` → `queues.py ... in
+  put` is the park; a circuit's own loop ending in `streams.py ... in
+  drain` is a client that is not reading (here the `FULL` one).
+
+**The cause, reproduced on localhost (caproto 1.3.0, the version the
+package's lock pins):** caproto delivers every monitor update, the value
+on subscribe included, through one context-wide task that awaits a
+`put` on each subscribed circuit's bounded queue (10000 entries). A
+client that stops reading its socket (a suspended process, a laptop
+asleep on the VPN, a wedged client thread) fills its circuit's queue; the
+`put` then waits, and caproto's `except QueueFull` never runs because an
+awaited `put` does not raise. Every other client loses monitors, gets
+still answer (each circuit's own command loop), and the context queue
+grows without bound (the memory rise). When that client then
+disconnects, caproto cancels its delivery task with the queue still
+full, so nothing ever takes from it again and the park is permanent with
+no socket backlog left to see. `tests/test_watchdog.py::test_one_unread_client_parks_monitors_for_every_client`
+pins it. That it is what happened on the deployed gateway is likely, not
+proved: the next stall's ERROR block will say (a `FULL`, disconnected
+circuit on the `waiting on` line).
 
 ### Readbacks frozen while `:SP` writes work
 
