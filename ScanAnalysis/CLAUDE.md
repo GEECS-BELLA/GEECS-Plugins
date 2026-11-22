@@ -548,8 +548,24 @@ PR as the writer change.
 Scalar persistence in `base.py` delegates to `geecs_data_utils.scalar_files`:
 one lock/merge implementation coordinates legacy and new runners. ScanAnalysis
 still owns sidecar destination names, sibling analysis-directory creation and
-refreshing `auxiliary_data`. Preserve the difference between s-file merging
-(missing updates retain old cells) and sidecars (generated NaNs remain NaN).
+refreshing `auxiliary_data`. `CoreScanAnalyzer` passes the run's declared
+columns (`PreparedScan.declared_columns`: the measure's `emitted_scalars()`,
+named as `scalar_records` names them) as the merge's `targets`, and the sidecar
+and the s-file get the same rows:
+
+| Unit outcome | Stored value |
+|---|---|
+| Succeeded, finite value | replaced |
+| Succeeded, NaN | replaced with NaN |
+| Failed after loading | its declared columns NaN on every member row (`cleared_records`) |
+| Shot outside this run | kept |
+| Shot failed to load | kept (per-bin: a member still gets its bin's values) |
+
+A declared column is written only when the run produced it or the s-file
+already has it, so a failed run creates no all-NaN column; the exact columns
+are updated, never everything under the output prefix, so another recipe's
+columns under the same output name survive. A caller passing no targets
+(the scalar-columns job) keeps the old-cell-wins merge.
 
 ## Product output names are a consumed contract
 

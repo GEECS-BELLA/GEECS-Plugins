@@ -12,7 +12,7 @@ All analyzers must inherit from :class:`ScanAnalyzer` and implement
 
 # %% imports
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, Optional, Union, NamedTuple
+from typing import TYPE_CHECKING, Callable, Iterable, Optional, Union, NamedTuple
 
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
@@ -301,12 +301,21 @@ class ScanAnalyzer:
             plt.close("all")  # Ensure plots close when not using the GUI
 
     def _merge_auxiliary_data(
-        self, updates: pd.DataFrame, key: str = "Shotnumber"
+        self,
+        updates: pd.DataFrame,
+        key: str = "Shotnumber",
+        *,
+        targets: Optional[Iterable[str]] = None,
     ) -> Optional[pd.DataFrame]:
-        """Merge through the shared s-file lock and refresh in-memory data."""
+        """Merge through the shared s-file lock and refresh in-memory data.
+
+        ``targets`` is ``merge_sfile``'s: the columns the update owns on its
+        rows (a missing value then clears the cell); ``None`` keeps the
+        old-cell-wins merge.
+        """
         if self.auxiliary_file_path is None:
             return None
-        merged = merge_sfile(self.auxiliary_file_path, updates, key)
+        merged = merge_sfile(self.auxiliary_file_path, updates, key, targets=targets)
         if merged is not None:
             self.auxiliary_data = merged
         return merged
@@ -317,21 +326,27 @@ class ScanAnalyzer:
         """Normalize updates through the shared scalar-table adapter."""
         return prepare_updates(data, key)
 
-    def append_to_sfile(self, data: pd.DataFrame) -> None:
+    def append_to_sfile(
+        self, data: pd.DataFrame, *, targets: Optional[Iterable[str]] = None
+    ) -> Optional[pd.DataFrame]:
         """
         Append or overwrite s-file columns (merging on Shotnumber with a lock).
 
         Only accepts a DataFrame and requires an explicit ``Shotnumber`` column
         (case-insensitive match is accepted and normalized).
-        Rows without ``Shotnumber`` are dropped with a warning.
+        Rows without ``Shotnumber`` are dropped with a warning. ``targets``
+        names the columns the update owns on its rows (see
+        ``geecs_data_utils.scalar_files.merge_updates``). Returns the merged
+        table, or ``None`` when nothing was written (no path, invalid
+        updates, a refused merge).
         """
         if self.auxiliary_file_path is None:
             logger.warning("No auxiliary file path set; skipping s-file append.")
-            return
+            return None
 
         updates = self._prepare_updates_dataframe(data)
         if updates is None:
-            return
+            return None
 
         key = "Shotnumber"
         if self.auxiliary_data is not None:
@@ -344,7 +359,7 @@ class ScanAnalyzer:
                     existing_cols,
                 )
 
-        self._merge_auxiliary_data(updates, key=key)
+        return self._merge_auxiliary_data(updates, key=key, targets=targets)
 
     def scalar_sidecar_path(self) -> Optional[Path]:
         """Return the per-analyzer generated-scalar sidecar path, if available."""

@@ -10,7 +10,9 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -52,16 +54,32 @@ def prepare_updates(data: pd.DataFrame, key: str = "Shotnumber") -> pd.DataFrame
 
 
 def merge_updates(
-    current: pd.DataFrame, updates: pd.DataFrame, key: str = "Shotnumber"
+    current: pd.DataFrame,
+    updates: pd.DataFrame,
+    key: str = "Shotnumber",
+    *,
+    targets: Iterable[str] | None = None,
 ) -> pd.DataFrame:
-    """Merge on identity, keeping unrelated cells and legacy missing-value policy.
+    """Merge on identity, keeping unrelated cells and every row outside the update.
 
-    Last duplicate update wins. Nonmissing updates replace existing cells;
-    missing updates retain existing cells through pandas combine_first. Keep
-    current column order, append new columns, and sort rows by shot identity.
-    Inputs must already have a canonical key column and are never mutated.
+    Last duplicate update wins. Keep current column order, append new
+    columns, and sort rows by shot identity. Inputs must already have a
+    canonical key column and are never mutated.
+
+    Without ``targets``, nonmissing updates replace existing cells and
+    missing updates retain existing cells (pandas ``combine_first``).
+
+    With ``targets``, the update owns exactly those columns on exactly its
+    rows: each target column that the updates carry or the current table
+    already has takes the update's value on every update row, a missing
+    value included (NaN replaces an old finite cell), and a target column
+    neither has is not created. Rows outside the update and every other
+    column keep their cells. An update column outside ``targets`` is a
+    caller error (``ValueError``), never written silently.
     """
     clean = updates.drop_duplicates(subset=[key], keep="last")
+    if targets is not None:
+        return _replace_targets(current, clean, key, list(dict.fromkeys(targets)))
     if current.empty:
         return clean.sort_values(by=key)
     merged = (
@@ -76,11 +94,43 @@ def merge_updates(
     ]
 
 
+def _replace_targets(
+    current: pd.DataFrame, updates: pd.DataFrame, key: str, targets: list[str]
+) -> pd.DataFrame:
+    """``merge_updates`` with declared target columns (see there)."""
+    stray = [column for column in updates.columns if column != key]
+    stray = [column for column in stray if column not in targets]
+    if stray:
+        raise ValueError(f"Update columns outside the declared targets: {stray}")
+    written = [
+        column
+        for column in targets
+        if column in updates.columns or column in current.columns
+    ]
+    incoming = updates.set_index(key).reindex(columns=written)
+    if current.empty:
+        return incoming.reset_index().sort_values(by=key)
+    table = current.set_index(key)
+    new_rows = incoming.index.difference(table.index)
+    if len(new_rows):
+        table = table.reindex(table.index.append(new_rows))
+    in_update = table.index.isin(incoming.index)
+    original = list(table.columns)
+    for column in written:
+        values = incoming[column].reindex(table.index)
+        old = table[column] if column in table else pd.Series(np.nan, table.index)
+        table[column] = values.where(in_update, old)
+    # New columns follow the current ones in name order, as combine_first's did.
+    table = table[original + sorted(c for c in table.columns if c not in original)]
+    return table.reset_index().sort_values(by=key)
+
+
 def merge_sfile(
     path: Path,
     updates: pd.DataFrame,
     key: str = "Shotnumber",
     *,
+    targets: Iterable[str] | None = None,
     timeout: float = 10.0,
     interval: float = 0.1,
 ) -> pd.DataFrame | None:
@@ -90,6 +140,8 @@ def merge_sfile(
     data, missing parent directories or lock timeout. Never break another
     writer's lock. Write failures propagate after releasing our lock. Preserve
     the existing .txt.lock convention so legacy and new runners coordinate.
+    ``targets`` is :func:`merge_updates`'s: the columns this update owns on
+    its rows, resolved against the table read under the lock.
     """
     updates = prepare_updates(updates, key)
     if updates is None:
@@ -123,7 +175,7 @@ def merge_sfile(
                     "Existing s-file missing key column %s; skipping merge", key
                 )
                 return None
-        merged = merge_updates(current, updates, key)
+        merged = merge_updates(current, updates, key, targets=targets)
         merged.to_csv(path, sep="\t", index=False, header=True)
         return merged
     finally:

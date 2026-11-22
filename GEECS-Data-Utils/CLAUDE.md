@@ -269,8 +269,11 @@ and calendar use it). Pinned by `tests/test_data_root_experiment.py`.
 `scalar_files` owns generated-scalar normalization and persistence shared by
 legacy and replacement analysis runners. `merge_sfile` holds the existing
 `.txt.lock` exclusive sidecar across read/merge/write, preserves unrelated
-columns/cells, and refreshes the caller through its returned DataFrame. Missing
-update values retain existing s-file cells (`combine_first` compatibility);
+columns/cells, and refreshes the caller through its returned DataFrame. With
+declared `targets` (the columns an analysis run owns), the update replaces those
+exact columns on exactly its rows, a missing value included, and creates no
+target column that neither the update nor the file has; without them, missing
+update values retain existing s-file cells (`combine_first` compatibility).
 `write_scalar_sidecar` writes the generated values themselves, including NaNs.
 Both keep the last duplicate shot update and sort by shot identity. Neither
 creates parent directories; destination naming and directory policy belong to

@@ -155,3 +155,65 @@ def test_concurrent_analyzers_preserve_both_sets_of_columns(tmp_path, monkeypatc
     saved = reader(path, sep="\t").set_index("Shotnumber")
     assert saved.loc[1, "beam"] == saved.loc[1, "spectrum"] == 5
     assert saved.loc[2, "motor"] == 20
+
+
+def _targets_case():
+    current = pd.DataFrame(
+        {
+            "Shotnumber": [1, 2, 3],
+            "motor": [10, 20, 30],  # the scanner's column
+            "Diag_x": [1.0, 2.0, 3.0],  # owned by the update
+            "Diag_note": [7.0, 7.0, 7.0],  # same prefix, not declared
+            "Other_x": [5.0, 5.0, 5.0],  # another analyzer's
+        }
+    )
+    updates = pd.DataFrame(
+        {"Shotnumber": [1, 2, 4], "Diag_x": [9.0, np.nan, 8.0], "Diag_y": [1, 2, 3]}
+    )
+    return current, updates
+
+
+def test_declared_targets_own_exactly_their_columns_on_exactly_the_update_rows():
+    current, updates = _targets_case()
+    original = current.copy(deep=True)
+    targets = ["Diag_x", "Diag_y", "Diag_z"]
+    merged = merge_updates(current, updates, targets=targets).set_index("Shotnumber")
+    assert list(merged.index) == [1, 2, 3, 4]
+    # A declared column neither side has (Diag_z) is not created.
+    assert list(merged.columns) == ["motor", "Diag_x", "Diag_note", "Other_x", "Diag_y"]
+    assert merged.loc[1, "Diag_x"] == 9.0
+    assert np.isnan(merged.loc[2, "Diag_x"])  # NaN replaces the old finite cell
+    assert merged.loc[3, "Diag_x"] == 3.0  # a row outside the update keeps its cell
+    assert merged.loc[4, "Diag_x"] == 8.0
+    assert np.isnan(merged.loc[3, "Diag_y"])
+    assert merged["Diag_note"].tolist()[:3] == [7.0, 7.0, 7.0]
+    assert merged["Other_x"].tolist()[:3] == [5.0, 5.0, 5.0]
+    assert merged["motor"].tolist()[:3] == [10, 20, 30]
+    pd.testing.assert_frame_equal(current, original)
+
+
+def test_a_declared_column_absent_from_the_update_is_cleared_on_its_rows():
+    current, _ = _targets_case()
+    updates = pd.DataFrame({"Shotnumber": [2]})
+    merged = merge_updates(current, updates, targets=["Diag_x"]).set_index("Shotnumber")
+    assert np.isnan(merged.loc[2, "Diag_x"])
+    assert merged.loc[[1, 3], "Diag_x"].tolist() == [1.0, 3.0]
+
+
+def test_an_update_column_outside_the_targets_is_refused():
+    current, updates = _targets_case()
+    with pytest.raises(ValueError, match="Diag_y"):
+        merge_updates(current, updates, targets=["Diag_x"])
+
+
+def test_sfile_with_targets_clears_and_matches_the_sidecar(tmp_path):
+    sfile, side = tmp_path / "s1.txt", tmp_path / "Scan001_beam.txt"
+    pd.DataFrame({"Shotnumber": [1, 2], "beam": [7.0, 6.0]}).to_csv(
+        sfile, sep="\t", index=False
+    )
+    updates = pd.DataFrame({"Shotnumber": [1], "beam": [np.nan]})
+    merged = merge_sfile(sfile, updates, targets=["beam"])
+    write_scalar_sidecar(side, updates)
+    assert np.isnan(merged.loc[0, "beam"]) and merged.loc[1, "beam"] == 6.0
+    assert np.isnan(pd.read_csv(side, sep="\t").loc[0, "beam"])
+    assert not sfile.with_suffix(".txt.lock").exists()

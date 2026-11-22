@@ -238,16 +238,41 @@ class CoreScanAnalyzer(ScanAnalyzer):
                     logger.info(
                         "%s: %d shots stored in %s", self.device_name, store.count, kept
                     )
-        if pending:
-            updates = pd.DataFrame(pending)
-            # The legacy wrapper wrote its scalars into the in-memory rows
-            # before persisting, so a waterfall sorted by one of this run's
-            # own columns resolves even when the s-file merge is refused.
-            write_scalars_into_rows(self.auxiliary_data, pending)
-            self.write_scalar_sidecar(updates)
-            self.append_to_sfile(updates)
+        self._persist_scalars(prepared, pending)
         if fold_error is not None:
             raise fold_error
+
+    def _persist_scalars(self, prepared: PreparedScan, pending: list[dict]) -> None:
+        """Write this run's rows to the sidecar and the s-file: the same rows in both.
+
+        The run owns its declared columns (``declared_columns``, plus any it
+        produced) on the rows of every unit it analyzed: a success writes its
+        values, a NaN included, and a unit that failed after loading writes
+        them missing (``cleared_records``). Rows outside the run, and shots
+        that failed to load, keep their cells. A declared column is written
+        only when the run produced it or the s-file already has it, so a
+        failed run creates no all-NaN columns.
+        """
+        if not pending:
+            return
+        updates = pd.DataFrame(pending)
+        produced = [c for c in updates.columns if c != "Shotnumber"]
+        existing = set(self.auxiliary_data.columns)
+        cleared = [
+            c
+            for c in prepared.declared_columns()
+            if c not in produced and c in existing
+        ]
+        columns = produced + cleared
+        if not columns:
+            return
+        updates = updates.reindex(columns=["Shotnumber", *columns])
+        # The legacy wrapper wrote its scalars into the in-memory rows
+        # before persisting, so a waterfall sorted by one of this run's
+        # own columns resolves even when the s-file merge is refused.
+        write_scalars_into_rows(self.auxiliary_data, updates.to_dict("records"))
+        self.write_scalar_sidecar(updates)
+        self.append_to_sfile(updates, targets=columns)
 
     def _stream(
         self,
@@ -284,6 +309,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 logger.error(
                     "Analysis failed for unit %s: %s", outcome.group.key, outcome.error
                 )
+                pending.extend(prepared.cleared_records(outcome))
                 continue
             for note in outcome.measurement.notes:
                 logger.warning("Unit %s: %s", outcome.group.key, note)

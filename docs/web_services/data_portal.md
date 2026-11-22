@@ -80,7 +80,11 @@ scan (its device has data in the scan); the rest are folded away.
    the day's `analysis/ScanNNN/` folder, and the scalars the recipe
    computes are added to the scan's `analysis/sNNN.txt`, so they show up
    as new columns on the Plot page.
-3. Re-running replaces those outputs; the raw data is never touched.
+3. Re-running replaces those outputs; the raw data is never touched. Each
+   of the recipe's scalar columns is rewritten on every shot the run
+   analyzed: a shot whose analysis failed gets an empty cell, never the
+   previous run's value. Shots the run did not reach (no file, or a file
+   that would not load) keep what they had.
 
 A missing scan folder is reported, never created.
 
