@@ -118,7 +118,7 @@ def test_the_last_device_to_deliver_and_the_rate() -> None:
     mid = stream.snapshot()
     assert abs(mid.current_rate_hz - 1 / 2.8) < 1e-9
     assert abs(mid.worker_s - 0.3) < 1e-9  # the period less row 2's 2.5 s wait
-    # the device a slow camera always holds the shot for is named
+    # the latest row's last device to deliver, whatever its delay
     assert (mid.waiting_on, mid.waiting_s) == ("CAM-Ghost", 0.6)
     # an event page (columns of lists) of the fourth row
     stream.on_document(
