@@ -46,6 +46,8 @@ RestartSec=10
 # This is also how the served set resyncs after a GEECS DB edit — no SSH needed.
 SuccessExitStatus=86
 RestartForceExitStatus=86
+# A stall of CA monitor delivery makes the gateway log its evidence and exit
+# with 87: a failure, so Restart=on-failure relaunches it (DEPLOYMENT.md §6).
 SyslogIdentifier=geecs-ca-gateway
 
 [Install]

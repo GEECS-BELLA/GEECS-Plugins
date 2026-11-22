@@ -22,13 +22,9 @@ from pathlib import Path
 from .config import GatewayConfig
 from .derived import default_derived_channels_path, load_derived_channels
 from .gateway import _SET_REPLY_CEILING_S, GeecsCaGateway
+from .watchdog import SHUTDOWN_GRACE_S
 
 logger = logging.getLogger("geecs_ca_gateway")
-
-#: Exit code signalling "relaunch me" — a CA put to ``CAGateway:RESTART``.
-#: The systemd unit's ``RestartForceExitStatus`` matches it, turning the exit
-#: into a service restart (which also resyncs the served set with the DB).
-RESTART_EXIT_CODE = 86
 
 
 class _QuietMissingVariables(logging.Filter):
@@ -143,7 +139,7 @@ async def _run(
     include_settable: bool,
     derived_channels_path: Path | None = None,
     set_timeout_s: float = _SET_REPLY_CEILING_S,
-) -> bool:
+) -> int | None:
     config = GatewayConfig.from_geecs_experiment(
         experiment,
         subscribed_only=subscribed_only,
@@ -165,6 +161,7 @@ async def _run(
         config,
         set_timeout_s=set_timeout_s,
         endpoint_resolver=_db_endpoint_resolver,
+        hard_exit_grace_s=SHUTDOWN_GRACE_S,
     )
     logger.info(
         "serving %d PV(s) across %d device(s) for experiment %r",
@@ -172,7 +169,7 @@ async def _run(
         len(config.devices),
         experiment,
     )
-    # connect -> subscribe -> serve; True = restart requested over CA
+    # connect -> subscribe -> serve; the exit status, or None for a plain stop
     return await gateway.run()
 
 
@@ -188,7 +185,7 @@ def main(argv: list[str] | None = None) -> None:
             _QuietMissingVariables()
         )
     try:
-        restart = asyncio.run(
+        exit_code = asyncio.run(
             _run(
                 args.experiment,
                 subscribed_only=not args.all_variables,
@@ -201,9 +198,9 @@ def main(argv: list[str] | None = None) -> None:
     except KeyboardInterrupt:
         logger.info("shutting down")
         return
-    if restart:
-        logger.info("exiting with code %d for service restart", RESTART_EXIT_CODE)
-        raise SystemExit(RESTART_EXIT_CODE)
+    if exit_code is not None:
+        logger.info("exiting with code %d for service restart", exit_code)
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":

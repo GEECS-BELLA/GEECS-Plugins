@@ -29,7 +29,11 @@ from geecs_core.pv_naming import (
 from geecs_ca_gateway.channels import _to_text
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
 from geecs_core.exceptions import GeecsCommandFailedError
-from geecs_ca_gateway.gateway import GeecsCaGateway, _extract_timestamp
+from geecs_ca_gateway.gateway import (
+    RESTART_EXIT_CODE,
+    GeecsCaGateway,
+    _extract_timestamp,
+)
 
 pytestmark = pytest.mark.fake_server
 
@@ -1363,11 +1367,11 @@ class TestEmptyValueSkip:
         assert logs["localsavingpath"] == [""]
 
 
-async def test_run_returns_true_on_restart_request(monkeypatch) -> None:
+async def test_run_returns_the_restart_code_on_restart_request(monkeypatch) -> None:
     """A CA put to CAGateway:RESTART ends run() cleanly, reporting the request.
 
-    The entrypoint turns the True return into the restart exit code, which the
-    systemd unit's RestartForceExitStatus converts into a service relaunch.
+    The entrypoint exits with the returned restart code, which the systemd
+    unit's RestartForceExitStatus converts into a service relaunch.
     """
     gw = GeecsCaGateway(GatewayConfig(devices=[]))
 
@@ -1380,4 +1384,4 @@ async def test_run_returns_true_on_restart_request(monkeypatch) -> None:
     assert not run_task.done()  # serving; no restart requested yet
 
     await gw.pvdb["cagateway:restart"].write("Restart")
-    assert await asyncio.wait_for(run_task, timeout=5) is True
+    assert await asyncio.wait_for(run_task, timeout=5) == RESTART_EXIT_CODE

@@ -704,6 +704,20 @@ indistinguishable from a real pair boundary and will be truncated there. (The
 legacy GEECS-PythonAPI parser truncates at the *first* ` nvar` regardless, so
 this parser is strictly more tolerant.)
 
+### Monitor-delivery stall: the gateway restarts itself
+
+If the gateway's CA server stops delivering monitor events (updates
+queued for clients and none taken for 30 s, while gets still answer),
+the gateway logs the evidence and exits with code 87; the service
+manager relaunches it. A client sees what any gateway restart looks
+like: every channel disconnects, then reconnects within seconds of the
+relaunch, and monitors resume with the current value on subscribe. The
+known cause is one client that stops reading its socket (DEPLOYMENT.md
+§6, "Gets answer, no monitors"): a CA client must keep reading its
+circuit or it holds monitors up for every other client until the stall
+limit. A gateway with nothing changing, or nobody subscribed, never
+trips it.
+
 ### Stream-value fan-out failures
 
 A frame value that cannot be coerced to its PV's dtype (a DB type mismatch), or
@@ -726,7 +740,8 @@ that branch and are part of this contract's target behavior.
 | Manifest as authoritative map; `:SP` only when settable | `test_gateway.py::test_experiment_prefix_and_manifest`, `::test_pvdb_contains_readback_and_setpoint` |
 | Genuine collision raises; exact duplicates tolerated | `test_gateway.py::test_pv_name_collision_raises`; `test_config_from_db.py::test_from_db_metadata_dedupes_duplicate_variables` |
 | Reserved `CAGateway`/status namespace guarded | `test_gateway.py::test_pvdb_has_connected_and_gateway_status_pvs`; `test_pv_contract.py::test_status_pv_namespace_is_collision_guarded` |
-| `cagateway:restart` triggers clean shutdown; `Idle` is a no-op; exit code 86 | `test_pv_contract.py::test_restart_pv_requests_clean_shutdown`; `test_gateway.py::test_run_returns_true_on_restart_request`; `test_entrypoint.py::test_main_exits_with_restart_code` |
+| `cagateway:restart` triggers clean shutdown; `Idle` is a no-op; exit code 86 | `test_pv_contract.py::test_restart_pv_requests_clean_shutdown`; `test_gateway.py::test_run_returns_the_restart_code_on_restart_request`; `test_entrypoint.py::test_main_exits_with_the_run_status` |
+| Monitor-delivery stall (updates queued, none taken for 30 s): evidence logged, exit 87 for a relaunch; a busy or quiet gateway runs on | `test_watchdog.py::test_one_unread_client_parks_monitors_for_every_client`, `::test_the_gateway_logs_the_evidence_and_exits_on_a_stall`, `::test_a_busy_then_quiet_gateway_runs_on`, `::test_a_stalled_queue_trips_at_the_limit`, `::test_a_busy_queue_never_trips`, `::test_a_quiet_queue_never_trips`, `::test_startup_is_not_a_stall`; `test_entrypoint.py::test_main_exits_with_the_run_status`, `::test_the_two_exit_statuses_differ` |
 | Readbacks client-read-only; setpoints writable | `test_gateway.py::test_readback_channels_deny_client_writes` |
 | Stream → readback; caput `:SP` → GEECS → readback | `test_gateway.py::test_stream_updates_readback`, `::test_setpoint_write_reaches_geecs` |
 | Failed GEECS set ⇒ CA put fails, value not stored | `test_pv_contract.py::test_setpoint_put_failure_leaves_value_unstored` |
