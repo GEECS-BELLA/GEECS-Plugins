@@ -574,7 +574,7 @@ plan, including the `DBE_LOG`-gated-by-DB-tolerance option, is in `DESIGN.md`
 
 ## 6. Troubleshooting
 
-Two failures seen live, each with a check that tells it from a device that
+Three failures seen live, each with a check that tells it from a device that
 is simply off (§4 step 2).
 
 ### A device has no PVs
@@ -601,6 +601,19 @@ naming it with "check the spelling"
 
 A device with no `get='yes'` rows serves its settable variables only —
 §1, *Experiment selection and `subscribed_only` semantics*.
+
+### Gets answer, no monitors
+
+Symptom: every monitor client goes quiet at once with every channel still
+connected (the archiver records nothing and reports each PV connected, a
+display holds its last values, a scan's first monitor read times out)
+while `caget` answers with fresh values. Diagnosis: `caproto-monitor
+[experiment:]cagateway:heartbeat` prints nothing, not even the current
+value, while `caproto-get` on it advances every 5 s.
+`scripts/lab_status.sh --hardware` makes this check (`gateway answers
+gets but its monitors are not flowing`). Remedy: restart the gateway.
+The cause is not known (#1406); before the restart, capture the process's
+task state (`py-spy dump --pid <MainPID>`, as root) for that issue.
 
 ### Readbacks frozen while `:SP` writes work
 
