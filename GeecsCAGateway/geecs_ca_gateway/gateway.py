@@ -1097,7 +1097,11 @@ class GeecsCaGateway:
             logger.debug("failed to update CONNECTED for %s", device, exc_info=True)
 
     async def _status_loop(self, period_s: float = 5.0) -> None:
-        """Tick the gateway UPTIME/HEARTBEAT PVs (devIocStats-style)."""
+        """Tick the gateway UPTIME/HEARTBEAT PVs (devIocStats-style).
+
+        ``scripts/lab_status.sh`` waits one period for a heartbeat tick
+        (its ``HEARTBEAT_PERIOD``): change the two together.
+        """
         uptime = self._gateway_status.get("uptime")
         heartbeat = self._gateway_status.get(GATEWAY_HEARTBEAT)
         beats = 0

@@ -26,7 +26,7 @@
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
 CA_TIMEOUT=3    # seconds per CA read (tier 2)
-HEARTBEAT_PERIOD=5  # seconds between the gateway's heartbeat ticks (its status loop)
+HEARTBEAT_PERIOD=5  # seconds between the gateway's heartbeat ticks (GeecsCaGateway._status_loop's period_s)
 TCP_TIMEOUT=2   # seconds per port probe (lab_env.sh reads it)
 
 HARDWARE=0
@@ -153,7 +153,7 @@ if [ "$HARDWARE" -eq 0 ]; then
     exit 0
 fi
 
-echo "== Tier 2: hardware liveness (READ-ONLY CA gets) =="
+echo "== Tier 2: hardware liveness (READ-ONLY CA gets + one heartbeat subscription) =="
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BLUESKY_DIR="$REPO_ROOT/GeecsBluesky"
 if [ -z "$EXPERIMENT" ]; then
@@ -185,25 +185,31 @@ async def read(pv):
 
 
 async def monitor_fault(pv):
-    """Subscribe to the heartbeat; return "" when monitors flow, else what is missing.
+    """Subscribe to the heartbeat; return ``(kind, detail)``, kind "" when monitors flow.
 
     A healthy gateway delivers the current value on subscribe and the next
     tick within one heartbeat period. Gets answering says nothing about
     either, so this is the only probe that sees a gateway that has stopped
-    delivering monitors.
+    delivering monitors. Kind "monitors": events are not delivered while
+    gets answer. Kind "heartbeat": the subscribe value arrived and a get
+    shows the count did not advance either, so the gateway's status loop
+    is stalled and monitor delivery is not in question.
     """
     updates = asyncio.Queue()
     subscription = aioca.camonitor(pv, updates.put_nowait)
     try:
         try:
-            await asyncio.wait_for(updates.get(), timeout=timeout)
+            first = await asyncio.wait_for(updates.get(), timeout=timeout)
         except asyncio.TimeoutError:
-            return f"no initial value on subscribe within {timeout:g} s"
+            return "monitors", f"no initial value on subscribe within {timeout:g} s"
+        wait = heartbeat_period + timeout
         try:
-            await asyncio.wait_for(updates.get(), timeout=heartbeat_period + timeout)
+            await asyncio.wait_for(updates.get(), timeout=wait)
         except asyncio.TimeoutError:
-            return f"no heartbeat tick within {heartbeat_period + timeout:g} s of subscribing"
-        return ""
+            if int(await read(pv)) != int(first):
+                return "monitors", f"a get advanced past {int(first)} and no event followed within {wait:g} s"
+            return "heartbeat", f"the count stayed at {int(first)} for {wait:g} s, by get and by monitor"
+        return "", ""
     finally:
         subscription.close()
 
@@ -227,13 +233,23 @@ async def main():
         print("         network may be up while the gateway service is not")
         print(f"role=CA gateway\tstate=down\tnote=PVs unreadable ({type(exc).__name__})")
         raise SystemExit(1)
-    fault = await monitor_fault(heartbeat_pv)
-    if fault:
+    try:
+        kind, fault = await monitor_fault(heartbeat_pv)
+    except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
+        kind, fault = "heartbeat", f"the follow-up get failed ({type(exc).__name__})"
+    if kind == "monitors":
         print(f"  [DOWN] gateway answers gets but its monitors are not flowing ({fault})")
         print("         every monitor client (archiver, displays, the scan worker) is")
         print("         reading stale or no values; the gateway service needs a restart")
-        print("         on its host (GeecsCAGateway/DEPLOYMENT.md § Troubleshooting)")
+        print("         on its host (GeecsCAGateway/DEPLOYMENT.md § Troubleshooting,")
+        print("         'Gets answer, no monitors')")
         print(f"role=CA gateway\tstate=down\tversion={version}\tnote=gets answer, monitors not flowing ({fault})")
+        raise SystemExit(1)
+    if kind == "heartbeat":
+        print(f"  [DOWN] gateway heartbeat is not ticking ({fault})")
+        print("         the gateway's status loop is stalled; this probe cannot say")
+        print("         whether device monitors flow (check one with caproto-monitor)")
+        print(f"role=CA gateway\tstate=down\tversion={version}\tnote=heartbeat not ticking ({fault})")
         raise SystemExit(1)
     print(f"  [ OK ] gateway alive: heartbeat={int(heartbeat)} (monitor ticking), "
           f"devices_connected={int(connected)}, version={version}")

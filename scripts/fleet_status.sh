@@ -369,7 +369,7 @@ if isinstance(tw, dict):
         rec "role=Tiled writer	state=absent	note=no scanner /health to read the heartbeat from"
     fi
 
-    # CA gateway — /lab-status tier 2 (read-only CA gets). Contract: its
+    # CA gateway — /lab-status tier 2 (read-only CA gets and one heartbeat subscription). Contract: its
     # stdout carries one `role=CA gateway<TAB>...` record; the rest is prose.
     if [ -n "$EXPERIMENT" ]; then
         hw="$("$REPO_ROOT/scripts/lab_status.sh" --hardware --experiment "$EXPERIMENT" 2>&1 | sed -n '/Tier 2/,$p')"
