@@ -71,7 +71,10 @@ class RunProgress(BaseModel):
     updated_at: Optional[float] = None
     current_rate_hz: Optional[float] = Field(
         default=None,
-        description="1 / the latest period: two fires of one bin, less the gate hold",
+        description=(
+            "1 / the latest period: two consecutive fires of one bin, "
+            "less the gate hold"
+        ),
     )
     waiting_on: Optional[str] = Field(
         default=None,
@@ -166,10 +169,13 @@ class ProgressStream:
             if str(doc.get("descriptor")) in self._rows:
                 seq = doc.get("seq_num")
                 seqs = seq if name == "event_page" else [seq]
-                counted = [_as_int(v) or 0 for v in seqs or []]
+                numbers = [_as_int(v) for v in seqs or []]
+                counted = [n or 0 for n in numbers]
                 if counted:
                     self._count_rows(max(counted), now)
-                self._timing.take(doc.get("data") or {}, page=name == "event_page")
+                self._timing.take(
+                    doc.get("data") or {}, numbers, page=name == "event_page"
+                )
                 self._timing.write(self._progress)
         elif name == "stop":
             self._stop(doc, now)
@@ -330,43 +336,50 @@ class _RowTiming:
     """
 
     def __init__(self) -> None:
-        self.prev: tuple[float, Any, bool] | None = None  # fire, bin, interrupted
+        # seq_num, fire, bin, interrupted
+        self.prev: tuple[int | None, float, Any, bool] | None = None
         self.period: float | None = None
         self.worker: float | None = None
         self.last_wait: float | None = None
         self.waiting: tuple[str, float] | None = None
         self.held: dict[str, int] = {}
 
-    def take(self, data: dict, *, page: bool) -> None:
-        """One event's ``data`` (or an event page's, columns of lists)."""
+    def take(self, data: dict, seqs: list[int | None], *, page: bool) -> None:
+        """One event's ``data`` (or an event page's, columns of lists) and its ``seq_num``."""
         rows = (
             [dict(zip(data, vals, strict=False)) for vals in zip(*data.values())]
             if page
             else [data]
         )
-        for row in rows:
-            self._row(row)
+        for i, row in enumerate(rows):
+            self._row(row, seqs[i] if i < len(seqs) else None)
 
-    def _row(self, row: dict) -> None:
+    def _row(self, row: dict, seq: int | None) -> None:
         fired = _finite(row.get("fire_stamp"))
         interrupted = bool(row.get("interrupted"))
         if fired is not None:
             prev = self.prev
+            # A period needs the previous fire's row: the feed is
+            # best-effort, and a lost row (a pause marker among them) would
+            # make the next one span two fires.
             if (
                 prev is not None
-                and fired > prev[0]
-                and row.get("bin_number") == prev[1]
-                and not prev[2]
+                and seq is not None
+                and prev[0] is not None
+                and seq == prev[0] + 1
+                and fired > prev[1]
+                and row.get("bin_number") == prev[2]
+                and not prev[3]
                 and not interrupted
                 and not row.get("after_pause")
             ):
-                period = fired - prev[0] - (_finite(row.get("gate_hold_s")) or 0.0)
+                period = fired - prev[1] - (_finite(row.get("gate_hold_s")) or 0.0)
                 if period > 0:
                     self.period = period
                     # The period's part not spent waiting for the previous
                     # row's devices; nothing required: all of it.
                     self.worker = max(0.0, period - (self.last_wait or 0.0))
-            self.prev = (fired, row.get("bin_number"), interrupted)
+            self.prev = (seq, fired, row.get("bin_number"), interrupted)
         device = row.get("slowest_device")
         delay = _finite(row.get("slowest_s"))
         if interrupted:  # a pause cut the wait: its arrivals say nothing

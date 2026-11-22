@@ -172,6 +172,26 @@ def test_no_period_spans_a_step_a_pause_or_an_interrupted_row() -> None:
     assert stream.snapshot().current_rate_hz == 0.8
 
 
+def test_no_period_spans_a_lost_row() -> None:
+    """The feed is best-effort: a row missing from it (a pause marker among them) breaks the period."""
+    stream = ProgressStream(clock=lambda: 3.0)
+    stream.on_document("start", {"uid": "r", "plan_name": "count", "num_points": 9})
+    stream.on_document("descriptor", {"uid": "p", "name": "primary"})
+
+    def event(seq: int, data: dict) -> None:
+        stream.on_document("event", {"descriptor": "p", "seq_num": seq, "data": data})
+
+    event(1, _row(100.0, "CAM-Wedge", 0.8))
+    event(3, _row(102.0, "CAM-Wedge", 0.8))  # row 2 lost: 1 Hz, not 0.5
+    assert stream.snapshot().current_rate_hz is None
+    event(4, _row(103.0, "CAM-Wedge", 0.8))
+    snap = stream.snapshot()
+    assert snap.current_rate_hz == 1.0 and abs(snap.worker_s - 0.2) < 1e-9
+    # row 5 carried after_pause and was lost: row 6 must not bridge the pause
+    event(6, _row(160.0, "CAM-Wedge", 0.8))
+    assert stream.snapshot().current_rate_hz == 1.0
+
+
 def test_a_run_without_timing_columns_has_no_rates() -> None:
     stream = ProgressStream(clock=lambda: 3.0)
     _strict_run(stream)
