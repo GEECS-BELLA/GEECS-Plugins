@@ -99,6 +99,8 @@ class TestRunAndWait:
         assert "UC_Crop/Array2DScanAnalyzer/cam_summary_waterfall.png" in paths
         assert "UC_Crop/Array2DScanAnalyzer/cam_summary_scalar_fit.json" in paths
         assert out["job"]["state"] == "done"
+        # The portal's record only gained fields: forwarded as they are.
+        assert out["degraded"] is out["job"]["degraded"]
 
     async def test_get_scan_analysis_shows_the_job_with_a_bounded_log(
         self, wired

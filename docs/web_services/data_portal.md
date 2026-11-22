@@ -74,9 +74,21 @@ scan (its device has data in the scan); the rest are folded away.
 
 1. Press **run** on a recipe. The badge goes *queued* → *running* →
    *done* (or *failed*, with the error and the run's log). Only one run
-   per scan at a time.
+   per scan at a time. Under the badge, a finished run says how many of
+   its shots (or bins) succeeded, and counts what went wrong along the
+   way: units that failed, shots whose file would not load, figures or
+   scalar columns not written, and NaN values. A run that finished with
+   any of those failures shows *done · degraded* rather than
+   green; a run where every shot failed is *failed*, and one where no shot
+   had a data file is *no_data*. NaN values are counted but do not by
+   themselves make a run degraded; neither does a small scan drawing no
+   summary figure.
 2. The results appear in the tab: summary figures inline, per-bin
-   figures behind a stepper, other files as links. They are saved under
+   figures behind a stepper, other files as links. The tab lists every
+   file in the recipe's output folder, so it says *files may predate this
+   run*: a figure an earlier run wrote and this one did not is still
+   there. After a portal restart there is no run record, and it says
+   *freshness unknown*. They are saved under
    the day's `analysis/ScanNNN/` folder, and the scalars the recipe
    computes are added to the scan's `analysis/sNNN.txt`, so they show up
    as new columns on the Plot page.

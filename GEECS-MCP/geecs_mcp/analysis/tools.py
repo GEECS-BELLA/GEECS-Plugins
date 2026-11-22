@@ -281,6 +281,8 @@ async def _wait_within(
         # are what is known, never a guess at done
         state=state if job is not None else "unknown",
         error=(job or {}).get("error"),
+        # done with failures the run continued past; the counts are job.outcome
+        degraded=(job or {}).get("degraded"),
         progress=(job or {}).get("progress"),
         artifacts=entry.get("artifacts") or [],
         files=entry.get("files") or [],
@@ -297,10 +299,13 @@ async def wait_for_analysis(
 ) -> str:
     """Block until the analyzer's job on this scan leaves ``queued``/``running`` (at most 90 s).
 
-    ``{finished, state, error, artifacts, files, job}`` — ``state`` is
-    ``done``/``failed``/``no_data``, or ``unknown`` when the portal has no
-    job record (it restarted; the files on disk are listed).  A timeout is
-    a result with ``finished: false``; call again.
+    ``{finished, state, degraded, error, artifacts, files, job}`` — ``state``
+    is ``done``/``failed``/``no_data``, or ``unknown`` when the portal has no
+    job record (it restarted; the files on disk are listed).  ``degraded``
+    marks a ``done`` run that continued past failures (failed units, shots
+    that failed to load, unwritten products or scalars); ``job.outcome`` has
+    the counts, NaN values included.  A timeout is a result with
+    ``finished: false``; call again.
     """
     return await guard.run_async(
         _wait_for_analysis, scan_number, analyzer, day, timeout_s

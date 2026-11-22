@@ -364,11 +364,41 @@ function patchProgress(body) {
   }
 }
 
+//: What a finished run counted (the record's ``outcome``), one line: the
+//: units, then every failure it continued past and the NaN values it
+//: produced, each only when nonzero — so a run of NaNs never reads as clean.
+const OUTCOME_TERMS = [
+  ["units_failed", "failed"],
+  ["shots_load_failed", "shots failed to load"],
+  ["nan_values", "NaN values"],
+  ["product_write_failures", "products not written"],
+  ["scalar_write_failures", "scalar writes failed"],
+  ["fold_errors", "fold errors"],
+];
+function renderOutcome(o) {
+  if (!o || !o.units_attempted) return "";
+  const terms = OUTCOME_TERMS.filter(([k]) => o[k]).map(([k, word]) => `<b>${esc(String(o[k]))}</b> ${word}`);
+  return `<p class="note aoutcome">${esc(String(o.units_succeeded))} of ${esc(String(o.units_attempted))} units succeeded${terms.length ? " · " + terms.join(" · ") : ""}</p>`;
+}
+
+// What the listed files are known to be: the folder is listed whole, so a
+// file from an earlier run looks like this one's. No per-file badge.
+function renderFreshness(job, artifacts) {
+  if (!artifacts || !artifacts.length) return "";
+  if (!job) return `<p class="note">freshness unknown: no run record since the portal started</p>`;
+  const when = job.finished ? ` (finished ${new Date(job.finished * 1000).toLocaleTimeString()})` : "";
+  return `<p class="note">files may predate this run${esc(when)}</p>`;
+}
+
 function renderAnalyzer(a, anyRunning) {
   const job = a.job;
   const state = job ? job.state : "";
   const active = state === "running" || state === "queued";
-  const badge = state ? `<span class="chip" data-state="${JOB_STATES[state] || "unknown"}">${esc(state)}</span>` : `<span class="chip" data-state="unknown">not run</span>`;
+  // A done run that continued past failures says so with the kit's degraded status.
+  const degraded = state === "done" && job.degraded;
+  const badge = !state ? `<span class="chip" data-state="unknown">not run</span>`
+    : degraded ? `<span class="chip" data-state="degraded" title="finished, with failures it continued past (counts below)">done · degraded</span>`
+    : `<span class="chip" data-state="${JOB_STATES[state] || "unknown"}">${esc(state)}</span>`;
   // A destructive kind (it deletes data files) says so on its row; its
   // run button opens the confirmation instead of starting the run.
   const danger = a.destructive ? `<span class="tag-warn" title="this analyzer deletes data files; running it asks for the scan number">deletes files</span>` : "";
@@ -383,6 +413,8 @@ function renderAnalyzer(a, anyRunning) {
   const when = job && job.finished ? `<span class="note">${new Date(job.finished * 1000).toLocaleTimeString()}</span>` : "";
   let body = active ? renderProgress(job.progress) : "";
   if (job && job.error) body += `<p class="err">${esc(job.error)}</p>`;
+  if (job && !active) body += renderOutcome(job.outcome);
+  body += renderFreshness(job, a.artifacts);
   body += renderArtifacts(a.id, a.artifacts);
   if (job && job.log && job.log.length) {
     const open = ANALYSIS_OPEN[a.id] ? " open" : "";
