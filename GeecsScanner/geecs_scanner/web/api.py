@@ -228,6 +228,11 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
         """Remove every waiting item."""
         return service.clear()
 
+    @router.post("/api/queue/start", response_model=VerbOut)
+    def start_queue(body: VerbIn | None = None) -> VerbOut:
+        """Start a stopped queue: the waiting items run, front first."""
+        return service.start_queue(body or VerbIn())
+
     @router.delete("/api/queue/{uid}", response_model=VerbOut)
     def remove_queued(uid: str) -> VerbOut:
         """Remove one waiting item."""

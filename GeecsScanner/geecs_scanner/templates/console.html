@@ -261,8 +261,9 @@
       </div>
       <footer>
         <div class="row">
-          <span class="dim note">Add to Queue appends behind a started queue; Start replaces a waiting item after you say so. In a stopped queue with items waiting, Add to Queue refuses until they are removed or cleared.</span>
+          <span class="dim note">Add to Queue appends behind a started queue; Start replaces a waiting item after you say so. A failed or stopped scan stops the queue (a failed one returns to its front); Start queue runs what waits, in order; Add to Queue refuses until they are started, removed or cleared.</span>
           <span class="spacer"></span>
+          <button class="btn sm" type="button" data-dialog-open="dlg-start-queue" id="btn-start-queue" disabled>Start queue…</button>
           <button class="btn danger sm" type="button" data-dialog-open="dlg-clear" id="btn-clear" disabled>Clear queue…</button>
         </div>
       </footer>
@@ -466,6 +467,15 @@
     <h4 id="dlg-clear-title">Clear <span id="dlg-clear-n">the waiting items</span>?</h4>
     <p>The running scan is not affected.</p>
     <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep them</button><button class="btn danger" type="button" id="do-clear">Clear queue</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-start-queue" aria-labelledby="dlg-start-queue-title">
+  <div class="body">
+    <h4 id="dlg-start-queue-title">Start the queue?</h4>
+    <p>Runs next: <strong id="dlg-start-queue-first">the first waiting item</strong><span id="dlg-start-queue-rest"></span>.</p>
+    <p class="dim">A failed or stopped scan stops the queue, and a failed one returns to its front, so the first item may be the scan that just failed — remove it from the Waiting list first if it should not run again.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Not now</button><button class="btn primary" type="button" id="do-start-queue">Start queue</button></div>
   </div>
 </dialog>
 

@@ -26,7 +26,8 @@ deliberately not here):
   waiting items while the queue is started; while it is stopped a failed
   item may sit at its front and an add would restart the queue and re-run
   it, so waiting items still refuse (``pending_items``).  ``remove_queued``
-  removes one waiting item, never the running one.
+  removes one waiting item, never the running one; ``start_queue`` runs
+  what waits in a stopped queue, front first.
 - **Ownership** (who may stop whose scan) arrives with the operator
   registry (arc PR 5); until then every verb acts and ``force`` is
   recorded but changes nothing.
@@ -1072,6 +1073,60 @@ class ScannerService:
         """Remove every waiting item; the running one is not affected."""
         with self._lock:
             ok, message = self.client.clear_queue()
+        return VerbOut(ok=ok, message=message)
+
+    def start_queue(self, body: VerbIn) -> VerbOut:
+        """Start a stopped queue, so the items waiting in it run in order.
+
+        A failed or stopped scan stops the queue (a failed one returns to
+        its front), stranding what waits behind it; this is the gesture
+        that runs it all. Under
+        the one lock, refused (``policy_refusal``) unless the environment is
+        ready, nothing runs or is paused, the manager's queue is stopped and
+        at least one item waits; refused with ``reopening`` while a reopen
+        runs or after one ran meanwhile. The first waiting item may be the
+        scan that just failed: the page says so before it posts.
+        """
+        generation = self._reopen_guard()
+        with self._lock:
+            self._check_generation(generation)
+            snap = self.client.status()
+            if not snap.connected:
+                raise ScannerError("manager_unreachable", snap.detail or "manager not answering")  # fmt: skip
+            verdict = self.client.readiness()
+            if verdict.state != "ready":
+                raise ScannerError(
+                    "policy_refusal",
+                    "the queue cannot start: the worker environment is not ready "
+                    f"({verdict.state})",
+                    readiness=verdict.state,
+                )
+            busy = snap.re_state not in (None, "idle")
+            if busy or snap.manager_state != "idle":
+                raise ScannerError(
+                    "policy_refusal",
+                    "the queue is already going: a plan is "
+                    f"{snap.re_state if busy else snap.manager_state}",
+                    re_state=snap.re_state,
+                    manager_state=snap.manager_state,
+                )
+            if not snap.items_in_queue:
+                raise ScannerError(
+                    "policy_refusal",
+                    "nothing waits in the queue, so there is nothing to start",
+                    items_in_queue=0,
+                )
+            logger.info(
+                "queue start by %s: %d item(s) waiting",
+                body.operator or "an unnamed caller",
+                snap.items_in_queue,
+            )
+            try:
+                ok, message = self.client.queue_start()
+            except Exception as exc:
+                raise ScannerError(
+                    "manager_unreachable", f"queue start failed: {exc}"
+                ) from exc
         return VerbOut(ok=ok, message=message)
 
     def remove_queued(self, uid: str) -> VerbOut:

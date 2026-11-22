@@ -58,6 +58,10 @@ order the page does:
    the `operator`. Preflight runs again, then the scan is queued.
 4. `GET /api/status` and `GET /api/progress` to follow it; `POST /api/stop`
    and `POST /api/pause` to halt.
+5. `POST /api/queue/start` with the `operator` runs what waits in a
+   stopped queue (a failed or stopped scan stops it; a failed one returns
+   to its front);
+   `DELETE /api/queue/{uid}` removes one waiting item first.
 
 `POST /api/move` moves one settable and completes the way a scan step's
 move does: a motor's readback within tolerance, otherwise the device's own
@@ -142,9 +146,14 @@ opens this page.
   **History** (newest first, with the scan number and who started it);
   **Clear** empties what waits. **Add to Queue** beside Start appends the
   scan to the end (the same preflight, no title dialog); Start replaces a
-  waiting item after you say so. While the queue is stopped with items
-  waiting (a failed scan returns to its front), Add to Queue refuses
-  until you remove or clear them.
+  waiting item after you say so. A failed or stopped scan stops the
+  queue, and a failed one returns to its front, so what waits behind it
+  stays waiting:
+  **Start queue…** runs the waiting items in order, after a dialog naming
+  the first one (remove the failed scan from Waiting first if it should not
+  run again). It is enabled only while the manager is ready, nothing runs
+  and something waits. While the queue is stopped with items waiting, Add
+  to Queue refuses until you start, remove or clear them.
 - **Devices · move** — every numeric settable variable of the experiment,
   straight from the GEECS database, behind a type-ahead: type any fragment
   of the device, the variable or its alias to narrow the list. Pick one and
