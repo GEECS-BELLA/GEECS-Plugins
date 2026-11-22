@@ -172,14 +172,40 @@ class PreparedScan:
         """
         if result.measurement is None:
             return []
-        prefix = f"{self.output_name}_" if self.output_name else ""
         values = {
-            f"{prefix}{key}{self.metric_suffix}": value
+            self.scalar_column(key): value
             for key, value in result.measurement.scalars.items()
         }
         if not values:
             return []
         return [{"Shotnumber": number, **values} for number in result.group.shots]
+
+    def scalar_column(self, key: str) -> str:
+        """The s-file column of one bare scalar: output prefix, key, metric suffix."""
+        prefix = f"{self.output_name}_" if self.output_name else ""
+        return f"{prefix}{key}{self.metric_suffix}"
+
+    def declared_columns(self) -> tuple[str, ...]:
+        """Every column the measure can emit (``emitted_scalars``), named as written.
+
+        Known before any shot runs, so a run where every unit fails still
+        names the columns it owns. A superset of what a run produces.
+        """
+        measure = self.prepared.recipe.analysis.measure
+        return tuple(sorted(self.scalar_column(k) for k in measure.emitted_scalars()))
+
+    def cleared_records(self, result: UnitResult) -> list[dict[str, int]]:
+        """The rows a unit that failed after loading clears: its shots, no values.
+
+        A unit that loaded at least one shot and then failed owns its
+        declared columns on every member row (the rows a success would have
+        stamped), and the host writes them missing. A unit that succeeded,
+        or that loaded nothing, clears nothing: a shot that failed to load
+        keeps its old cells.
+        """
+        if result.measurement is not None or not result.loaded_shots:
+            return []
+        return [{"Shotnumber": number} for number in result.group.shots]
 
 
 def prepare_scan(

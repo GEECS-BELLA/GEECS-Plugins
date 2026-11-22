@@ -188,8 +188,9 @@ scan-level numbers (`scalar_fit`) also gets `<stem>.json` beside its PNG
 (nonfinite as `null`; never a display file; classified `summary` by the
 `_summary_` marker). HDF5 retains the legacy dataset
 name, storage dtype and gzip level. `scan.save: false` writes nothing. A
-rendering failure omits only its figure and is returned as a note; data and
-write errors propagate. Scalar persistence is independent of this sink.
+rendering failure omits only its figure and is returned as a note (and in
+`SavedProducts.failed`, which the plan's expected omissions never join); data
+and write errors propagate. Scalar persistence is independent of this sink.
 
 `core_analyzer.CoreScanAnalyzer` is the core route behind the contract the task
 queue, the portal and MCP call. It inherits scan-tag handling, s-file reading
@@ -210,7 +211,22 @@ phase `shot` or `bin` (`UNIT_PHASES`), then `(N, N, "writing products")`
 (the portal's run record; the task queue sets none), so the core stays
 free of I/O. The worker count is a throughput knob only:
 `test_pooled_run_writes_the_identical_tree` holds the pooled tree to the
-serial one at 0 ulp. Hosts that run analyses (the portal's thread pool, the
+serial one at 0 ulp. Every run also counts what it did into a fresh
+`base.RunOutcome` on `analyzer.outcome` (set at the start of the core run;
+`run_analysis` resets it to `None` first, so an early return leaves none):
+units attempted, succeeded and failed, shots that failed to load, NaN
+values, product writes that did not land (`SavedProducts.failed`, a per-shot
+table, sibling output or shot store), scalar writes that did not land (the
+sidecar, a refused s-file merge) and fold errors. The rule a host applies
+lives beside the counts: `RunOutcome.verdict()` says `no_data` (no unit
+attempted), `failed` (none succeeded) or `done`, degraded when any of
+`DEGRADING_COUNTS` (failed units, load failures, products or scalars not
+written) is nonzero — NaN values are shown, never judged, and the
+small-scan figure gate, waterfall sort exclusions and a summary's notes
+are never counted; `report()` is the counts plus that verdict as plain
+JSON for a host that does not import this package. A raise is a host's
+`failed` whatever the counts. `run_analysis`'s return is unchanged; the
+portal's Analysis tab reads the report, the task queue does not. Hosts that run analyses (the portal's thread pool, the
 task queue, MCP's detached worker) are threaded processes; the pool is
 `spawn`, so their entry points must keep their `__main__` guards.
 A missing or empty device folder, or stack-only input without a stack, raises
@@ -548,8 +564,29 @@ PR as the writer change.
 Scalar persistence in `base.py` delegates to `geecs_data_utils.scalar_files`:
 one lock/merge implementation coordinates legacy and new runners. ScanAnalysis
 still owns sidecar destination names, sibling analysis-directory creation and
-refreshing `auxiliary_data`. Preserve the difference between s-file merging
-(missing updates retain old cells) and sidecars (generated NaNs remain NaN).
+refreshing `auxiliary_data`. `CoreScanAnalyzer` passes the run's declared
+columns (`PreparedScan.declared_columns`: the measure's `emitted_scalars()`,
+named as `scalar_records` names them) as the merge's `targets`, and the sidecar
+and the s-file get the same rows:
+
+| Unit outcome | Stored value |
+|---|---|
+| Succeeded, finite value | replaced |
+| Succeeded, NaN | replaced with NaN |
+| Failed after loading | its declared columns NaN on every member row (`cleared_records`) |
+| Shot outside this run | kept |
+| Shot failed to load | kept (per-bin: a member still gets its bin's values) |
+
+A declared column is written only when the run produced it or the s-file
+already has it (decided by the merge, against the file read under its lock),
+so a failed run creates no all-NaN column; the sidecar holds exactly the
+columns the merge wrote, so a run that wrote none replaces an earlier
+run's sidecar with its bare rows; the exact columns
+are updated, never everything under the output prefix, so another recipe's
+columns under the same output name survive. The scalar-columns job passes
+its declared column names as the targets too: it computes every shot, so a
+value now NaN (a condition now unknown) replaces the old cell. A caller
+passing no targets keeps the old-cell-wins merge.
 
 ## Product output names are a consumed contract
 

@@ -433,8 +433,8 @@ lists every loadable diagnostic in the same `--processing-configs`
 tree with `applicable` (its data device — `scan.device`, else the
 name — has a folder in this scan; a scalar-columns job, which reads the
 s-file alone, applies to every scan), its in-memory `job` record
-(`queued`/`running`/`done`/`failed`/`no_data`, artifacts, error, the
-run's captured log lines) and `files` (what is on disk under
+(`queued`/`running`/`done`/`failed`/`no_data`, `degraded`, the
+`outcome` counts, artifacts, error, the run's captured log lines) and `files` (what is on disk under
 `analysis/ScanNNN/<output_name>/`, so a page loaded after a portal
 restart still shows earlier outputs) and `artifacts` — what the tab
 shows (the files on disk + the done job's non-file labels), each
@@ -538,7 +538,20 @@ finished (2026-11-05: the whole-process gc took seconds in a portal holding
 image caches, so a 0.1 s scalar job read "running" for ~2 s; the one worker
 thread still releases before any next job starts);
 `run_analysis` returning `None` and `DataUnavailableWarning` map to
-`no_data` (the worklist runner's own mapping).  The factory seam
+`no_data` (the worklist runner's own mapping).  **A run's outcome**: an
+analyzer that counts its units (ScanAnalysis' `RunOutcome` on
+`analyzer.outcome`; `run_scan_analyzer` hands its `report()` — the
+counts and the analyzer's own verdict — to the job's `RunReport.outcome`,
+raised or not) puts its counts on the record's `outcome`, and a run that
+returned files takes the verdict's state, `degraded` flag and message
+(`analysis_runs.judge_outcome` reads it, never re-derives it: the rule is
+`RunOutcome.verdict` in ScanAnalysis, beside the counts).  A raise is
+`failed` whatever the counts.
+No new state word: the tab draws `done` + `degraded` as the kit's
+`degraded` chip (*done · degraded*) with the counts under the row
+(`renderOutcome`), and above the files *files may predate this run
+(finished HH:MM)*, or *freshness unknown* with no record — the output
+folder is listed whole, so a file can be an earlier run's.  The factory seam
 (`create_app(analysis_factory=…)`) is how the tests drive the whole
 ladder without ScanAnalysis; the default is `load_diagnostic` +
 `create_scan_analyzer`, needing the `analysis` extra (ScanAnalysis).  The factory (and `__main__`,

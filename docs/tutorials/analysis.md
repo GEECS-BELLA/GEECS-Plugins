@@ -75,7 +75,9 @@ run it. The run uses the saved file. It writes figures and per-shot products
 under the day's `analysis/ScanNNN/` folder and adds the scalars to the
 analysis s-file as columns prefixed with the recipe's `output_name` (the
 device name unless you set one). `scalar_suffix` tags the scalar columns
-only. Raw data is never modified.
+only. Raw data is never modified. A rerun rewrites those columns on every
+shot it analyzed, so a shot whose analysis now fails shows an empty cell
+rather than the old value.
 
 The `scan` section controls how the run goes over the scan:
 

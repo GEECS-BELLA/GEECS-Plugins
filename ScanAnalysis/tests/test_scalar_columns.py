@@ -105,6 +105,32 @@ def test_rerunning_replaces_its_own_columns(tmp_path, monkeypatch):
     assert out["Cam x (mm)"].iloc[0] == 20
 
 
+def test_a_rerun_that_computes_nan_replaces_the_old_cell(tmp_path, monkeypatch):
+    """A value now NaN (an unknown condition included) never leaves the old one."""
+    _, sfile = build_scan(tmp_path)
+    rows = pd.read_csv(sfile, sep="\t").assign(Foreign=[7.0, 7.0, 7.0, 7.0])
+    rows.to_csv(sfile, sep="\t", index=False)
+    cond = {**TARGET, "inputs": {"x": "A"}}
+    run(monkeypatch, tmp_path, job(MM, cond))
+    first = pd.read_csv(sfile, sep="\t")
+    assert first["Cam x (mm)"].iloc[0] == 5 and first["target"].iloc[0] == 2
+    # Shot 1 now has no centroid and no stage reading: both become unknown.
+    rows = pd.read_csv(sfile, sep="\t")
+    rows.loc[0, ["Cam centroid x", "A"]] = np.nan
+    rows.to_csv(sfile, sep="\t", index=False)
+    labels = run(monkeypatch, tmp_path, job(MM, cond))
+    out = pd.read_csv(sfile, sep="\t")
+    assert np.isnan(out["Cam x (mm)"].iloc[0])
+    assert np.isnan(out["target"].iloc[0])
+    np.testing.assert_allclose(out["Cam x (mm)"].iloc[1:], [10, np.nan, 20])
+    assert list(out["Foreign"]) == [7.0] * 4  # another writer's column survives
+    assert list(out["B"]) == [2.0] * 4
+    side = pd.read_csv(sfile.parent / "Scan012" / "Scan012_Derived.txt", sep="\t")
+    pd.testing.assert_frame_equal(side, out[list(side.columns)], check_dtype=False)
+    # The message counts what the s-file now holds.
+    assert "'Cam x (mm)' (2 of 4 shots)" in labels[0]
+
+
 def test_a_missing_input_is_no_data_with_a_hint(tmp_path, monkeypatch):
     _, sfile = build_scan(tmp_path)
     before = sfile.read_bytes()

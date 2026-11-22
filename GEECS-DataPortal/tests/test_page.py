@@ -360,3 +360,53 @@ def test_the_day_page_plots_the_scans_it_shows(tmp_path) -> None:
     body = json.loads((tmp_path / "sets" / "ann.json").read_text())
     assert body["scan"] == 1 and len(body["extra_scans"]) == 8
     assert body["scan_view"] == "merged"
+
+
+def test_a_degraded_run_shows_the_kits_degraded_status_and_its_counts(
+    tmp_path,
+) -> None:
+    """A done run that continued past failures is not drawn green, its counts
+    (NaN values included) are on its row, and listed files say they may
+    predate the run (``freshness unknown`` with no run record)."""
+    _run_page_script(
+        tmp_path,
+        r"""
+const drawn = [];
+globalThis.__elements = { analysisList: { set innerHTML(html) { drawn.push(html); } } };
+const art = [{ path: "D/x.png", servable: true, inline: true, kind: "summary", bin: null }];
+const counts = (o) => Object.assign({ units_attempted: 6, units_succeeded: 6, units_failed: 0,
+  shots_load_failed: 0, nan_values: 0, product_write_failures: 0,
+  scalar_write_failures: 0, fold_errors: 0 }, o);
+const row = (job) => ({ running: null, analyzers: [{ id: "D", device: "cam", applicable: true,
+  destructive: false, files: ["D/x.png"], artifacts: art, job }] });
+const job = (o) => Object.assign({ state: "done", error: null, log: [], finished: 1700000000,
+  progress: null, degraded: false, outcome: counts({}) }, o);
+renderAnalysis(row(job({ degraded: true,
+  outcome: counts({ units_succeeded: 4, units_failed: 2, nan_values: 18 }) })), false);
+check(drawn[0].includes('data-state="degraded"'), "degraded chip: " + drawn[0]);
+check(drawn[0].includes("done · degraded"), "says done, degraded");
+check(!drawn[0].includes('data-state="ok"'), "never the ok chip");
+check(drawn[0].includes("4 of 6 units succeeded"), "the units");
+check(drawn[0].includes("<b>2</b> failed") && drawn[0].includes("<b>18</b> NaN values"),
+      "the failures and the NaN values");
+check(drawn[0].includes("files may predate this run (finished "), "the file-list wording");
+renderAnalysis(row(job({ outcome: counts({ nan_values: 3 }) })), false);
+check(drawn[1].includes('data-state="ok"'), "NaN values alone leave the run done");
+check(drawn[1].includes("<b>3</b> NaN values"), "but are shown");
+renderAnalysis(row(null), false);
+check(drawn[2].includes("freshness unknown"), "no record: freshness unknown");
+""",
+    )
+
+
+def test_the_outcome_terms_name_real_run_outcome_fields() -> None:
+    """``OUTCOME_TERMS`` repeats ScanAnalysis' count names: a rename there fails here."""
+    base = pytest.importorskip("scan_analysis.base")
+    run = (_TEMPLATES[0].parent / "run.html").read_text()
+    block = re.search(r"const OUTCOME_TERMS = \[(.*?)\];", run, re.S).group(1)
+    names = re.findall(r'\["(\w+)", "', block)
+    assert names
+    fields = set(base.RunOutcome.model_fields)
+    assert set(names) <= fields
+    # every count but the two the line leads with is drawn
+    assert set(names) == fields - {"units_attempted", "units_succeeded"}

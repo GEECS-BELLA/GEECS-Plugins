@@ -48,7 +48,9 @@ logger = logging.getLogger(__name__)
 
 #: Job states — the wire vocabulary the tab renders. The same words as
 #: the task queue's status contract (queued → claimed/running →
-#: done / failed / no_data) so a reader of either recognises them.
+#: done / failed / no_data) so a reader of either recognises them. A run
+#: that finished with failures it continued past is ``done`` with the
+#: record's ``degraded`` set (:func:`judge_outcome`), never a new state.
 QUEUED = "queued"
 RUNNING = "running"
 DONE = "done"
@@ -84,6 +86,30 @@ AnalyzerFactory = Callable[..., ScanAnalyzerLike]
 #: What a run reports into: ``(done, total, phase)`` — frames so far, of
 #: how many, in which phase (``"writing"``, ``"verifying"``, …).
 ProgressSink = Callable[[int, int, str], None]
+#: Where a run hands its analyzer's outcome report: ScanAnalysis'
+#: ``RunOutcome.report()``, ``{"counts", "state", "degraded", "message"}``.
+OutcomeSink = Callable[[dict], None]
+
+#: The verdict words a run's outcome report may carry; anything else is
+#: read as ``done`` (an analyzer newer than this portal never fails a run here).
+_VERDICT_STATES = frozenset({DONE, FAILED, NO_DATA})
+
+
+def judge_outcome(report: Optional[dict]) -> tuple[str, bool, Optional[str]]:
+    """``(state, degraded, error)`` of a run that returned display files.
+
+    The verdict is the analyzer's own (``RunOutcome.verdict`` in
+    ScanAnalysis: the rule lives beside the counts), read here, never
+    re-derived; ``report`` is ``None`` for an analyzer that does not count
+    its units, which stays ``done``. A run that raised never reaches here:
+    ``failed`` is never softened.
+    """
+    if report is None:
+        return DONE, False, None
+    state = report.get("state")
+    if state not in _VERDICT_STATES:
+        return DONE, False, None
+    return state, bool(report.get("degraded")), report.get("message")
 
 
 def scan_analysis_factory(
@@ -152,10 +178,44 @@ class AnalysisJob:
     #: for the tab's status while the run lasts; ``None`` until the
     #: analyzer reports (most never do; the ``.himg`` kinds do per frame).
     progress: Optional[dict] = None
+    #: A ``done`` run that continued past failures (:func:`judge_outcome`).
+    degraded: bool = False
+    #: The analyzer's outcome counts (ScanAnalysis' ``RunOutcome`` fields:
+    #: units attempted/succeeded/failed, shots that failed to load, NaN
+    #: values, product and scalar writes that did not land, fold errors);
+    #: ``None`` when the analyzer does not count.
+    outcome: Optional[dict] = None
 
     def to_json(self) -> dict:
         """The JSON shape the ``/api/run/{uid}/analysis`` endpoints emit."""
         return dataclasses.asdict(self)
+
+
+class RunReport:
+    """The sinks a job hands its run: progress (call it) and the outcome.
+
+    Called as a :data:`ProgressSink`, so a run that only reports progress
+    takes it as one; :meth:`outcome` records the analyzer's counts.
+    """
+
+    def __init__(self, job: AnalysisJob):
+        self._job = job
+        #: The analyzer's outcome report (counts + verdict), once given.
+        self.verdict: Optional[dict] = None
+
+    def __call__(self, done: int, total: int, phase: str) -> None:
+        """Record one progress report: one dict assignment, read whole or not at all."""
+        self._job.progress = {
+            "done": int(done),
+            "total": int(total),
+            "phase": str(phase),
+        }
+
+    def outcome(self, report: dict) -> None:
+        """Record the analyzer's outcome report: its counts on the job, its verdict here."""
+        self.verdict = report
+        counts = report.get("counts") or {}
+        self._job.outcome = {str(k): int(v) for k, v in counts.items()}
 
 
 class RunInProgress(RuntimeError):
@@ -283,7 +343,7 @@ class AnalysisRunner:
         self,
         uid: str,
         analyzer_id: str,
-        run: Callable[[ProgressSink], Optional[list]],
+        run: Callable[[RunReport], Optional[list]],
         *,
         relative_to: Optional[Path] = None,
     ) -> AnalysisJob:
@@ -299,7 +359,8 @@ class AnalysisRunner:
             Executes the analysis and returns the artifact list (the
             factory + ``run_analysis`` + ``cleanup`` composition is the
             caller's — see :func:`run_scan_analyzer`).  Called with the
-            job's progress sink, which the run may ignore.
+            job's :class:`RunReport` (a progress sink with an ``outcome``
+            method), which the run may ignore.
         relative_to : Path, optional
             The analysis folder: artifacts under it are recorded
             relative to it so the artifact endpoint can serve them.
@@ -325,7 +386,7 @@ class AnalysisRunner:
     def _execute(
         self,
         job: AnalysisJob,
-        run: Callable[[ProgressSink], Optional[list]],
+        run: Callable[[RunReport], Optional[list]],
         relative_to: Optional[Path],
     ) -> None:
         capture = _RunLogCapture(self._max_log_lines)
@@ -333,10 +394,7 @@ class AnalysisRunner:
         root.addHandler(capture)
         job.started = time.time()
         job.state = RUNNING
-
-        def report(done: int, total: int, phase: str) -> None:
-            # One dict assignment: a poller reads a whole report or none.
-            job.progress = {"done": int(done), "total": int(total), "phase": str(phase)}
+        report = RunReport(job)
 
         # The final state is assigned LAST (after log/finished/artifacts)
         # so a poller that sees an inactive state sees a complete record.
@@ -352,7 +410,7 @@ class AnalysisRunner:
                 final = NO_DATA
             else:
                 job.artifacts = [_relativize(a, relative_to) for a in artifacts]
-                final = DONE
+                final, job.degraded, job.error = judge_outcome(report.verdict)
         except BaseException as exc:  # noqa: BLE001 — every outcome becomes a record
             job.error = f"{type(exc).__name__}: {exc}"
             final = NO_DATA if _is_no_data(exc) else FAILED
@@ -429,6 +487,7 @@ def run_scan_analyzer(
     scan_tag: object,
     *,
     progress: Optional[ProgressSink] = None,
+    outcome: Optional[OutcomeSink] = None,
     allow_destructive: bool = False,
 ) -> Optional[list]:
     """Build, run and clean up one analyzer — the body of a job.
@@ -437,6 +496,9 @@ def run_scan_analyzer(
     task runner's duty in the queue path and ours here.  *progress* is
     handed to an analyzer that has a ``progress`` attribute (the
     ``ScanAnalyzer`` hook); one without it simply never reports.
+    *outcome* receives the analyzer's outcome report after the run,
+    raised or not, when it has one (``ScanAnalyzer.outcome.report()``:
+    the counts and the analyzer's own verdict).
     *allow_destructive* reaches the factory: a kind that deletes data
     files is built only when the caller confirmed it.
     """
@@ -446,6 +508,10 @@ def run_scan_analyzer(
     try:
         return analyzer.run_analysis(scan_tag)
     finally:
+        counted = getattr(analyzer, "outcome", None)
+        report = getattr(counted, "report", None)
+        if outcome is not None and callable(report):
+            outcome(report())
         analyzer.cleanup()
 
 

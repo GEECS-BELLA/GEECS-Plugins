@@ -152,7 +152,7 @@ def run_analysis_start(
         )
     config_dir = Path(portal.processing_config_dir)
 
-    def run(progress: analysis_runs.ProgressSink) -> Optional[list]:
+    def run(report: analysis_runs.RunReport) -> Optional[list]:
         # The opt-in reaches the factory only past the confirm check
         # above — the one place a destructive kind gets built here.
         return analysis_runs.run_scan_analyzer(
@@ -160,7 +160,8 @@ def run_analysis_start(
             analyzer,
             config_dir,
             tag,
-            progress=progress,
+            progress=report,
+            outcome=report.outcome,
             allow_destructive=info.destructive,
         )
 
