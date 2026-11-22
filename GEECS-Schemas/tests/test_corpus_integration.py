@@ -1,18 +1,18 @@
-"""Corpus walk: convert EVERY real config in the sibling configs checkout.
+"""Corpus walk: validate EVERY real config in the sibling configs checkout.
 
 The corpus walk (``TestFullCorpus``) is marked ``integration``: it auto-skips
 when the sibling ``GEECS-Plugins-Configs`` checkout is absent (e.g. in CI).
-Locally this is the proof that the converters cover the real world, file by
-file. Empty/deviceless shot-control configs legitimately convert to "no
-trigger profile". Retired optimizer dialects are excluded while their separate
-corpus migration is pending; every deployed native optimizer is validated.
+Locally this is the proof that the deployed documents are the new schema,
+file by file: no converter remains for any kind. Retired optimizer dialects
+are excluded while their separate corpus migration is pending; every
+deployed native optimizer is validated.
 
 Corpus layout (regenerated 2026-09-10, GEECS-Plugins#807 phase 1 PR 2)::
 
     scanner_configs/experiments/<Experiment>/
       presets/                       # Preset documents (new schema only; no converter)
       scan_devices/                  # scan_variables.yaml (new schema only; no converter)
-      shot_control_configurations/   # trigger configs (incl. laser-on/off pairs)
+      shot_control_configurations/   # TriggerProfile documents (new schema only; regenerated 2026-11, #1361)
       setups/                        # Setup documents, one per file (converted once from the action library)
       optimizer_configs/             # Xopt optimizer configs (Undulator only)
       aux_configs/                   # visa plunger lookup (app data; no converter)
@@ -33,9 +33,7 @@ from geecs_schemas import (
     TRIGGER_PROFILES_FOLDER,
     Preset,
     ScanVariables,
-)
-from geecs_schemas.convert import (
-    convert_shot_control,
+    TriggerProfile,
 )
 
 
@@ -108,18 +106,21 @@ class TestFullCorpus:
             validated += 1
         assert validated >= 2  # Undulator + Thomson
 
-    def test_every_shot_control_converts(self):
-        converted, no_device = 0, 0
+    def test_every_trigger_profile_is_new_schema(self):
+        """Every deployed trigger profile is a ``TriggerProfile`` (no converter).
+
+        The retired shot-control dialect carries no ``schema_version``; the
+        resolver refuses such a file, so one left in the corpus is a profile
+        no scan can use.
+        """
+        validated = 0
         for experiment in experiments():
-            for path in sorted(experiment.glob(f"{TRIGGER_PROFILES_FOLDER}/*.yaml")):
-                profile = convert_shot_control(path)
-                if profile is None:
-                    # Documented empty/deviceless configs: Bella Normal,
-                    # Undulator "No Device" ("no shot control configured").
-                    no_device += 1
-                else:
-                    converted += 1
-        assert converted >= 8 and no_device >= 2
+            for path in sorted(experiment.glob(f"{TRIGGER_PROFILES_FOLDER}/*.y*ml")):
+                document = yaml.safe_load(path.read_text())
+                assert "schema_version" in document, f"{path}: retired dialect"
+                TriggerProfile.model_validate(document)
+                validated += 1
+        assert validated >= 12
 
     def test_every_setup_validates_and_the_action_library_is_gone(self):
         """Every experiment's setups load and flatten; no action library is left.
