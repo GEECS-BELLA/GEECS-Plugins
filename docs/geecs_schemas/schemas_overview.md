@@ -121,7 +121,7 @@ Two boundaries follow from the design rather than from preference:
 Background telemetry is on by default for the experiment
 (`ExperimentDefaults.background_telemetry`) and can be overridden per scan
 (`Preset.background_telemetry`); its columns reach the s-file exactly as the
-required devices' do. Converted legacy save elements keep
+required devices' do. The legacy save elements, converted once into presets, kept
 their exact old recording behavior — they record precisely the variable
 lists they always did; the database-first defaults apply to new configs
 only.
@@ -156,10 +156,11 @@ picks up the change; change the *request* and nothing else is touched.
 Submitting a request kicks off a short, predictable sequence. First a
 *resolver* turns every name in the request into the real thing: it opens the
 experiment's config folder, finds the save set, trigger profile and scan
-variable you named, and checks each one — a new-style file
-is read directly, an old-style file is converted on the fly (your existing
-configs work as-is; nothing needs rewriting first). If a name doesn't exist
-or a file doesn't validate, the submission fails right there with a message
+variable you named, and checks each one. Every config is read in the
+current schema only: the old-style files were regenerated once in the new
+format and no converter remains, so an old-style file is refused, naming it
+(an older `schema_version` of the current format is still lifted forward;
+see below). If a name doesn't exist or a file doesn't validate, the submission fails right there with a message
 naming exactly what's wrong — before any hardware is touched and before a
 scan number is used up. Then the engine builds the run from the resolved
 pieces: it connects the save set's devices, puts the trigger device under
@@ -182,8 +183,9 @@ clear "not yet" message rather than attempted halfway.
   that silently does nothing.
 - **You describe intent, not mechanics.** If you remember declaring
   `synchronous:` flags, `acq_timestamp` bookkeeping variables, or parallel
-  laser-off files: those are gone on purpose. The scanner derives them, and
-  the old files convert automatically.
+  laser-off files: those are gone on purpose. The scanner derives them; the
+  old files were regenerated once in the new format, and an old-format file
+  is refused rather than converted.
 - **`schema_version` is not something you maintain.** It marks the file
   layout generation, and the tools migrate old files forward automatically
   when they load — a preset saved under an older layout keeps working, and

@@ -133,8 +133,8 @@ class ConfigsRepoResolver:
       documents, read fresh for each request.
 
     A trigger profile must carry ``schema_version`` at its top level; one
-    without it (empty, or the retired shot-control dialect) is refused,
-    never half-read.  Named configs resolve from
+    without it (usually empty, or the retired shot-control dialect) is
+    refused, never half-read.  Named configs resolve from
     either the ``.yaml`` or ``.yml`` spelling, so every listed name
     round-trips through resolution.
 
@@ -363,7 +363,8 @@ class ConfigsRepoResolver:
         ------
         GeecsConfigurationError
             Missing file, a file that is not YAML, or a file with no
-            ``schema_version`` (empty, or the retired shot-control dialect).
+            ``schema_version`` (usually empty, or the retired shot-control
+            dialect).
         pydantic.ValidationError
             A document that is not a valid ``TriggerProfile``.
         """
@@ -375,10 +376,12 @@ class ConfigsRepoResolver:
             raise GeecsConfigurationError(f"trigger profile {name!r}: {exc}") from exc
         if "schema_version" not in document:
             raise GeecsConfigurationError(
-                f"trigger profile {name!r} ({path}) has no schema_version: it "
-                "is empty or in the retired legacy shot-control dialect "
-                "(device + variables), which is no longer read — rewrite it "
-                "as a schema_version 2 TriggerProfile (per-state write lists)"
+                f"trigger profile {name!r} ({path}) has no schema_version, "
+                "which is required; the usual causes are an empty file or "
+                "the retired legacy shot-control dialect (device + "
+                "variables), which is no longer read. Give it "
+                "schema_version: 2 as a TriggerProfile (per-state write "
+                "lists), or replace it with a copy of a valid profile"
             )
         return TriggerProfile.model_validate(document)
 

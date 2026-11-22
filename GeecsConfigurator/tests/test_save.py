@@ -168,6 +168,19 @@ def test_a_legacy_profile_is_never_saved_as_it_is(committing: TestClient, origin
     assert "retired legacy shot-control dialect" in str(refused.json())
 
 
+def test_the_named_repair_of_a_legacy_profile_works_from_the_editor(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    """The refusal's remedy, delete it and save a copy of a valid profile under its name, is one the editor can do."""
+    legacy = _get(committing, "trigger_profile", "legacy.yaml")
+    assert "delete it and save a copy of a valid profile" in legacy["errors"][0]["msg"]
+    gone = committing.request("DELETE", f"/api/documents/trigger_profile/legacy.yaml{B}", json={"etag": legacy["etag"], "operator": "Ada"})  # fmt: skip
+    assert gone.status_code == 200 and gone.json()["deleted"], gone.text
+    source = _get(committing, "trigger_profile", "laser_off.yaml")["document"]
+    made = _put(committing, "trigger_profile", "legacy.yaml", {**source, "name": "legacy"}, "", create=True)  # fmt: skip
+    assert made.status_code == 200 and made.json()["outcome"] == "committed", made.text
+    repaired = _get(committing, "trigger_profile", "legacy.yaml")
+    assert repaired["valid"] and repaired["document"]["schema_version"] == 2
+
+
 def test_a_save_over_an_unreadable_document_is_refused(committing: TestClient, origin: Path) -> None:  # fmt: skip
     doc = _get(committing, "setup", "broken.yaml")
     assert doc["etag"] == "" and not doc["valid"]

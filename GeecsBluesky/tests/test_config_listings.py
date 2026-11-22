@@ -447,7 +447,26 @@ LEGACY_TRIGGER = {
 }
 
 
-@pytest.mark.parametrize("document", [LEGACY_TRIGGER, {}], ids=["legacy", "empty"])
+#: A hand-written new-layout profile that forgot its schema_version.
+UNVERSIONED_TRIGGER = {
+    "name": "HTU-LaserOFF",
+    "states": {
+        "OFF": [
+            {
+                "device": "U_DG645_ShotControl",
+                "variable": "Trigger.Source",
+                "value": "Single shot",
+            }
+        ]
+    },  # fmt: skip
+}
+
+
+@pytest.mark.parametrize(
+    "document",
+    [LEGACY_TRIGGER, {}, UNVERSIONED_TRIGGER],
+    ids=["legacy", "empty", "unversioned"],
+)
 def test_a_trigger_profile_without_schema_version_is_refused_naming_its_file(
     repo, document
 ):
@@ -460,6 +479,8 @@ def test_a_trigger_profile_without_schema_version_is_refused_naming_its_file(
         resolver.resolve_trigger_profile("HTU-LaserOFF")
     message = str(caught.value)
     assert str(folder / "HTU-LaserOFF.yaml") in message
+    # true of every case: the version is what is missing; the dialect is a usual cause
+    assert "has no schema_version, which is required" in message
     assert "retired legacy shot-control dialect" in message
 
 

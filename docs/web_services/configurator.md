@@ -58,8 +58,10 @@ typed by name. The YAML of the recipe as edited is shown beside the form.
 - If someone changed the file since you opened it, Save says so, shows what
   your edit would change in the file as it is now, and keeps your edit in
   the form. Nothing is merged for you.
-- A trigger profile in the retired legacy format (no `schema_version`) is
-  shown invalid: the scanner refuses it, so rewrite it in the current format.
+- A trigger profile with no `schema_version` (an empty file, or the retired
+  legacy format) is shown invalid, and the scanner refuses it. The form cannot
+  save it valid: fix the file by hand in the configs repository, or delete it
+  and save a copy of a valid profile under its name.
 - Edits you make while a save is on its way stay in the form, marked
   unsaved.
 

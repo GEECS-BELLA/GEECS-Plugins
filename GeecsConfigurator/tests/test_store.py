@@ -118,6 +118,8 @@ def test_a_legacy_trigger_profile_is_invalid_naming_the_retired_dialect(root: Pa
     rows = {e.id: e for e in store.list("trigger_profile", "Bench")}
     assert not rows["legacy.yaml"].valid
     assert "retired legacy shot-control dialect" in rows["legacy.yaml"].error
+    # the repair it names is outside the form, which never draws schema_version
+    assert "fix the file by hand in the configs repository" in rows["legacy.yaml"].error
     assert rows["laser_off.yaml"].valid
     doc = store.read("trigger_profile", "Bench", "legacy.yaml")
     # served as the file says, never converted: the scanner refuses it the same way
