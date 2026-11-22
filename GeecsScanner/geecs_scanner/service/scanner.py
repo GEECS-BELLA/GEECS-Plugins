@@ -1078,8 +1078,9 @@ class ScannerService:
     def start_queue(self, body: VerbIn) -> VerbOut:
         """Start a stopped queue, so the items waiting in it run in order.
 
-        A failed scan stops the queue and returns to its front, stranding
-        what waits behind it; this is the gesture that runs it all. Under
+        A failed or stopped scan stops the queue (a failed one returns to
+        its front), stranding what waits behind it; this is the gesture
+        that runs it all. Under
         the one lock, refused (``policy_refusal``) unless the environment is
         ready, nothing runs or is paused, the manager's queue is stopped and
         at least one item waits; refused with ``reopening`` while a reopen

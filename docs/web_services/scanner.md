@@ -59,7 +59,8 @@ order the page does:
 4. `GET /api/status` and `GET /api/progress` to follow it; `POST /api/stop`
    and `POST /api/pause` to halt.
 5. `POST /api/queue/start` with the `operator` runs what waits in a
-   stopped queue (a failed scan stops it and returns to its front);
+   stopped queue (a failed or stopped scan stops it; a failed one returns
+   to its front);
    `DELETE /api/queue/{uid}` removes one waiting item first.
 
 `POST /api/move` moves one settable and completes the way a scan step's
@@ -129,8 +130,9 @@ opens this page.
   **History** (newest first, with the scan number and who started it);
   **Clear** empties what waits. **Add to Queue** beside Start appends the
   scan to the end (the same preflight, no title dialog); Start replaces a
-  waiting item after you say so. A failed scan stops the queue and
-  returns to its front, so what waits behind it stays waiting:
+  waiting item after you say so. A failed or stopped scan stops the
+  queue, and a failed one returns to its front, so what waits behind it
+  stays waiting:
   **Start queue…** runs the waiting items in order, after a dialog naming
   the first one (remove the failed scan from Waiting first if it should not
   run again). It is enabled only while the manager is ready, nothing runs

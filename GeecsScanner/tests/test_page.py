@@ -791,12 +791,12 @@ def test_start_queue_sits_beside_clear_and_confirms_what_runs(
     footer = queue[queue.index("<footer>") : queue.index("</footer>")]
     assert footer.index('id="btn-start-queue"') < footer.index('id="btn-clear"')
     assert 'data-dialog-open="dlg-start-queue"' in footer
-    assert "Start queue runs them in order" in footer
+    assert "Start queue runs what waits, in order" in footer
     dialog = html[html.index('<dialog id="dlg-start-queue"') :]
     dialog = dialog[: dialog.index("</dialog>")]
     for piece in ('id="dlg-start-queue-first"', 'id="dlg-start-queue-rest"', "data-dialog-close", 'id="do-start-queue"'):  # fmt: skip
         assert piece in dialog, piece
-    assert "returns to the front of the queue" in dialog
+    assert "A failed or stopped scan stops the queue" in dialog
     script = (_PKG / "static" / "scanner.js").read_text()
     handler = script[script.index('$("do-start-queue").addEventListener') :]
     handler = handler[: handler.index("  });")]

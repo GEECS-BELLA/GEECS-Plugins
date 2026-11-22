@@ -120,16 +120,18 @@ deploy/           the unit template + DEPLOYMENT.md
   `DELETE /api/queue/{uid}` removes one waiting item; the running uid is
   `policy_refusal`, an unknown one `not_found`. The many-waiting-items
   limit was the client's posture, never the manager's.
-- **Start queue runs what a stopped queue holds** (#1290). A failed item
-  stops the manager's queue and returns to its front, stranding what waits
-  behind it. `POST /api/queue/start` (`start_queue`) calls the client's
+- **Start queue runs what a stopped queue holds** (#1290). A failed or
+  stopped item stops the manager's queue (a failed one returns to its
+  front; a stopped one does not), stranding what waits behind it. `POST /api/queue/start` (`start_queue`) calls the client's
   `queue_start` under the one lock, refused (`policy_refusal`) unless the
   environment is ready, nothing runs or is paused, the manager's queue is
   not started and an item waits, and refused with `reopening` across a
   reopen as every queueing verb is; the operator is logged. The page's
   confirm names the first waiting item and says it may be the scan that
-  just failed. The demo's `DemoQueueClient.fail()` is the manager's
-  failure: history `failed`, the item back at the front, the queue stopped.
+  just failed. The demo matches the manager: `DemoQueueClient.fail()` puts
+  the item in history `failed`, back at the front, and stops the queue;
+  `stop_scan()` stops the queue as the real client does (`queue_stop`, then
+  `re_stop`); an add or a queue start starts it again.
 - **A setup is applied as one idle-only `apply_setup` item**
   (`GET /api/setups`, `GET /api/setups/{name}` the preview with its digest
   and hazard confirms, `GET /api/setups/{name}/diff` each write against its

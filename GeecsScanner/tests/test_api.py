@@ -231,12 +231,17 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
     assert q["running"]["plan"] == "count" and q["waiting"] == []
     assert client.get("/api/progress").json()["scan_number"] == 48
     manager.stop_scan()
+    q = client.get("/api/queue").json()
+    assert q["running"] is None and q["finished"][0]["word"] == "stopped"
     assert (
         client.post(
             "/api/submit", json={"preset": second, "acknowledged": ack}
         ).status_code
         == 200
     )
+    # an add starts the queue the stop left stopped: it runs at once
+    running = client.get("/api/queue").json()["running"]
+    assert running is not None and running["summary"].startswith("background")
     assert (
         client.post(
             "/api/submit", json={"preset": first, "acknowledged": ack}
@@ -380,6 +385,25 @@ def test_start_queue_runs_what_waits_in_a_queue_a_failed_scan_stopped(
     assert q["running"]["item_uid"] == third and q["waiting"] == []
 
 
+def test_start_queue_runs_what_waits_after_a_stopped_scan(
+    client: TestClient, service, manager: DemoQueueClient
+) -> None:
+    """A stop stops the queue too (never re-queued): what waits stays waiting until Start queue."""
+    stopped, second, third = _three_queued(client, service)
+    assert manager.stop_scan()[0] is True
+    q = client.get("/api/queue").json()
+    assert q["running"] is None and q["finished"][0]["word"] == "stopped"
+    assert q["finished"][0]["item_uid"] == stopped
+    assert [w["item_uid"] for w in q["waiting"]] == [second, third]
+    manager.step()
+    assert client.get("/api/queue").json()["running"] is None
+    r = client.post("/api/queue/start", json={"operator": "sam"})
+    assert r.status_code == 200 and r.json()["ok"] is True, r.text
+    q = client.get("/api/queue").json()
+    assert q["running"]["item_uid"] == second
+    assert [w["item_uid"] for w in q["waiting"]] == [third]
+
+
 def test_start_queue_refuses_when_nothing_waits(client: TestClient) -> None:
     r = client.post("/api/queue/start", json={"operator": "sam"})
     assert r.status_code == 409
@@ -444,11 +468,23 @@ def test_start_queue_refuses_while_reopening_and_after_a_reopen_ran(
         except ScannerError as err:
             got["err"] = err
 
-    with service._lock:  # the reopen holds the lock ...
-        worker = threading.Thread(target=start, daemon=True)
-        worker.start()
-        threading.Event().wait(0.1)  # ... the start passes its guard and waits
-        service._reopen_generation += 1  # ... the reopen ran
+    guarded = threading.Event()
+    original = service._reopen_guard
+
+    def guard() -> int:
+        generation = original()
+        guarded.set()  # the start has read the generation and passed its guard
+        return generation
+
+    service._reopen_guard = guard  # type: ignore[method-assign]
+    try:
+        with service._lock:  # the reopen holds the lock ...
+            worker = threading.Thread(target=start, daemon=True)
+            worker.start()
+            assert guarded.wait(5)  # ... the start passes its guard and waits
+            service._reopen_generation += 1  # ... the reopen ran
+    finally:
+        service._reopen_guard = original  # type: ignore[method-assign]
     worker.join(5)
     assert "out" not in got and got["err"].extra.get("reopening") is True
     assert client.get("/api/queue").json()["running"] is None

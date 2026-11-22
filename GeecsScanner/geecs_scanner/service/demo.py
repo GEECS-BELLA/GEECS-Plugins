@@ -627,11 +627,17 @@ class DemoQueueClient:
             return True, "resumed"
 
     def stop_scan(self) -> tuple[bool, str]:
-        """Stop the running plan gracefully."""
+        """Stop the running plan gracefully, and the queue with it.
+
+        The real client stops the queue before ``re_stop``, so the manager
+        goes idle with what waits still waiting (a stopped item is history,
+        never returned to the front) until a queue start or an add.
+        """
         with self._lock:
             if self._running is None:
                 return False, "nothing is running"
             self.streams.push_console_line("stop_scan: stopping after the current shot")
+            self._queue_stopped = True
             self._finish("stopped", "stopped by operator")
             return True, "stopped"
 
@@ -905,8 +911,8 @@ class DemoQueueClient:
             f"Scan {self._scan_number:03d} {exit_status} after {self._shots} shots"
         )
         self._scan_log(f"finished ({exit_status}) after {self._shots} shots")
-        # The manager keeps going (unless the queue stopped): the next
-        # waiting item starts at once.
+        # A completed item lets the started queue go on: the next waiting
+        # item starts at once. A failed or stopped one stopped the queue.
         if self._queue and not self._queue_stopped:
             self._start_next()
 

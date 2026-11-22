@@ -952,8 +952,8 @@
     window.GeecsKit.confirm($("dlg-clear")).close();
     verb("/api/clear", {}, refreshQueue);
   });
-  // A stopped queue (a failed scan stops it, and returns it to the front)
-  // keeps what waits until someone starts it again.
+  // A failed or stopped scan stops the queue (a failed one returns to its
+  // front); what waits stays waiting until someone starts it again.
   function startQueueBlocker(st) {
     return !st ? "waiting for the manager" : !st.connected ? "manager unreachable"
       : st.reopening ? "the worker environment is reopening"
