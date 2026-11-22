@@ -104,42 +104,42 @@ def _row(fire: float, device: str = "", delay: float = math.nan, **extra) -> dic
     }
 
 
-def test_a_device_is_named_only_when_it_held_the_rate() -> None:
-    """Its delay past the period: it held the shot; within it, the trigger edge's wait."""
+def test_the_last_device_to_deliver_and_the_rate() -> None:
+    """Timings as a strict run makes them: each delay, then the worker's 0.3 s, then the next fire."""
     stream = ProgressStream(clock=lambda: 3.0)
     _rows(
         stream,
         [
-            _row(100.0, "CAM-Wedge", 1.8),
-            _row(102.0, "CAM-Wedge", 2.3),  # period 2.0, delayed 2.3: held it
-            _row(104.0, "CAM-Ghost", 2.6),  # period 2.0, delayed 2.6: held it
+            _row(100.0, "CAM-Wedge", 2.5),
+            _row(102.8, "CAM-Wedge", 2.5),  # 2.5 + 0.3 after the previous fire
+            _row(105.6, "CAM-Ghost", 0.6),
         ],
     )
     mid = stream.snapshot()
-    assert mid.current_rate_hz == 0.5
-    assert (mid.waiting_on, mid.waiting_s) == ("CAM-Ghost", 2.6)
-    assert mid.worker_s == 0.0  # a period shorter than the previous wait (2.3)
-    # an event page (columns of lists) of the fourth row: period 1.0, 0.7 s
-    # after the fire is the edge's wait, not the device
+    assert abs(mid.current_rate_hz - 1 / 2.8) < 1e-9
+    assert abs(mid.worker_s - 0.3) < 1e-9  # the period less row 2's 2.5 s wait
+    # the device a slow camera always holds the shot for is named
+    assert (mid.waiting_on, mid.waiting_s) == ("CAM-Ghost", 0.6)
+    # an event page (columns of lists) of the fourth row
     stream.on_document(
         "event_page",
         {
             "descriptor": "p",
             "seq_num": [4],
             "data": {
-                "fire_stamp": [105.0],
+                "fire_stamp": [106.5],
                 "bin_number": [1],
                 "slowest_device": ["CAM-Wedge"],
-                "slowest_s": [0.7],
+                "slowest_s": [0.5],
             },
         },
     )
     snap = stream.snapshot()
-    assert snap.current_rate_hz == 1.0
-    assert snap.waiting_on is None and snap.waiting_s is None
-    assert snap.worker_s == 0.0  # a period shorter than the previous wait
+    assert abs(snap.current_rate_hz - 1 / 0.9) < 1e-9
+    assert abs(snap.worker_s - 0.3) < 1e-9
+    assert (snap.waiting_on, snap.waiting_s) == ("CAM-Wedge", 0.5)
     assert [(d.device, d.held) for d in snap.slowest] == [
-        ("CAM-Wedge", 1),
+        ("CAM-Wedge", 3),
         ("CAM-Ghost", 1),
     ]
     # a new run starts clean

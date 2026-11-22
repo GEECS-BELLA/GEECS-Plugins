@@ -94,7 +94,7 @@
           <div class="live" id="live-docs"><span class="k">documents</span><span class="v" id="lv-docs">—</span><span class="age" id="ag-docs"></span></div>
           <div class="live" id="live-manager"><span class="k">manager</span><span class="v" id="lv-manager">—</span><span class="age" id="ag-manager"></span></div>
           <div class="live" id="live-rate" title="1 / the time between the latest two fires of one step, less any shot-gate hold; never across a step move or a pause. Under it, the worker&#39;s own share of that time (its reads, the row, the collects, the throttle)."><span class="k">rate</span><span class="v" id="lv-rate">—</span><span class="age" id="ag-rate"></span></div>
-          <div class="live" id="live-wait" title="A device shows here only when it delivered later than the time between fires: it held the rate. Its delay counts from the fire command, which leads the trigger edge by up to a period."><span class="k">waiting on</span><span class="v" id="lv-wait">—</span><span class="age" id="ag-wait"></span></div>
+          <div class="live" id="live-wait" title="The required device that delivered last after the latest fire, and how long after the fire command. That delay includes waiting for the trigger edge, up to one trigger period, so it points at a device only when the rate reads below the trigger&#39;s."><span class="k">last to deliver</span><span class="v" id="lv-wait">—</span><span class="age" id="ag-wait"></span></div>
         </div>
         <p class="dim note" id="slowest-note"></p>
 

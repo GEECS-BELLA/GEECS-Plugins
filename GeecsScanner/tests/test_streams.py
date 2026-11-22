@@ -132,7 +132,7 @@ def test_the_rows_timing_reaches_the_page() -> None:
     c = StreamCache(clock=lambda: 2.0)
     c.on_document("start", {"uid": "r", "scan_number": 1, "plan_name": "count"})
     c.on_document("descriptor", {"uid": "p", "name": "primary"})
-    for seq, (fire, delay) in enumerate(((10.0, 1.9), (12.0, 2.4)), start=1):
+    for seq, (fire, delay) in enumerate(((10.0, 1.9), (12.0, 1.8)), start=1):
         c.on_document(
             "event",
             {
@@ -149,6 +149,5 @@ def test_the_rows_timing_reaches_the_page() -> None:
     out = ProgressOut.of(c.snapshot())
     assert out.current_rate_hz == 0.5
     assert abs(out.worker_s - 0.1) < 1e-9  # 2.0 s less the first row's 1.9 s wait
-    # 2.4 s after the fire, past the 2.0 s period: it held the rate
-    assert (out.waiting_on, out.waiting_s) == ("CAM-Wedge", 2.4)
-    assert [(d.device, d.held) for d in out.slowest] == [("CAM-Wedge", 1)]
+    assert (out.waiting_on, out.waiting_s) == ("CAM-Wedge", 1.8)
+    assert [(d.device, d.held) for d in out.slowest] == [("CAM-Wedge", 2)]

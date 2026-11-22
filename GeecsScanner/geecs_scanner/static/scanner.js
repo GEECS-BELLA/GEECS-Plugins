@@ -239,7 +239,7 @@
     $("ag-wait").textContent = p.waiting_s == null ? "" : s(p.waiting_s) + " after the fire";
     var slow = p.slowest || [];
     $("slowest-note").textContent = slow.length
-      ? "Held the rate: " + slow.map(function (d) { return d.device + " (" + d.held + " shots)"; }).join("; ")
+      ? "Delivered last most often: " + slow.map(function (d) { return d.device + " (" + d.held + " shots)"; }).join("; ")
       : "";
   }
 

@@ -275,19 +275,19 @@ class ProgressOut(BaseModel):
     )
     waiting_on: Optional[str] = Field(
         default=None,
-        description="The device that held the latest shot's rate (GEECS name): "
-        "its delay after the fire exceeded the period; None otherwise",
+        description="The latest shot's last required device to deliver (GEECS name)",
     )
     waiting_s: Optional[float] = Field(
         default=None,
-        description="Its delay after the fire put, seconds (the trigger edge's wait included)",
+        description="Its delay after the fire put, seconds (up to one trigger period of edge wait included)",
     )
     worker_s: Optional[float] = Field(
         default=None,
-        description="The latest period less the previous shot's wait: the worker's own time",
+        description="The latest period less the previous shot's wait: the worker's own time, any throttle included",
     )
     slowest: list[SlowDevice] = Field(
-        default_factory=list, description="The devices that held the most shots' rate"
+        default_factory=list,
+        description="The devices that delivered last on the most shots",
     )
 
     @classmethod
