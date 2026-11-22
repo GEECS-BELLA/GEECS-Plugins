@@ -223,3 +223,99 @@ def test_a_bin_stamps_its_values_on_every_member_including_a_load_failure(
     rows = sfile(scan).set_index("Shotnumber")
     assert rows.loc[[3, 4], "Diag_x_CoM"].isna().all()
     assert rows.loc[1, "Diag_x_CoM"] == rows.loc[2, "Diag_x_CoM"] == pinned
+
+
+# ---- RunOutcome: every failure the run continues past is counted
+
+#: The beam measure's scalars (the NaN shot emits each once).
+OWNED_BEAM_SCALARS = CoreScanAnalyzer(
+    recipe(), id="Diag", priority=1
+).spec.recipe.analysis.measure.emitted_scalars()
+
+
+def test_a_clean_run_counts_every_unit_and_nothing_else(scan):
+    analyzer = run(recipe())
+    assert analyzer.outcome.model_dump() == {
+        "units_attempted": SHOTS,
+        "units_succeeded": SHOTS,
+        "units_failed": 0,
+        "shots_load_failed": 0,
+        "nan_values": 0,
+        "product_write_failures": 0,
+        "scalar_write_failures": 0,
+        "fold_errors": 0,
+    }
+
+
+def test_failures_load_failures_and_nans_are_counted(scan, monkeypatch):
+    corrupt(scan, 3)
+    analysis_fails_for(monkeypatch, {2, 5}, nan_for={4})
+    outcome = run(recipe()).outcome
+    assert outcome.units_attempted == SHOTS
+    # 2 and 5 failed analysis; 3 had nothing loadable.
+    assert (outcome.units_succeeded, outcome.units_failed) == (3, 3)
+    assert outcome.shots_load_failed == 1
+    assert outcome.nan_values == len(OWNED_BEAM_SCALARS)
+
+
+@pytest.mark.parametrize("refused", ["sfile", "sidecar"])
+def test_a_refused_scalar_write_is_counted(scan, monkeypatch, refused):
+    """A failed scalar write can never read as a clean success."""
+    if refused == "sfile":
+        monkeypatch.setattr(base, "merge_sfile", lambda *args, **kwargs: None)
+    else:
+        monkeypatch.setattr(CoreScanAnalyzer, "scalar_sidecar_path", lambda self: None)
+    outcome = run(recipe()).outcome
+    assert outcome.units_succeeded == SHOTS
+    assert outcome.scalar_write_failures == 1
+
+
+def test_a_skipped_figure_is_a_product_write_failure(scan, monkeypatch):
+    from geecs_analysis.render import RenderError
+
+    from scan_analysis import core_sink
+
+    def refuse(*args, **kwargs):
+        raise RenderError("cannot draw")
+
+    monkeypatch.setattr(core_sink, "draw_product", refuse)
+    outcome = run(recipe(save=True)).outcome
+    assert outcome.product_write_failures == 3  # one figure per bin
+
+
+def test_the_small_scan_figure_gate_is_not_a_failure(scan, monkeypatch):
+    """Two successful units draw no figures: expected, never counted."""
+    analysis_fails_for(monkeypatch, {1, 2, 3, 4})
+    analyzer = run(recipe(save=True))
+    assert any("more than two successful units" in n for n in analyzer.last_plan.notes)
+    assert analyzer.outcome.product_write_failures == 0
+    assert analyzer.outcome.units_succeeded == 2
+
+
+def test_a_stale_outcome_never_survives_into_the_next_run(scan, monkeypatch):
+    analyzer = CoreScanAnalyzer(recipe(), id="Diag", priority=1)
+    with monkeypatch.context() as patch:
+        analysis_fails_for(patch, {1})
+        analyzer.run_analysis(TAG)
+    analyzer.cleanup()  # every host's duty after a run; the outcome outlives it
+    assert analyzer.outcome.units_failed == 1
+    analyzer.run_analysis(TAG)  # a clean run on the same analyzer: fresh counts
+    analyzer.cleanup()
+    assert analyzer.outcome.units_attempted == SHOTS
+    assert analyzer.outcome.units_failed == 0
+    # A run that returns early (no s-file) leaves no outcome at all.
+    (scan.parent.parent / "analysis" / "s1.txt").unlink()
+    assert analyzer.run_analysis(TAG) is None
+    assert analyzer.outcome is None
+    # Nor does one that refuses before any unit runs (no device data).
+    pd.DataFrame({"Shotnumber": [1], "Bin #": [1]}).to_csv(
+        scan.parent.parent / "analysis" / "s1.txt", sep="\t", index=False
+    )
+    analyzer.run_analysis(TAG)
+    analyzer.cleanup()
+    assert analyzer.outcome is not None
+    for path in (scan / "Camera").iterdir():
+        path.unlink()
+    with pytest.raises(base.DataUnavailableWarning):
+        analyzer.run_analysis(TAG)
+    assert analyzer.outcome == base.RunOutcome()

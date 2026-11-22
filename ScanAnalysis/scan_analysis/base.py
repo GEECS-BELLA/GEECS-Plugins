@@ -21,6 +21,7 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pydantic import BaseModel, ConfigDict
 from geecs_data_utils import ScanData, ScanPaths
 from geecs_data_utils.scan_info import is_noscan
 from geecs_data_utils.scalar_files import (
@@ -49,6 +50,35 @@ class DataUnavailableWarning(Exception):
     unexpected errors so that a clean warning is logged without a traceback,
     and the task queue records the state as ``no_data`` rather than ``failed``.
     """
+
+
+class RunOutcome(BaseModel):
+    """What one analysis run did, counted, beside the display files it returns.
+
+    Set by an analyzer that runs units (``CoreScanAnalyzer``) at the start
+    of its run and filled as the run goes. A host reads it after
+    ``run_analysis`` returns to tell a clean run from a degraded one; the
+    return value itself is unchanged.
+    """
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    #: Execution units (shots, or bins) the run analyzed or tried to.
+    units_attempted: int = 0
+    units_succeeded: int = 0
+    #: Units with no measurement: a failed analysis, or nothing loadable.
+    units_failed: int = 0
+    #: Shots whose input file would not load (their s-file cells are kept).
+    shots_load_failed: int = 0
+    #: Nonfinite scalar values the successful units produced.
+    nan_values: int = 0
+    #: Products not written: a figure that did not render, a per-shot table,
+    #: sibling output or shot store whose write failed.
+    product_write_failures: int = 0
+    #: Scalar writes that did not land: the sidecar or the s-file merge.
+    scalar_write_failures: int = 0
+    #: Results the products could not fold (the run raises after its scalars).
+    fold_errors: int = 0
 
 
 class ScanParameter(NamedTuple):
@@ -144,6 +174,11 @@ class ScanAnalyzer:
         #: how far along they are call :meth:`report_progress`.
         self.progress: Optional[Callable[[int, int, str], None]] = None
 
+        #: The last run's :class:`RunOutcome`, or ``None`` when the analyzer
+        #: does not count its units. Reset at the start of every run, so an
+        #: early return never leaves the previous run's behind.
+        self.outcome: Optional[RunOutcome] = None
+
     def report_progress(self, done: int, total: int, phase: str) -> None:
         """Tell the host how far the run is (frames done of total, in *phase*), if it listens."""
         if self.progress is not None:
@@ -163,6 +198,7 @@ class ScanAnalyzer:
             Optional list of notable artifact paths/labels produced by analysis
             (for experiment logs). Returns ``None`` if inputs are missing.
         """
+        self.outcome = None
         self._handle_scan_tag(scan_tag)  # or inline the logic here
         if self.auxiliary_data is None:
             return None

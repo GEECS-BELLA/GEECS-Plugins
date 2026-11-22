@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional, Union
@@ -16,7 +17,7 @@ from geecs_analysis.registry import (
 from geecs_data_utils.shot_files import StackMappingUnavailable
 from geecs_schemas.analysis import WaterfallSummary
 
-from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
+from scan_analysis.base import DataUnavailableWarning, RunOutcome, ScanAnalyzer
 from scan_analysis.core_products import ProductCollector, ProductPlan
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 from scan_analysis.core_scan import PreparedScan, prepare_scan
@@ -99,6 +100,12 @@ class CoreScanAnalyzer(ScanAnalyzer):
     (a host's override; ``None`` reads the client ``config.ini``) and serial
     for a small run — and is logged with the unit count. Outputs do not
     depend on the count.
+
+    Each run counts what it did into a fresh :class:`RunOutcome` on
+    :attr:`outcome` (units attempted, succeeded and failed, shots that
+    failed to load, NaN values, product and scalar writes that did not
+    land, fold errors): every failure the run logs and continues past is
+    counted there, so a host can tell a degraded run from a clean one.
     """
 
     #: A host's cap on the workers any run gets (the portal, the task
@@ -120,6 +127,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
         self.last_plan: Optional[ProductPlan] = None
 
     def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
+        self.outcome = RunOutcome()
         document = self.document
         scan_folder = Path(self.scan_directory)
         data_dir = source_directory(self.spec, scan_folder)
@@ -169,6 +177,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
             plan = replace(plan, position_label=self.scan_parameter or "")
         self.last_plan = plan
         saved = save_products(plan, self.spec, scan_folder)
+        self.outcome.product_write_failures += len(saved.failed)
         for note in saved.notes:
             logger.warning("%s: %s", self.device_name, note)
         self.display_contents = [str(path) for path in saved.display_files]
@@ -227,6 +236,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
             try:
                 kept = store.close()
             except OSError as exc:
+                self.outcome.product_write_failures += 1
                 logger.warning(
                     "%s: shot store %s not kept (%s); the run's scalars are unaffected",
                     self.device_name,
@@ -271,8 +281,13 @@ class CoreScanAnalyzer(ScanAnalyzer):
         # before persisting, so a waterfall sorted by one of this run's
         # own columns resolves even when the s-file merge is refused.
         write_scalars_into_rows(self.auxiliary_data, updates.to_dict("records"))
-        self.write_scalar_sidecar(updates)
-        self.append_to_sfile(updates, targets=columns)
+        if self.write_scalar_sidecar(updates) is None:
+            self.outcome.scalar_write_failures += 1
+        if self.append_to_sfile(updates, targets=columns) is None:
+            # A refused merge (the lock held past its timeout, an unreadable
+            # s-file) is logged where it happens; counted here, so the run
+            # cannot report a clean success.
+            self.outcome.scalar_write_failures += 1
 
     def _stream(
         self,
@@ -296,8 +311,11 @@ class CoreScanAnalyzer(ScanAnalyzer):
         phase = UNIT_PHASES[prepared.average_before_analysis]
         total = len(prepared.groups)
         self.report_progress(0, total, phase)
+        counts = self.outcome
         for done, outcome in enumerate(prepared.run(workers=workers), start=1):
             self.report_progress(done, total, phase)
+            counts.units_attempted += 1
+            counts.shots_load_failed += len(outcome.load_failures)
             for failure in outcome.load_failures:
                 logger.warning(
                     "Skipping shot %s in unit %s (load failed: %s)",
@@ -309,8 +327,13 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 logger.error(
                     "Analysis failed for unit %s: %s", outcome.group.key, outcome.error
                 )
+                counts.units_failed += 1
                 pending.extend(prepared.cleared_records(outcome))
                 continue
+            counts.units_succeeded += 1
+            counts.nan_values += sum(
+                1 for v in outcome.measurement.scalars.values() if not math.isfinite(v)
+            )
             for note in outcome.measurement.notes:
                 logger.warning("Unit %s: %s", outcome.group.key, note)
             # A result the products cannot fold (units or axes that disagree,
@@ -321,6 +344,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
                     collector.add(outcome)
                 except ValueError as exc:
                     fold_error = exc
+                    counts.fold_errors += 1
             if definition.sidecar is not None:
                 self._write_sidecar(prepared, outcome, definition.sidecar)
             if definition.sibling_outputs:
@@ -363,6 +387,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 if stale
                 else f"discarding {store.path.name}",
             )
+            self.outcome.product_write_failures += 1
             self._discard_store(store)
             return None
         return store
@@ -388,6 +413,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 prepared.file_numbers,
             )
         except (OSError, ValueError) as exc:
+            self.outcome.product_write_failures += 1
             logger.warning("Shot %s: %s table not written: %s", shot, name, exc)
 
     def _write_siblings(
@@ -415,6 +441,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 prepared.file_numbers,
             )
         except (OSError, ValueError) as exc:
+            self.outcome.product_write_failures += 1
             logger.warning("Shot %s: sibling outputs not written: %s", shot, exc)
 
     def cleanup(self) -> None:

@@ -188,8 +188,9 @@ scan-level numbers (`scalar_fit`) also gets `<stem>.json` beside its PNG
 (nonfinite as `null`; never a display file; classified `summary` by the
 `_summary_` marker). HDF5 retains the legacy dataset
 name, storage dtype and gzip level. `scan.save: false` writes nothing. A
-rendering failure omits only its figure and is returned as a note; data and
-write errors propagate. Scalar persistence is independent of this sink.
+rendering failure omits only its figure and is returned as a note (and in
+`SavedProducts.failed`, which the plan's expected omissions never join); data
+and write errors propagate. Scalar persistence is independent of this sink.
 
 `core_analyzer.CoreScanAnalyzer` is the core route behind the contract the task
 queue, the portal and MCP call. It inherits scan-tag handling, s-file reading
@@ -210,7 +211,15 @@ phase `shot` or `bin` (`UNIT_PHASES`), then `(N, N, "writing products")`
 (the portal's run record; the task queue sets none), so the core stays
 free of I/O. The worker count is a throughput knob only:
 `test_pooled_run_writes_the_identical_tree` holds the pooled tree to the
-serial one at 0 ulp. Hosts that run analyses (the portal's thread pool, the
+serial one at 0 ulp. Every run also counts what it did into a fresh
+`base.RunOutcome` on `analyzer.outcome` (set at the start of the core run;
+`run_analysis` resets it to `None` first, so an early return leaves none):
+units attempted, succeeded and failed, shots that failed to load, NaN
+values, product writes that did not land (`SavedProducts.failed`, a per-shot
+table, sibling output or shot store), scalar writes that did not land (the
+sidecar, a refused s-file merge) and fold errors. `run_analysis`'s return
+is unchanged; a host that shows a run's state reads the outcome (the
+portal's Analysis tab), the task queue does not. Hosts that run analyses (the portal's thread pool, the
 task queue, MCP's detached worker) are threaded processes; the pool is
 `spawn`, so their entry points must keep their `__main__` guards.
 A missing or empty device folder, or stack-only input without a stack, raises
