@@ -192,6 +192,22 @@ def test_a_declared_column_added_on_disk_mid_run_is_cleared(scan, monkeypatch):
     )
 
 
+def test_a_run_that_wrote_nothing_leaves_no_earlier_sidecar_values(scan, monkeypatch):
+    """An all-failed run on an s-file without the columns replaces the old sidecar."""
+    run(recipe())
+    assert sidecar(scan)["Diag_x_CoM"].notna().all()
+    # The s-file is regenerated without this recipe's columns.
+    rows, owned = sfile(scan), set(sidecar(scan).columns) - {"Shotnumber"}
+    rows.drop(columns=list(owned)).to_csv(
+        scan.parent.parent / "analysis" / "s1.txt", sep="\t", index=False
+    )
+    analysis_fails_for(monkeypatch)
+    run(recipe())
+    side = sidecar(scan)
+    assert list(side.columns) == ["Shotnumber"]
+    assert side["Shotnumber"].tolist() == list(range(1, SHOTS + 1))
+
+
 def test_mixed_success_and_failure_write_the_same_rows_to_sidecar_and_sfile(
     scan, first_run, monkeypatch
 ):

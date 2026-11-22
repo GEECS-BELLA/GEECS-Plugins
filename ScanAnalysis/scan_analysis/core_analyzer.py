@@ -262,8 +262,9 @@ class CoreScanAnalyzer(ScanAnalyzer):
         that failed to load, keep their cells. Whether a declared column the
         run did not produce exists is decided by the merge, against the
         s-file read under its lock, so a failed run creates no all-NaN
-        column; the sidecar then holds exactly the columns the merge wrote.
-        When the merge is refused, the in-memory rows decide.
+        column; the sidecar then holds exactly the columns the merge wrote,
+        so a run that wrote none replaces an earlier run's sidecar with its
+        bare rows. When the merge is refused, the in-memory rows decide.
         """
         if not pending:
             return
@@ -291,8 +292,6 @@ class CoreScanAnalyzer(ScanAnalyzer):
             rows = updates.reindex(
                 columns=["Shotnumber", *(c for c in targets if c in merged.columns)]
             )
-        if len(rows.columns) == 1:
-            return
         if self.write_scalar_sidecar(rows) is None:
             self.outcome.scalar_write_failures += 1
 
