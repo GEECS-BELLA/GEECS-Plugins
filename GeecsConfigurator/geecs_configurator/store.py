@@ -50,7 +50,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 FAMILY = "family_file"
 #: What a trigger profile with no ``schema_version`` is: the scanner's resolver refuses it, never half-reads it. The
 #: form never draws ``schema_version``, so the repair is outside the form: the file by hand, or delete it and copy a valid one.
-RETIRED_DIALECT = "no schema_version, which a trigger profile requires (usually an empty file, or the retired legacy shot-control dialect of device + variables): the scanner refuses it and the form cannot save it valid; fix the file by hand in the configs repository, or delete it and save a copy of a valid profile under its name"  # fmt: skip
+RETIRED_DIALECT = "no schema_version, which a trigger profile requires (usually an empty file, or the retired legacy shot-control dialect of device + variables): the scanner refuses it and the form cannot save it valid; fix the file by hand in the configs repository, or, when no preset or experiment default names it, delete it and save a copy of a valid profile under its name"  # fmt: skip
 #: A shared folder's file whose kind cannot be read: listed under every kind of that folder.
 _UNKNOWN = "?"
 #: A JSON value or a JSON Schema fragment, as the API carries it.

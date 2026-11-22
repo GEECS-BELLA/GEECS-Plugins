@@ -163,5 +163,6 @@ per-column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the source tree.
   hardware is touched or a scan number is used up.
 - **You describe intent, not mechanics.** Timestamp bookkeeping, synchronization
   flags, and parallel laser-off files are gone on purpose — the engine derives
-  them. The legacy files were regenerated once in the new format; one met
-  now is refused, naming the file, never converted on load.
+  them. The legacy save sets, trigger profiles and scan variables were
+  regenerated once in the new format; a legacy file met now is refused,
+  never converted on load.

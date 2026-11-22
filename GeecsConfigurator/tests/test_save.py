@@ -169,7 +169,7 @@ def test_a_legacy_profile_is_never_saved_as_it_is(committing: TestClient, origin
 
 
 def test_the_named_repair_of_a_legacy_profile_works_from_the_editor(committing: TestClient, origin: Path) -> None:  # fmt: skip
-    """The refusal's remedy, delete it and save a copy of a valid profile under its name, is one the editor can do."""
+    """The refusal's remedy for a profile nothing names, delete it and save a copy of a valid profile under its name, is one the editor can do."""
     legacy = _get(committing, "trigger_profile", "legacy.yaml")
     assert "delete it and save a copy of a valid profile" in legacy["errors"][0]["msg"]
     gone = committing.request("DELETE", f"/api/documents/trigger_profile/legacy.yaml{B}", json={"etag": legacy["etag"], "operator": "Ada"})  # fmt: skip

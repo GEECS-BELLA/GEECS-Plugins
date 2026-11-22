@@ -60,8 +60,9 @@ typed by name. The YAML of the recipe as edited is shown beside the form.
   the form. Nothing is merged for you.
 - A trigger profile with no `schema_version` (an empty file, or the retired
   legacy format) is shown invalid, and the scanner refuses it. The form cannot
-  save it valid: fix the file by hand in the configs repository, or delete it
-  and save a copy of a valid profile under its name.
+  save it valid: fix the file by hand in the configs repository, or, when no
+  preset or experiment default names it, delete it and save a copy of a valid
+  profile under its name (a delete is refused while something names the file).
 - Edits you make while a save is on its way stay in the form, marked
   unsaved.
 
