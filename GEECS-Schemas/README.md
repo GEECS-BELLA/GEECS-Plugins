@@ -2,13 +2,12 @@
 
 Versioned Pydantic models for every GEECS scanner config — presets (the
 saved scan: device group + plan call), scan requests, scan variables,
-trigger profiles, and setups — plus converters from the legacy YAML
-dialects still in use (shot control).
-Scan-variable catalogs and presets have no converter: they are authored
-new-schema only (the legacy scan-device pair was retired 2026-09,
-GEECS-Plugins#779; the save elements and scan presets were regenerated as
-presets once, #807). The action library is gone: each plan was converted
-once into a setup (`setups/<name>.yaml`).
+trigger profiles, and setups. Every kind is authored new-schema only; no
+legacy-YAML converter remains. The legacy scan-device pair was retired
+2026-09 (GEECS-Plugins#779); the save elements and scan presets were
+regenerated as presets once (#807); the action library was converted once
+into one setup per plan (`setups/<name>.yaml`); the shot-control files were
+regenerated as trigger profiles and their converter deleted (#1361).
 
 **Configs are schemas; YAML is just serialization.** This package is the
 schema layer of the target architecture. It depends on **Pydantic and gest-api**, so the engine, the GUI, scripts, and docs tooling can all import the
@@ -33,9 +32,9 @@ same models without dragging in hardware or analysis stacks. The runtime VOCS mo
   `description` and every model's first docstring paragraph are written for
   operators; `geecs_schemas.docgen` renders them to Markdown, and a test
   fails CI if a field lacks a description. Docs cannot drift from code.
-- **Migration over flag day.** Every schema ships with a converter from the
-  current YAML (`geecs_schemas.convert`), validated against the full real
-  config corpus.
+- **Regenerate, then delete the old reader.** A legacy dialect is migrated
+  by regenerating the deployed corpus in the new schema once, then deleting
+  its converter; the corpus walk validates every deployed document.
 
 ## Versioning policy — two dials
 
@@ -126,24 +125,6 @@ AST-whitelist core behind both GEECS expression eval sites (the gateway's
 derived channels and the engine's pseudo-variable forward formulas).
 Stdlib-only; each consumer supplies its whitelist and error wrapping.
 
-## Converter usage
-
-Converters take a parsed dict or a YAML path (path input needs PyYAML, which
-is a dev dependency only) and raise `SchemaConversionError` naming exactly
-what could not be mapped — nothing is dropped silently.
-
-```python
-from geecs_schemas.convert import (
-    convert_shot_control,
-)
-
-# Shot control → TriggerProfile (one profile per operating condition)
-profile = convert_shot_control("shot_control_configurations/HTU-Normal.yaml")
-profile.writes_for("SCAN")
-
-# Optimizers are authored directly as OptimizerConfig v1; the legacy evaluator dialect is retired.
-```
-
 ## Generated reference docs
 
 ```python
@@ -158,10 +139,10 @@ poetry install
 poetry run pytest tests -q
 ```
 
-The suite is hermetic (fixtures + golden files under `tests/`). The
-additional `integration`-marked test walks the sibling
-`GEECS-Plugins-Configs` checkout and converts **every** real config file; it
-auto-skips when that checkout is absent.
+The suite is hermetic (fixtures under `tests/`). The additional
+`integration`-marked test walks the sibling `GEECS-Plugins-Configs` checkout
+and validates **every** real config file; it auto-skips when that checkout
+is absent.
 
 
 ## Native optimizer documents

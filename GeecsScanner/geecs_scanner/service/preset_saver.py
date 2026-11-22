@@ -154,7 +154,7 @@ class ConfiguratorPresets:
             raise exists_refusal(name)
         if status == 409:
             raise ScannerError("conflict", f"preset {name!r} changed while it was saved; reload it and save again ({reason})")  # fmt: skip
-        if status in (400, 403, 404, 405, 422, 428):
+        if status in (400, 403, 404, 405, 422):
             raise ScannerError("invalid_request", f"the configurator refused preset {name!r}: {reason}")  # fmt: skip
         raise ScannerError("manager_unreachable", f"the configurator did not save preset {name!r} ({status}): {reason}")  # fmt: skip
 

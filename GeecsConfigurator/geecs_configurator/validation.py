@@ -12,8 +12,9 @@ holds some), and a change that leaves one invalid does.
 A path is a document when the store lists it under a file kind (the same
 listing the editor shows: every suffix, the shared analyzers tree split by
 its loader); any other path (a README, a script) is not checked. A document
-is checked as its readers read it: a legacy trigger profile through the
-converter, a setup's name against its stem.
+is checked as its readers read it: a trigger profile with no
+``schema_version`` (the retired shot-control dialect) is invalid, a setup's
+name is checked against its stem.
 """
 
 from __future__ import annotations

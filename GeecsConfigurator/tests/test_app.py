@@ -174,26 +174,21 @@ def test_an_unedited_file_with_a_bare_off_key_validates_and_diffs_empty(
     assert (d["changes"], d["tier"]) == ([], None)
 
 
-def test_a_malformed_legacy_profile_is_one_invalid_row_never_a_500(
-    client: TestClient,
-) -> None:
+def test_a_legacy_profile_is_one_invalid_row_never_a_500(client: TestClient) -> None:  # fmt: skip
     listing = client.get("/api/documents/trigger_profile?experiment=Bench")
     assert listing.status_code == 200
     rows = {r["id"]: r for r in listing.json()}
-    assert not rows["malformed.yaml"]["valid"] and "has no attribute" in rows["malformed.yaml"]["error"]  # fmt: skip
+    assert not rows["legacy.yaml"]["valid"] and "retired legacy shot-control dialect" in rows["legacy.yaml"]["error"]  # fmt: skip
     assert all(
-        r["valid"] for i, r in rows.items() if i != "malformed.yaml"
+        r["valid"] for i, r in rows.items() if i != "legacy.yaml"
     )  # the others intact
-    read = client.get("/api/documents/trigger_profile/malformed.yaml?experiment=Bench")
+    read = client.get("/api/documents/trigger_profile/legacy.yaml?experiment=Bench")
     assert (
         read.status_code == 200 and not read.json()["valid"] and read.json()["errors"]
     )
-    assert (
-        client.get(
-            "/?experiment=Bench&kind=trigger_profile&id=malformed.yaml"
-        ).status_code
-        == 200
-    )
+    assert "note" not in read.json()
+    page = client.get("/?experiment=Bench&kind=trigger_profile&id=legacy.yaml")
+    assert page.status_code == 200 and ">legacy<" not in page.text
 
 
 @pytest.mark.parametrize("doc_id", ["stamped.yaml", "dated.yaml"])

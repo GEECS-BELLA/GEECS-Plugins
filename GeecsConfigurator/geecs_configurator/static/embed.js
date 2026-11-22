@@ -80,7 +80,7 @@
 
   // ---- the one save flow -------------------------------------------------------------------------
   //
-  // saveFlow(o) -> save(convert, checked). The configurator's page and the embedded drawer both save
+  // saveFlow(o) -> save(checked). The configurator's page and the embedded drawer both save
   // through it; each passes its own elements and keeps its own document state:
   //   o.call(method, path, payload)  the configurator's API (caller() above)
   //   o.kind, o.query()              the kind, and "?experiment=…" (the dry run adds &id=)
@@ -129,7 +129,7 @@
     // A dry run answers for the draft it was asked about: an answer to an older ask is dropped, and its
     // Save goes on only while the form still holds that draft (an edit since asks again).
     var asks = 0;
-    function dryRunFirst(convert) {
+    function dryRunFirst() {
       o.button.disabled = true;
       var path = "/api/dry-run/" + o.kind + o.query() + "&id=" + encodeURIComponent(o.docId());
       var mine = ++asks, asked = JSON.stringify(o.value());
@@ -137,33 +137,33 @@
         if (mine !== asks) return;  // a later ask is the one shown
         o.button.disabled = false;
         var d = r.body || {};
-        if (JSON.stringify(o.value()) !== asked) { dryRunFirst(convert); return; }  // edited while it ran
+        if (JSON.stringify(o.value()) !== asked) { dryRunFirst(); return; }  // edited while it ran
         if (r.status !== 200) { show([banner("The dry run did not answer: " + why(d), "error")]); return; }
         if (d.refusal) { refused(d); return; }
-        if (d.by === "none") { save(convert, true); return; }  // no consumer check here: nothing to show
+        if (d.by === "none") { save(true); return; }  // no consumer check here: nothing to show
         var said = [banner(d.ran ? "The " + d.by + "'s dry run of your edit: " + (d.detail || "no objection") + "." : "The " + d.by + "'s dry run did not run: " + d.detail + ".", d.ran ? null : "stale"), outcomes(d)];
         // a check that ran, asks nothing and prints nothing has nothing to confirm: the one press saves, its line kept above the save's
-        if (nothingToConfirm(d)) { save(convert, true, said); return; }
+        if (nothingToConfirm(d)) { save(true, said); return; }
         var kids = said.slice();
         (d.questions || []).forEach(function (q) { kids.push(el("p", { class: "dim" }, "It asks: " + (q.title || q.check) + (q.message ? " (" + q.message + ")" : ""))); });
         if (d.output) { var det = el("details", { class: "disc" }); det.appendChild(el("summary", {}, "Its output")); det.appendChild(el("pre", { class: "well" }, d.output)); kids.push(det); }
         kids.push(button(d.ran ? "Save" : "Save without it", "primary", function () {
-          if (JSON.stringify(o.value()) !== asked) { dryRunFirst(convert); return; }  // this answer is for an earlier draft
-          save(convert, true);
+          if (JSON.stringify(o.value()) !== asked) { dryRunFirst(); return; }  // this answer is for an earlier draft
+          save(true);
         }));
         show(kids);
       }).catch(function (e) { if (mine === asks) { o.button.disabled = false; show([banner(String(e.message || e), "error")]); } });
     }
-    function save(convert, checked, said) {
+    function save(checked, said) {
       var who = o.operator(), lead = (said || []).filter(Boolean);
       if (!who) { show([banner("Type your name first (the operator field): it is the git author.", "error")]); if (o.noOperator) o.noOperator(); return; }
       if (o.form().invalid().length) { show([banner("A field does not parse: " + o.form().invalid().join(", "), "error")]); return; }
-      if (!checked && o.dryRun() !== "none") { dryRunFirst(convert); return; }
+      if (!checked && o.dryRun() !== "none") { dryRunFirst(); return; }
       o.button.disabled = true;
       show(lead.concat([el("p", { class: "dim" }, "Saving…")]));
       var doc = o.value();
       o.call("PUT", "/api/documents/" + o.kind + "/" + o.docId().split("/").map(encodeURIComponent).join("/") + o.query(),
-        { document: doc, etag: o.etag(), operator: who, convert_legacy: !!convert, create: !!(o.create && o.create()) }).then(function (r) {
+        { document: doc, etag: o.etag(), operator: who, create: !!(o.create && o.create()) }).then(function (r) {
         o.button.disabled = false;
         var b = r.body || {}, d = b.detail;
         if (r.status === 200) {
@@ -182,9 +182,6 @@
           if (d && d.diff) kids409.push(el("p", {}, "What your edit would change in the document as it is now:"), changeList(d.diff));
           if (o.reload && d && d.current) kids409.push(button("Load the current document (drops your edit)", "", function () { o.reload(d.current); show([el("p", { class: "dim" }, "Loaded the current document: re-apply your edit.")]); }));
           show(kids409);
-        } else if (r.status === 428) {
-          show([banner("This file is in the legacy dialect. Saving rewrites the whole file in the current schema, as the form shows it; its reader reads either.", "stale"),
-            button("Convert and save", "primary", function () { if (JSON.stringify(o.value()) === JSON.stringify(doc)) save(true, true); else dryRunFirst(true); })]);  // its dry run was shown for this draft; an edit since asks again
         } else if (r.status === 422 && d && d.dry_run && d.dry_run.refusal) {
           refused(d.dry_run);
         } else if (r.status === 422 && d && d.errors) {
@@ -492,7 +489,7 @@
         if (live && d.getAttribute("data-open") === "true") preview();
       }
       if (!readOnly) {
-        saveBtn = button("Save", "primary", function () { save(false, false); });
+        saveBtn = button("Save", "primary", function () { save(false); });
         tools.appendChild(saveBtn);
         var save = saveFlow({
           call: call, kind: opts.kind, query: function () { return query; }, docId: function () { return docId; },

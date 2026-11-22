@@ -184,8 +184,8 @@ second confirmation layer is added.
   splices the draft into the stored text (`yaml_edit.py`, over PyYAML's
   node marks: the resolver the store reads with), keeping every untouched
   byte, and checks the text reads back as the draft before the commit.
-  Only a new document, a legacy-dialect conversion and a change the splice
-  cannot place exactly are written whole (the last with a note). Pinned by
+  Only a new document and a change the splice cannot place exactly are
+  written whole (the last with a note). Pinned by
   `tests/test_yaml_edit.py` and `test_save.py`.
 - **Storage and tiers are GEECS-Schemas'.** The file list comes from
   `KIND_STORAGE` (`path_pattern()`, every suffix, a shared folder split by
@@ -240,7 +240,7 @@ second confirmation layer is added.
   configurator, never the package, and its origin goes in `CORS_ORIGINS`.
   The operator is the host's, asked on every save, stored nowhere here;
   `fields` limits what is drawn and the rest is saved as stored; the save
-  is the page's (dry run, etag, 409/422/428). Pinned under node against
+  is the page's (dry run, etag, 409/422). Pinned under node against
   this app's own answers (`tests/test_embed_js.py`). Hosts: the scanner's
   preset mini; the portal's Analysis tab (its `preview` a promise of the
   unsaved recipe drawn on the scan, its `toolbar` the shot and the name; a
@@ -281,7 +281,7 @@ second confirmation layer is added.
   hears it either way. Pinned by `tests/test_delete.py`,
   `test_document_actions_js.py` and `test_embed_switch_js.py`.
 - **A write's answer never takes an edit made after the write was sent.**
-  The form stays editable while a save, convert-and-save, create, copy or
+  The form stays editable while a save, create, copy or
   delete is on its way, so every completion compares the form with what it
   sent: a later edit stays in the form, the drawer says it is unsaved, and
   the host hears it (`onSaved(answer, id, {unsaved})`; the configurator's

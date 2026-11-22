@@ -1,8 +1,8 @@
 /* The configurator's home: the open document drawn by the theme's form.js, with its tier,
  * its readers, validate / diff / YAML on the unsaved edit, and Save when the commit path is on:
  * the edit goes with the etag it was made on and the operator's name; a 409 shows the document
- * as it now is and what the edit would change in it, a 428 asks to convert a legacy file, and
- * the edit is kept in the page on every refusal. */
+ * as it now is and what the edit would change in it, and the edit is kept in the page on every
+ * refusal. */
 (function () {
   "use strict";
   var body = document.body, root = body.dataset.root || "", kind = body.dataset.kind, id = body.dataset.id;
@@ -116,7 +116,6 @@
       if (got[1].errors.length) form.setErrors(got[1].errors);
       info = got[2].filter(function (k) { return k.kind === kind; })[0];
       var copyDelete = $("#copy-delete"); if (copyDelete) copyDelete.hidden = !!readOnly || !GeecsConfigurator.named(info);  // a folder of named files only
-      if (got[1].note) fill($("#result"), [el("div", { class: "banner" }, "This file is in the " + got[1].note + ": the form shows the converted profile; the file is unchanged.")]);
       fill($("#consumers"), info.consumers.map(function (c) { return line(c.name + ":", el("span", {}, "reads " + c.reads + "; apply: " + c.apply)); })
         .concat([line("Dry run:", el("span", {}, info.dry_run))]));
       drawTier();
@@ -161,7 +160,7 @@
     saved: function (b, doc) { etag = b.etag; if (b.outcome === "committed") stored = doc; drawTier(); },
     reload: remount,
   }));
-  saveBtn.addEventListener("click", function () { save(false, false); });
+  saveBtn.addEventListener("click", function () { save(false); });
   // ---- Copy and delete: the embed's flows too, so the drawer and this page ask and send the same.
   var page = function (docId) { return root + "/" + query + "&kind=" + encodeURIComponent(kind) + (docId ? "&id=" + encodeURIComponent(docId) : ""); };
   // A copy or delete never takes an edit made after it was asked: the page stays on it, and says it is unsaved.

@@ -8,7 +8,7 @@ import pytest
 from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage
 
 from geecs_configurator.kinds import CONSUMERS, kinds
-from geecs_configurator.store import LEGACY, DocumentStore, NotFound, diff_documents
+from geecs_configurator.store import DocumentStore, NotFound, diff_documents
 
 
 def _tree(root: Path) -> set[str]:
@@ -22,7 +22,6 @@ def test_every_suffix_is_listed_and_ids_are_paths(root: Path) -> None:
         "bare_off.yaml",
         "laser_off.yaml",
         "legacy.yaml",
-        "malformed.yaml",
         "spare.yml",
     ]
     # a fixed-name file is one document
@@ -114,17 +113,25 @@ def test_every_file_kind_has_its_readers() -> None:
     assert all(listed[k].tier for k in files)
 
 
-def test_a_legacy_trigger_profile_is_shown_converted_never_invalid(root: Path) -> None:
+def test_a_legacy_trigger_profile_is_invalid_naming_the_retired_dialect(root: Path) -> None:  # fmt: skip
     store = DocumentStore(root)
     rows = {e.id: e for e in store.list("trigger_profile", "Bench")}
-    assert (rows["legacy.yaml"].valid, rows["legacy.yaml"].note) == (True, LEGACY)
-    assert rows["laser_off.yaml"].note is None
+    assert not rows["legacy.yaml"].valid
+    assert "retired legacy shot-control dialect" in rows["legacy.yaml"].error
+    assert rows["laser_off.yaml"].valid
     doc = store.read("trigger_profile", "Bench", "legacy.yaml")
-    assert doc.note == LEGACY and doc.valid and doc.document["name"] == "legacy"
-    assert (
-        doc.document["states"]["SCAN"][0]["value"] == "4.0"
-        and "device: U_DG645" in doc.yaml
-    )
+    # served as the file says, never converted: the scanner refuses it the same way
+    assert not doc.valid and doc.document["device"] == "U_DG645" and "states" not in doc.document  # fmt: skip
+    assert doc.errors[0].loc == ["schema_version"]
+
+
+def test_a_trigger_profile_draft_without_schema_version_is_refused(root: Path) -> None:  # fmt: skip
+    store = DocumentStore(root)
+    draft = store.read("trigger_profile", "Bench", "laser_off.yaml").document
+    assert store.validate("trigger_profile", draft).ok
+    del draft["schema_version"]
+    report = store.validate("trigger_profile", draft)
+    assert not report.ok and "retired legacy shot-control dialect" in report.errors[0].msg  # fmt: skip
 
 
 def test_a_symlink_out_of_the_root_is_never_listed(root: Path, tmp_path_factory: pytest.TempPathFactory) -> None:  # fmt: skip

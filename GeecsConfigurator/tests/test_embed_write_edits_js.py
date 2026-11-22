@@ -1,7 +1,7 @@
 """A write's answer never takes an edit made after the write was sent: the form keeps it, said to be unsaved.
 
-The drawer's form stays editable while a save, a convert-and-save, a copy or
-a delete is on its way. Under node, ``embed.js`` and the theme's ``form.js``
+The drawer's form stays editable while a save, a copy or a delete is on its
+way. Under node, ``embed.js`` and the theme's ``form.js``
 against this app's own answers (``test_embed_js._answers``), each write's
 answer is held while the operator edits the form, then released: the edit is
 still in the form, the drawer says it is unsaved, and the host is told
@@ -47,14 +47,12 @@ global.GeecsForm = require(process.argv[1]);
 const G = require(process.argv[2]);
 const C = JSON.parse(require("fs").readFileSync(0, "utf8"));
 const sent = [], held = [];
-let next428 = false;
 const reply = (status, out) => ({ status, text: () => Promise.resolve(JSON.stringify(out)) });
 global.fetch = (url, init) => {
   const method = (init && init.method) || "GET", body = init && init.body ? JSON.parse(init.body) : undefined;
   sent.push([method, url, body]);
   if (url.endsWith("/api/kinds")) return Promise.resolve(reply(200, C.kinds));
   if (url.indexOf("/api/delete-check/") >= 0) return Promise.resolve(reply(200, { path: "p/low_power.yaml", deletable: true, referrers: [], reason: "" }));
-  if (method === "PUT" && next428) { next428 = false; return Promise.resolve(reply(428, { detail: "the legacy dialect" })); }
   if (method === "DELETE") return new Promise((resolve) => held.push(() => resolve(reply(200, { outcome: "committed", path: "p/low_power.yaml", author: "Ada via configurator", commit: "abc1234567", deleted: true }))));
   if (method === "PUT") return new Promise((resolve) => held.push(() => resolve(reply(200, { outcome: "committed", author: "Ada via configurator", etag: "e9", tier: "operator", changes: [] }))));
   const [status, out] = C.answers[method + " " + url] || [404, { detail: "unknown" }];
@@ -80,9 +78,6 @@ global.fetch = (url, init) => {
   G.open(opts()); await settle();
   // save: sent, edited while it was on its way, answered
   await run("save", async () => { edit("sent"); await pressSave(); edit("later, the save"); await release(); out.save = state(); });
-  // convert and save: the 428, its Convert sent, edited, answered
-  await run("convert", async () => { await reopen(); next428 = true; edit("sent again"); await pressSave();
-    button(drawer(), "Convert and save")[0].on.click(); await settle(); edit("later, the convert"); await release(); out.convert = state(); });
   // copy: asked, edited, answered (the drawer stays on this document)
   await run("copy", async () => { await reopen();
     walk(drawer(), (n) => n.tagName === "INPUT" && n.attrs["aria-label"] === "the copy's name")[0].value = "low_copy";
@@ -136,10 +131,6 @@ def ran(tmp_path_factory: pytest.TempPathFactory) -> dict:
 
 def test_an_edit_made_while_a_save_was_on_its_way_stays_and_is_unsaved(ran: dict) -> None:  # fmt: skip
     assert ran["save"] == ["setup · low_power.yaml", "later, the save", True, ["committed", "low_power.yaml", True]]  # fmt: skip
-
-
-def test_an_edit_made_while_a_convert_and_save_was_on_its_way_stays(ran: dict) -> None:  # fmt: skip
-    assert ran["convert"] == ["setup · low_power.yaml", "later, the convert", True, ["committed", "low_power.yaml", True]]  # fmt: skip
 
 
 def test_an_edit_made_while_a_copy_was_on_its_way_keeps_the_drawer_on_it(ran: dict) -> None:  # fmt: skip

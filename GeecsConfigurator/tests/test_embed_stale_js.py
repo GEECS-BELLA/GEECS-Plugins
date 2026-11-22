@@ -52,7 +52,6 @@ global.fetch = (url, init) => {
   sent.push([method, url, body]);
   if (url.endsWith("/api/kinds")) return Promise.resolve({ status: 200, text: () => Promise.resolve(JSON.stringify(kinds)) });
   if (url.indexOf("/api/dry-run/") >= 0) return new Promise((resolve) => held.push({ body, resolve: () => resolve({ status: 200, text: () => Promise.resolve(JSON.stringify({ kind: "setup", by: "scanner", ran: true, output: "a plan", detail: "fine for " + body.document.description })) }) }));
-  if (method === "PUT") return Promise.resolve({ status: 428, text: () => Promise.resolve(JSON.stringify({ detail: "the legacy dialect" })) });
   const [status, out] = C.answers[method + " " + url] || [404, { detail: "unknown" }];
   return Promise.resolve({ status, text: () => Promise.resolve(JSON.stringify(out)) });
 };
@@ -87,11 +86,6 @@ global.fetch = (url, init) => {
   // the answer for D is shown; edit to E, then press its Save: it asks again, nothing is PUT
   edit("E"); const saves = button(drawer, "Save"); if (saves.length > 1) saves.slice(-1)[0].on.click(); await settle();
   out.saveOfEarlier = [held.map((h) => h.body.document.description), sent.filter((s) => s[0] === "PUT").length];
-  // E's answer, its Save: the PUT answers 428; edit to F, then Convert and save: it asks again for F, no second PUT
-  if (held[2]) held[2].resolve(); await settle();
-  const saveE = button(drawer, "Save"); if (saveE.length > 1) saveE.slice(-1)[0].on.click(); await settle();
-  edit("F"); const convert = button(drawer, "Convert and save")[0]; if (convert) convert.on.click(); await settle();
-  out.convertOfEarlier = [held.map((h) => h.body.document.description).slice(-1)[0], sent.filter((s) => s[0] === "PUT").map((s) => s[2].document.description)];  // prettier-ignore
   // a pending picture, then a host that draws by itself (no promise): the pending one is still shown when it comes
   drawsItself = false; button(drawer, "Preview")[0].on.click();
   drawsItself = true; button(drawer, "Preview")[0].on.click();
@@ -129,10 +123,6 @@ def test_the_later_preview_is_shown_whatever_order_they_resolve_in(ran: dict) ->
 
 def test_an_edit_after_a_preview_marks_it_stale(ran: dict) -> None:
     assert ran["beforeEdit"] == "false" and ran["afterEdit"] == ["true", True]
-
-
-def test_convert_and_save_of_an_earlier_draft_asks_again(ran: dict) -> None:
-    assert ran["convertOfEarlier"] == ["F", ["E"]]
 
 
 def test_a_host_that_draws_by_itself_never_drops_a_pending_picture(ran: dict) -> None:

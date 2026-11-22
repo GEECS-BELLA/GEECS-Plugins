@@ -6,13 +6,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 from conftest import FakePullRequests, files_of, git, push_change
 from fastapi.testclient import TestClient
 from test_yaml_edit import GOLDEN, NEW_VARIABLE
 
 from geecs_configurator.repository import ConfigsRepository, GitError
-from geecs_configurator.save import CONVERTED, FOLLOWS_SERVED, REWRITTEN
+from geecs_configurator.save import FOLLOWS_SERVED, REWRITTEN
 from geecs_configurator.store import content_etag
 
 B = "?experiment=Bench"
@@ -159,19 +158,14 @@ def test_without_an_app_a_proposal_gives_the_compare_link(origin: Path, tmp_path
     assert any("no pull request was opened" in n for n in saved["notes"])
 
 
-def test_a_legacy_profile_is_converted_only_when_confirmed(committing: TestClient, origin: Path) -> None:  # fmt: skip
+def test_a_legacy_profile_is_never_saved_as_it_is(committing: TestClient, origin: Path) -> None:  # fmt: skip
     doc = _get(committing, "trigger_profile", "legacy.yaml")
     head = git("rev-parse", "main", cwd=origin)
     refused = _put(
         committing, "trigger_profile", "legacy.yaml", doc["document"], doc["etag"]
     )
-    assert refused.status_code == 428 and git("rev-parse", "main", cwd=origin) == head
-    r = _put(committing, "trigger_profile", "legacy.yaml", doc["document"], doc["etag"], convert_legacy=True)  # fmt: skip
-    saved = r.json()
-    assert saved["outcome"] == "committed" and CONVERTED in saved["notes"]
-    assert saved["changes"] == [{"path": [], "op": "convert", "before": None, "after": None, "tier": "operator"}]  # fmt: skip
-    written = yaml.safe_load(git("show", "main:scanner_configs/experiments/Bench/shot_control_configurations/legacy.yaml", cwd=origin))  # fmt: skip
-    assert "schema_version" in written
+    assert refused.status_code == 422 and git("rev-parse", "main", cwd=origin) == head
+    assert "retired legacy shot-control dialect" in str(refused.json())
 
 
 def test_a_save_over_an_unreadable_document_is_refused(committing: TestClient, origin: Path) -> None:  # fmt: skip

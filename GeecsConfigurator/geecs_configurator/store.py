@@ -43,17 +43,13 @@ from geecs_schemas import (
     FileStorage,
     Setup,
 )
-from geecs_schemas.convert import SchemaConversionError, convert_shot_control
 from geecs_schemas.epics.family import FAMILIES_FOLDER, FAMILIES_PACKAGE
 from geecs_schemas.storage import NAMED, STORAGE_ROOT_PATHS
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 FAMILY = "family_file"
-#: How a trigger profile in the legacy dialect (no ``schema_version``) is shown: the reader converts it.
-LEGACY = "legacy dialect, converted by the reader"
-#: What the legacy converter raises on a document whose shape it assumes (``.items()`` on a list):
-#: one file's error, never the listing's.
-_MALFORMED = (TypeError, AttributeError, KeyError, IndexError)
+#: What a trigger profile with no ``schema_version`` is: the scanner's resolver refuses it, never half-reads it.
+RETIRED_DIALECT = "no schema_version: empty, or the retired legacy shot-control dialect, which the scanner no longer reads; rewrite it as a schema_version 2 trigger profile"  # fmt: skip
 #: A shared folder's file whose kind cannot be read: listed under every kind of that folder.
 _UNKNOWN = "?"
 #: A JSON value or a JSON Schema fragment, as the API carries it.
@@ -81,7 +77,6 @@ class Entry(BaseModel):
     id: str
     valid: bool
     error: str | None = None
-    note: str | None = None
 
 
 class Loaded(BaseModel):
@@ -100,7 +95,6 @@ class Loaded(BaseModel):
     errors: list[Error]
     tier: str | None
     read_only: bool
-    note: str | None = None
 
 
 class Report(BaseModel):
@@ -297,13 +291,12 @@ class DocumentStore:
             return [Entry(id=name, valid=True) for name in sorted(self._families())]
         out = []
         for doc_id, path in self._files(kind, experiment).items():
-            _, errors, note = self._load(kind, path)
-            out.append(Entry(id=doc_id, valid=not errors, error=errors[0].msg if errors else None, note=note))  # fmt: skip
+            _, errors = self._load(kind, path)
+            out.append(Entry(id=doc_id, valid=not errors, error=errors[0].msg if errors else None))  # fmt: skip
         return out
 
     def read(self, kind: str, experiment: str | None, doc_id: str) -> Loaded:
         """One document as it is on disk; a file that does not read or parse loads empty with the error."""
-        note = None
         if kind == FAMILY:
             families = self._families()
             if doc_id not in families:
@@ -324,25 +317,25 @@ class DocumentStore:
                 raw, errors = {}, [Error(loc=[], msg=f"unreadable: {_one_line(exc)}")]
             else:
                 text = data.decode("utf-8", errors="replace")
-                raw, errors, note = self._load(kind, file)
+                raw, errors = self._load(kind, file)
                 # a file that does not parse has no etag: there is nothing the editor showed to save over
                 etag = "" if _unparsed(file) else content_etag(data)
         return Loaded(
             kind=kind, experiment=experiment, id=doc_id, path=path, document=raw, etag=etag,
-            yaml=text, valid=not errors, errors=errors, note=note,
+            yaml=text, valid=not errors, errors=errors,
             tier="code" if kind == FAMILY else SCHEMA_REGISTRY[kind].tier, read_only=kind == FAMILY,
         )  # fmt: skip
 
-    def _load(self, kind: str, path: Path) -> tuple[dict[str, Json], list[Error], str | None]:  # fmt: skip
-        """A file as the document its readers see, its errors, and a note (a legacy dialect, converted)."""
+    def _load(self, kind: str, path: Path) -> tuple[dict[str, Json], list[Error]]:
+        """A file as the document its readers see, and its errors."""
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, ValueError) as exc:
-            return {}, [Error(loc=[], msg=_one_line(exc))], None
+            return {}, [Error(loc=[], msg=_one_line(exc))]
         return self.load_text(kind, text, stem=path.stem)
 
-    def load_text(self, kind: str, text: str, *, stem: str) -> tuple[dict[str, Json], list[Error], str | None]:  # fmt: skip
-        """YAML text as the document its readers see (a file named ``stem``), its errors, and a note.
+    def load_text(self, kind: str, text: str, *, stem: str) -> tuple[dict[str, Json], list[Error]]:  # fmt: skip
+        """YAML text as the document its readers see (a file named ``stem``), and its errors.
 
         The one reading: a file read here and the text a save is about to
         write are read alike, so the save can check its text reads back as
@@ -351,25 +344,10 @@ class DocumentStore:
         try:
             raw = self._parse(text)
         except (yaml.YAMLError, ValueError) as exc:
-            return {}, [Error(loc=[], msg=_one_line(exc))], None
-        note = None
+            return {}, [Error(loc=[], msg=_one_line(exc))]
         if kind == "trigger_profile" and "schema_version" not in raw:
-            # the reader's rule (the scanner's resolver): no schema_version is the legacy dialect, converted
-            try:
-                profile = convert_shot_control(raw, name=stem)
-            except (SchemaConversionError, ValueError, *_MALFORMED) as exc:
-                return (
-                    raw,
-                    [Error(loc=[], msg=f"{LEGACY} failed: {_one_line(exc)}")],
-                    LEGACY,
-                )
-            if profile is None:
-                return (
-                    raw,
-                    [Error(loc=[], msg="the legacy profile names no device")],
-                    LEGACY,
-                )
-            raw, note = profile.model_dump(mode="json"), LEGACY
+            # the reader's rule (the scanner's resolver): no schema_version is refused, never converted or half-read
+            return raw, self.validate(kind, raw, stem=stem).errors
         if _odd_keys(raw):
             # YAML 1.1 reads a bare OFF: / ON: key as a boolean, which JSON would serve as "false": the document is
             # served as the model reads it (its own key normalization), so the page, validate and diff agree on an
@@ -377,8 +355,8 @@ class DocumentStore:
             try:
                 raw = SCHEMA_REGISTRY[kind].model_validate(raw).model_dump(mode="json", exclude_unset=True)  # fmt: skip
             except ValidationError as exc:
-                return raw, _errors(exc), note
-        return raw, self.validate(kind, raw, stem=stem).errors, note
+                return raw, _errors(exc)
+        return raw, self.validate(kind, raw, stem=stem).errors
 
     @staticmethod
     def _raw(path: Path) -> dict[str, Json]:
@@ -402,9 +380,11 @@ class DocumentStore:
 
     @staticmethod
     def validate(kind: str, document: Json, *, stem: str | None = None) -> Report:
-        """Validate a draft as its kind; a setup's ``name`` must also be its file stem."""
+        """Validate a draft as its kind; a setup's ``name`` must also be its file stem; a trigger profile carries ``schema_version``."""
         if kind not in SCHEMA_REGISTRY:
             raise NotFound(f"no kind {kind!r}")
+        if kind == "trigger_profile" and isinstance(document, dict) and "schema_version" not in document:  # fmt: skip
+            return Report(ok=False, errors=[Error(loc=["schema_version"], msg=RETIRED_DIALECT)])  # fmt: skip
         try:
             model = SCHEMA_REGISTRY[kind].model_validate(document)
         except ValidationError as exc:
