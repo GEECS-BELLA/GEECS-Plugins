@@ -17,7 +17,8 @@ signals — never this module (a plan's liveness gate reads the
 The out-of-plan probe over device *names* runs before any device exists,
 so there is no signal to read yet — and it gathers its reads concurrently
 (:func:`try_caget_many`) so the worst case costs one timeout budget,
-never one per device.
+never one per device.  :class:`FirstValueWatch` is the one bounded
+subscription here (subscribe once, wait for its first value, close).
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra), so the
 module itself imports anywhere.
@@ -92,6 +93,57 @@ def caget_once(pv: str, *, timeout: float, datatype: Any = None) -> Any:
     except BaseException:
         future.cancel()
         raise
+
+
+class FirstValueWatch:
+    """One subscription on the shared loop, held while the caller waits for its first value.
+
+    A context manager: entering subscribes to *pv* (aioca ``camonitor``),
+    :meth:`wait` blocks until the first event or its timeout and may be
+    called again on the same subscription, and leaving closes it on every
+    path.  A CA server sends the current value as the first event, so a
+    connected, healthy one answers within a round trip.
+
+    Raises ``ImportError`` on entering when ``aioca`` (the ``ca`` extra) is
+    missing.
+    """
+
+    def __init__(self, pv: str) -> None:
+        self.pv = pv
+        self._arrived = threading.Event()
+        self._subscription: Any = None
+
+    def __enter__(self) -> FirstValueWatch:
+        """Subscribe; the first event sets the flag :meth:`wait` blocks on."""
+        from aioca import camonitor
+
+        async def _subscribe() -> Any:
+            return camonitor(self.pv, lambda _value: self._arrived.set())
+
+        future = asyncio.run_coroutine_threadsafe(_subscribe(), _shared_loop())
+        try:
+            self._subscription = future.result(timeout=_RESULT_GRACE_S)
+        except BaseException:
+            future.cancel()
+            raise
+        return self
+
+    def wait(self, timeout: float) -> bool:
+        """Whether the first value has arrived, waiting up to *timeout* seconds."""
+        return self._arrived.wait(timeout)
+
+    def __exit__(self, *exc: object) -> None:
+        """Close the subscription on the loop that owns it."""
+        subscription, self._subscription = self._subscription, None
+        if subscription is None:
+            return
+
+        async def _close() -> None:
+            subscription.close()
+
+        asyncio.run_coroutine_threadsafe(_close(), _shared_loop()).result(
+            timeout=_RESULT_GRACE_S
+        )
 
 
 def try_caget_once(pv: str, *, timeout: float, datatype: Any = None) -> Any:

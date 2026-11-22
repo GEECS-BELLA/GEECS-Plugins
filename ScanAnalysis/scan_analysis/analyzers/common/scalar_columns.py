@@ -282,16 +282,19 @@ class ScalarColumnsAnalyzer(ScanAnalyzer):
                 f"overwritten: {', '.join(repr(c) for c in clashes)} — rename them"
             )
         updates = self.compute(self.auxiliary_data)
+        names = [c.name for c in self.job.columns]
         # The sidecar first, like a recipe's scalars: it survives a
         # regenerated s-file.
         self.write_scalar_sidecar(updates)
-        if self._merge_auxiliary_data(updates, key=KEY) is None:
+        # The job owns exactly its declared columns on every shot it
+        # computed: a value now NaN (an unknown condition) replaces the old
+        # cell, so the s-file says what the sidecar and the message say.
+        if self._merge_auxiliary_data(updates, key=KEY, targets=names) is None:
             raise RuntimeError(
                 f"could not write {self.auxiliary_file_path} (locked or unreadable); "
                 "nothing was changed — run again"
             )
         self._write_labels()
-        names = [c.name for c in self.job.columns]
         counts = {
             name: int(np.isfinite(updates[name].to_numpy(dtype=float)).sum())
             for name in names

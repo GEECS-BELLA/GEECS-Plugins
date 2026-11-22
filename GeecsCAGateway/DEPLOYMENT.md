@@ -613,7 +613,8 @@ while `caget` answers with fresh values. Diagnosis: `caproto-monitor
 [experiment:]cagateway:heartbeat` prints nothing, not even the current
 value, while `caproto-get` on it advances every 5 s.
 `scripts/lab_status.sh --hardware` makes this check (`gateway answers
-gets but its monitors are not flowing`).
+gets but its monitors are not flowing`), and a scan submit refuses in
+this state (the preflight's `gateway_monitors` check).
 
 **The gateway now recovers by itself.** A watchdog in the process
 (`geecs_ca_gateway/watchdog.py`) reads caproto's context-wide monitor

@@ -96,11 +96,18 @@ def _component(value: str, label: str) -> str:
 
 @dataclass(frozen=True)
 class SavedProducts:
-    """Written files, notable display figures, and explicit rendering omissions."""
+    """Written files, notable display figures, and explicit rendering omissions.
+
+    ``notes`` are every omission, the plan's expected ones included (the
+    small-scan figure gate, waterfall sort exclusions, a summary's own
+    notes); ``failed`` is the subset this sink skipped because a figure did
+    not render.
+    """
 
     files: tuple[Path, ...]
     display_files: tuple[Path, ...]
     notes: tuple[str, ...]
+    failed: tuple[str, ...] = ()
 
 
 def _destination(directory: Path, name: str) -> Path:
@@ -338,7 +345,7 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
     for product in plan.singles:
         _component(str(product.identifier), "Product identifier")
     target.mkdir(parents=True, exist_ok=True)
-    files, display, notes = [], [], list(plan.notes)
+    files, display, notes, failed = [], [], list(plan.notes), []
     average = None
     for product in plan.singles:
         stem = f"{device}_{product.identifier}_processed"
@@ -367,7 +374,8 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
                 position_label=plan.position_label,
             )
         except RenderError as exc:
-            notes.append(f"Skipped {stem}_visual.png: {exc}")
+            failed.append(f"Skipped {stem}_visual.png: {exc}")
+            notes.append(failed[-1])
             continue
         path = _destination(target, f"{stem}_visual.png")
         _save_figure(fig, path)
@@ -391,7 +399,8 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
                 spec.figure,
             )
         except RenderError as exc:
-            notes.append(f"Skipped {definition.filename}: {exc}")
+            failed.append(f"Skipped {definition.filename}: {exc}")
+            notes.append(failed[-1])
             continue
         stem = f"{device}_{definition.filename}"
         path = _destination(target, f"{stem}.png")
@@ -406,7 +415,7 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
             )
             files.append(sidecar)
         notes.extend(f"{definition.filename}: {note}" for note in output.notes)
-    return SavedProducts(tuple(files), tuple(display), tuple(notes))
+    return SavedProducts(tuple(files), tuple(display), tuple(notes), tuple(failed))
 
 
 def _shot_location(

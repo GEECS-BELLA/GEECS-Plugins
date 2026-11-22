@@ -18,9 +18,9 @@ read live.
   move, :mod:`geecs_bluesky.plans.registry`; the strict refire gate,
   :mod:`geecs_bluesky.plans.strict`).  A typed ``str`` signal has no
   enum edge to trip over.
-
 - :func:`down_natives` — native devices (no ``CONNECTED``): a judge that raises is down.
 - :func:`probe_stale` — a frozen loop (``systimestamp`` stale): a warning only.
+- :func:`probe_gateway_monitors` — does the gateway deliver monitors at all.
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra).
 """
@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any, Awaitable, Callable, Iterable, Sequence
+from typing import Any, Awaitable, Callable, Iterable, Literal, Sequence
 
 import asyncio
 
@@ -139,6 +139,50 @@ def probe_disconnected(
         for device, reading in zip(names, readings)
         if reading is not None and str(reading) == GATEWAY_DISCONNECTED
     ]
+
+
+#: :func:`probe_gateway_monitors` verdicts.
+MonitorVerdict = Literal["delivered", "withheld", "unreachable"]
+
+
+def probe_gateway_monitors(
+    experiment: str, *, timeout: float = DEFAULT_PROBE_TIMEOUT_S, grace: float = 1.0
+) -> MonitorVerdict:
+    """Whether the CA gateway delivers monitors, judged on its heartbeat over one held subscription.
+
+    A get first: one that fails is ``"unreachable"`` at once (not a verdict
+    on monitors; fail-open, as the ``CONNECTED`` probes), and one that
+    answers proves the channel connected.  Then one subscription, held to
+    the end: its value on subscribe within *timeout* is ``"delivered"``.
+    If nothing came, a second get on the same open subscription (failing:
+    ``"unreachable"``) and a further *grace* for the late value
+    (``"delivered"``).  ``"withheld"`` therefore means a get answered
+    before the subscribe and another after *timeout* of silence, and the
+    subscription stayed silent through *grace* too: the gateway serves
+    gets but delivers no monitor events.
+
+    Costs two round trips when healthy; worst cases: unreachable one
+    *timeout* when the first get fails, three when the second does;
+    withheld three *timeout* budgets plus *grace*.
+
+    Raises
+    ------
+    ImportError
+        ``aioca`` is missing (the ``ca`` extra): the probe cannot run.
+    """
+    from geecs_core.pv_naming import GATEWAY_HEARTBEAT, gateway_status_pv
+
+    from geecs_bluesky.devices.ca.oneshot import FirstValueWatch, try_caget_once
+
+    pv = gateway_status_pv(experiment, GATEWAY_HEARTBEAT)
+    if try_caget_once(pv, timeout=timeout) is None:
+        return "unreachable"
+    with FirstValueWatch(pv) as watch:
+        if watch.wait(timeout):
+            return "delivered"
+        if try_caget_once(pv, timeout=timeout) is None:
+            return "unreachable"
+        return "delivered" if watch.wait(grace) else "withheld"
 
 
 def probe_stale_pvs(

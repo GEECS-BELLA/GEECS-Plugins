@@ -104,6 +104,32 @@ def configs_tree(tmp_path) -> Path:
     return tree
 
 
+def _counts(**given: int) -> dict:
+    """A ScanAnalysis ``RunOutcome`` as counts: a clean six-unit run, then *given*."""
+    counts = dict.fromkeys(
+        (
+            "units_failed",
+            "shots_load_failed",
+            "nan_values",
+            "product_write_failures",
+            "scalar_write_failures",
+            "fold_errors",
+        ),
+        0,
+    )
+    return {"units_attempted": 6, "units_succeeded": 6, **counts, **given}
+
+
+#: Fake behaviours that set an outcome, by name.
+OUTCOMES = {
+    "clean": _counts(),
+    "partial": _counts(units_succeeded=4, units_failed=2),
+    "all_failed": _counts(units_succeeded=0, units_failed=6),
+    "unmapped": _counts(units_attempted=0, units_succeeded=0),
+    "counted_then_raised": _counts(fold_errors=1),
+}
+
+
 class FakeAnalyzer:
     """The two-call contract, scripted per test."""
 
@@ -133,6 +159,14 @@ class FakeAnalyzer:
         if self.behaviour == "fail":
             logger.warning("about to fail")
             raise RuntimeError("boom")
+        if self.behaviour in OUTCOMES:
+            # A counting analyzer (``ScanAnalyzer.outcome``), raising or not.
+            from scan_analysis.base import RunOutcome
+
+            self.outcome = RunOutcome(**OUTCOMES[self.behaviour])
+            if self.behaviour == "counted_then_raised":
+                raise ValueError("Averaged results must have matching units")
+            return []
         if self.behaviour == "none":
             return None
         if self.behaviour == "no_data":
@@ -1103,3 +1137,174 @@ def test_a_long_text_label_is_not_a_file(tmp_path):
     assert analysis_runs.contained_artifact(tmp_path, label) is None
     described = analysis_runs.describe_artifact(tmp_path, label, servable=None)
     assert described["servable"] is False
+
+
+# ------------------------------------------------------- the run's outcome
+
+
+@pytest.mark.parametrize(
+    ("report", "judged"),
+    [
+        pytest.param(None, ("done", False, None), id="an analyzer that does not count"),
+        pytest.param(
+            {"counts": {}, "state": "done", "degraded": True, "message": None},
+            ("done", True, None),
+            id="degraded",
+        ),
+        pytest.param(
+            {"counts": {}, "state": "failed", "degraded": False, "message": "m"},
+            ("failed", False, "m"),
+            id="failed",
+        ),
+        pytest.param(
+            {"counts": {}, "state": "no_data", "degraded": False, "message": "m"},
+            ("no_data", False, "m"),
+            id="no_data",
+        ),
+        pytest.param(
+            {"counts": {}, "state": "something new", "degraded": False},
+            ("done", False, None),
+            id="an unknown word",
+        ),
+    ],
+)
+def test_the_portal_reads_the_analyzers_verdict(report, judged):
+    """The rule is ScanAnalysis' (``RunOutcome.verdict``); the portal reads it."""
+    assert analysis_runs.judge_outcome(report) == judged
+
+
+class TestOutcome:
+    """The job record carries the analyzer's counts and the degraded flag."""
+
+    def _run(self, scan_folder, configs_tree, behaviour) -> dict:
+        pytest.importorskip("scan_analysis")
+        client = _client(scan_folder, configs_tree, behaviour=behaviour)
+        client.post("/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"})
+        return _wait(client)
+
+    def test_a_partial_run_is_done_and_degraded(self, scan_folder, configs_tree):
+        job = self._run(scan_folder, configs_tree, "partial")
+        assert (job["state"], job["degraded"], job["error"]) == ("done", True, None)
+        assert job["outcome"] == OUTCOMES["partial"]
+
+    def test_a_clean_run_is_done_and_not_degraded(self, scan_folder, configs_tree):
+        job = self._run(scan_folder, configs_tree, "clean")
+        assert (job["state"], job["degraded"]) == ("done", False)
+        assert job["outcome"] == OUTCOMES["clean"]
+
+    def test_no_unit_succeeding_is_failed(self, scan_folder, configs_tree):
+        job = self._run(scan_folder, configs_tree, "all_failed")
+        assert (job["state"], job["degraded"]) == ("failed", False)
+        assert "every unit failed" in job["error"]
+
+    def test_no_unit_mapped_is_no_data(self, scan_folder, configs_tree):
+        job = self._run(scan_folder, configs_tree, "unmapped")
+        assert job["state"] == "no_data"
+
+    def test_a_raise_stays_failed_and_keeps_its_counts(self, scan_folder, configs_tree):
+        job = self._run(scan_folder, configs_tree, "counted_then_raised")
+        assert (job["state"], job["degraded"]) == ("failed", False)
+        assert job["outcome"]["fold_errors"] == 1
+
+    def test_an_analyzer_without_an_outcome_records_none(
+        self, scan_folder, configs_tree
+    ):
+        job = self._run(scan_folder, configs_tree, "ok")
+        assert (job["state"], job["degraded"], job["outcome"]) == ("done", False, None)
+
+    def test_the_real_run_outcome_model_is_recorded_as_counts(self):
+        base = pytest.importorskip("scan_analysis.base")
+
+        class Counting:
+            progress = None
+            outcome = None
+
+            def run_analysis(self, scan_tag):
+                self.outcome = base.RunOutcome(units_attempted=3, units_succeeded=3)
+                return []
+
+            def cleanup(self):
+                pass
+
+        seen = []
+        analysis_runs.run_scan_analyzer(
+            lambda *_, **__: Counting(), "X", Path("."), None, outcome=seen.append
+        )
+        assert seen == [base.RunOutcome(units_attempted=3, units_succeeded=3).report()]
+
+
+class TestRealOutcome:
+    """ScanAnalysis' own analyzer through the portal's run body and state table."""
+
+    def _scan(self, tmp_path, *, small=False):
+        np = pytest.importorskip("numpy")
+        pd = pytest.importorskip("pandas")
+        from geecs_data_utils import ScanPaths, ScanTag
+
+        tag = ScanTag(year=2026, month=1, day=4, number=1, experiment="Test")
+        folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=tmp_path)
+        device = folder / "Camera"
+        device.mkdir(parents=True)  # fixture acquisition
+        (folder / "ScanInfoScan001.ini").write_text(
+            '[Scan Info]\nScan No = "1"\nScan Parameter = "noscan"\n'
+        )
+        shots = 2 if small else 6
+        yy, xx = np.mgrid[:16, :16]
+        for shot in range(1, shots + 1):
+            image = 100 * np.exp(-((xx - 4 - shot) ** 2 + (yy - 8) ** 2) / 4) + 2
+            np.save(device / f"Scan001_Camera_{shot:03d}.npy", image)
+        analysis = folder.parent.parent / "analysis"
+        analysis.mkdir()
+        pd.DataFrame({"Shotnumber": range(1, shots + 1), "Bin #": 1}).to_csv(
+            analysis / "s1.txt", sep="\t", index=False
+        )
+        return tag, folder
+
+    def _judge(self, tmp_path, monkeypatch, tag) -> tuple:
+        from functools import partial
+
+        from geecs_data_utils import ScanPaths
+        from geecs_schemas.analysis import AnalysisRecipe
+
+        import scan_analysis.base as base
+        from scan_analysis.core_analyzer import CoreScanAnalyzer
+
+        monkeypatch.setattr(
+            base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path)
+        )
+        doc = AnalysisRecipe.model_validate(
+            {
+                "device": "Camera",
+                "output_name": "Diag",
+                "input": {"kind": "camera", "file_tail": ".npy"},
+                "measure": {"kind": "beam"},
+                "figure": {"fig": {"dpi": 20}},
+                "summaries": [{"kind": "average"}],
+            }
+        )
+        seen: list[dict] = []
+        analysis_runs.run_scan_analyzer(
+            lambda *_, **__: CoreScanAnalyzer(doc, id="Diag", priority=1),
+            "Diag",
+            Path("."),
+            tag,
+            outcome=seen.append,
+        )
+        (report,) = seen
+        return analysis_runs.judge_outcome(report)[:2], report["counts"]
+
+    def test_a_partial_load_failure_is_degraded(self, tmp_path, monkeypatch):
+        pytest.importorskip("scan_analysis")
+        tag, folder = self._scan(tmp_path)
+        (folder / "Camera" / "Scan001_Camera_003.npy").write_bytes(b"not an array")
+        judged, counts = self._judge(tmp_path, monkeypatch, tag)
+        assert judged == ("done", True)
+        assert counts["shots_load_failed"] == 1
+
+    def test_a_small_scan_stays_healthy(self, tmp_path, monkeypatch):
+        """Two shots draw no summary figure (the gate): done, not degraded."""
+        pytest.importorskip("scan_analysis")
+        tag, _ = self._scan(tmp_path, small=True)
+        judged, counts = self._judge(tmp_path, monkeypatch, tag)
+        assert judged == ("done", False)
+        assert counts["units_succeeded"] == 2

@@ -12,7 +12,7 @@ All analyzers must inherit from :class:`ScanAnalyzer` and implement
 
 # %% imports
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, Optional, Union, NamedTuple
+from typing import TYPE_CHECKING, Callable, Iterable, Optional, Union, NamedTuple
 
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
@@ -21,6 +21,7 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pydantic import BaseModel, ConfigDict
 from geecs_data_utils import ScanData, ScanPaths
 from geecs_data_utils.scan_info import is_noscan
 from geecs_data_utils.scalar_files import (
@@ -49,6 +50,83 @@ class DataUnavailableWarning(Exception):
     unexpected errors so that a clean warning is logged without a traceback,
     and the task queue records the state as ``no_data`` rather than ``failed``.
     """
+
+
+#: Outcome counts that make a finished run degraded: a failure the run
+#: continued past. NaN values are shown, never judged; the small-scan figure
+#: gate, waterfall sort exclusions and a summary's notes are never counted.
+DEGRADING_COUNTS = (
+    "units_failed",
+    "shots_load_failed",
+    "product_write_failures",
+    "scalar_write_failures",
+)
+
+
+class RunVerdict(NamedTuple):
+    """A returned run's state word (the task queue's), degraded flag and reason."""
+
+    state: str
+    degraded: bool
+    message: Optional[str]
+
+
+class RunOutcome(BaseModel):
+    """What one analysis run did, counted, beside the display files it returns.
+
+    Set by an analyzer that runs units (``CoreScanAnalyzer``) at the start
+    of its run and filled as the run goes. A host reads it after
+    ``run_analysis`` returns to tell a clean run from a degraded one
+    (:meth:`verdict`); the return value itself is unchanged.
+    """
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    #: Execution units (shots, or bins) the run analyzed or tried to.
+    units_attempted: int = 0
+    units_succeeded: int = 0
+    #: Units with no measurement: a failed analysis, or nothing loadable.
+    units_failed: int = 0
+    #: Shots whose input file would not load (their s-file cells are kept).
+    shots_load_failed: int = 0
+    #: Nonfinite scalar values the successful units produced.
+    nan_values: int = 0
+    #: Products not written: a figure that did not render, a per-shot table,
+    #: sibling output or shot store whose write failed.
+    product_write_failures: int = 0
+    #: Scalar writes that did not land: the sidecar or the s-file merge.
+    scalar_write_failures: int = 0
+    #: Results the products could not fold (the run raises after its scalars).
+    fold_errors: int = 0
+
+    def verdict(self) -> RunVerdict:
+        """The state of a run that returned: ``no_data``, ``failed`` or ``done``.
+
+        No unit attempted is ``no_data`` (no shot mapped to a data file);
+        units that ran with none succeeding is ``failed``; otherwise
+        ``done``, degraded when any of :data:`DEGRADING_COUNTS` is nonzero.
+        A run that raised is a host's ``failed`` whatever the counts: the
+        outcome never softens it.
+        """
+        if self.units_attempted == 0:
+            return RunVerdict(
+                "no_data", False, "no shot of this scan mapped to a data file"
+            )
+        if self.units_succeeded == 0:
+            n = self.units_attempted
+            return RunVerdict(
+                "failed", False, f"every unit failed ({n} of {n}; see log)"
+            )
+        return RunVerdict("done", any(getattr(self, k) for k in DEGRADING_COUNTS), None)
+
+    def report(self) -> dict:
+        """What a host that does not import this package records: the counts and the verdict.
+
+        ``{"counts": {field: int}, "state", "degraded", "message"}`` — plain
+        JSON values, so a host reads a verdict instead of re-deriving it.
+        """
+        verdict = self.verdict()
+        return {"counts": self.model_dump(), **verdict._asdict()}
 
 
 class ScanParameter(NamedTuple):
@@ -144,6 +222,11 @@ class ScanAnalyzer:
         #: how far along they are call :meth:`report_progress`.
         self.progress: Optional[Callable[[int, int, str], None]] = None
 
+        #: The last run's :class:`RunOutcome`, or ``None`` when the analyzer
+        #: does not count its units. Reset at the start of every run, so an
+        #: early return never leaves the previous run's behind.
+        self.outcome: Optional[RunOutcome] = None
+
     def report_progress(self, done: int, total: int, phase: str) -> None:
         """Tell the host how far the run is (frames done of total, in *phase*), if it listens."""
         if self.progress is not None:
@@ -163,6 +246,7 @@ class ScanAnalyzer:
             Optional list of notable artifact paths/labels produced by analysis
             (for experiment logs). Returns ``None`` if inputs are missing.
         """
+        self.outcome = None
         self._handle_scan_tag(scan_tag)  # or inline the logic here
         if self.auxiliary_data is None:
             return None
@@ -301,12 +385,21 @@ class ScanAnalyzer:
             plt.close("all")  # Ensure plots close when not using the GUI
 
     def _merge_auxiliary_data(
-        self, updates: pd.DataFrame, key: str = "Shotnumber"
+        self,
+        updates: pd.DataFrame,
+        key: str = "Shotnumber",
+        *,
+        targets: Optional[Iterable[str]] = None,
     ) -> Optional[pd.DataFrame]:
-        """Merge through the shared s-file lock and refresh in-memory data."""
+        """Merge through the shared s-file lock and refresh in-memory data.
+
+        ``targets`` is ``merge_sfile``'s: the columns the update owns on its
+        rows (a missing value then clears the cell); ``None`` keeps the
+        old-cell-wins merge.
+        """
         if self.auxiliary_file_path is None:
             return None
-        merged = merge_sfile(self.auxiliary_file_path, updates, key)
+        merged = merge_sfile(self.auxiliary_file_path, updates, key, targets=targets)
         if merged is not None:
             self.auxiliary_data = merged
         return merged
@@ -317,21 +410,27 @@ class ScanAnalyzer:
         """Normalize updates through the shared scalar-table adapter."""
         return prepare_updates(data, key)
 
-    def append_to_sfile(self, data: pd.DataFrame) -> None:
+    def append_to_sfile(
+        self, data: pd.DataFrame, *, targets: Optional[Iterable[str]] = None
+    ) -> Optional[pd.DataFrame]:
         """
         Append or overwrite s-file columns (merging on Shotnumber with a lock).
 
         Only accepts a DataFrame and requires an explicit ``Shotnumber`` column
         (case-insensitive match is accepted and normalized).
-        Rows without ``Shotnumber`` are dropped with a warning.
+        Rows without ``Shotnumber`` are dropped with a warning. ``targets``
+        names the columns the update owns on its rows (see
+        ``geecs_data_utils.scalar_files.merge_updates``). Returns the merged
+        table, or ``None`` when nothing was written (no path, invalid
+        updates, a refused merge).
         """
         if self.auxiliary_file_path is None:
             logger.warning("No auxiliary file path set; skipping s-file append.")
-            return
+            return None
 
         updates = self._prepare_updates_dataframe(data)
         if updates is None:
-            return
+            return None
 
         key = "Shotnumber"
         if self.auxiliary_data is not None:
@@ -344,7 +443,7 @@ class ScanAnalyzer:
                     existing_cols,
                 )
 
-        self._merge_auxiliary_data(updates, key=key)
+        return self._merge_auxiliary_data(updates, key=key, targets=targets)
 
     def scalar_sidecar_path(self) -> Optional[Path]:
         """Return the per-analyzer generated-scalar sidecar path, if available."""
