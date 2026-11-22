@@ -14,7 +14,10 @@
 #
 # Tier 1 is TCP/HTTP/filesystem — safe to run at any time, on or off
 # network. Tier 2 performs READ-ONLY Channel Access gets (gateway heartbeat,
-# device count) through the GeecsBluesky env; it never writes a PV.
+# device count) and one subscription to the heartbeat through the
+# GeecsBluesky env; it never writes a PV. The subscription is the check that
+# monitors are delivered: a gateway can answer gets while it delivers none,
+# and a get alone stays green through that.
 #
 # The DB is probed only through scripts/mysql_probe.py (a bounded, real
 # handshake) — never a bare TCP connect of the MySQL port, which counts toward
@@ -23,6 +26,7 @@
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
 CA_TIMEOUT=3    # seconds per CA read (tier 2)
+HEARTBEAT_PERIOD=5  # seconds between the gateway's heartbeat ticks (its status loop)
 TCP_TIMEOUT=2   # seconds per port probe (lab_env.sh reads it)
 
 HARDWARE=0
@@ -162,7 +166,7 @@ if ! poetry -C "$BLUESKY_DIR" env info --path >/dev/null 2>&1; then
     echo "role=CA gateway	state=down	note=GeecsBluesky env not installed"
     exit 1
 fi
-EXPERIMENT="$EXPERIMENT" CA_TIMEOUT="$CA_TIMEOUT" poetry -C "$BLUESKY_DIR" run python - <<'PY'
+EXPERIMENT="$EXPERIMENT" CA_TIMEOUT="$CA_TIMEOUT" HEARTBEAT_PERIOD="$HEARTBEAT_PERIOD" poetry -C "$BLUESKY_DIR" run python - <<'PY'
 import asyncio
 import os
 
@@ -173,10 +177,35 @@ import aioca  # noqa: E402
 
 experiment = os.environ["EXPERIMENT"]
 timeout = float(os.environ["CA_TIMEOUT"])
+heartbeat_period = float(os.environ["HEARTBEAT_PERIOD"])
 
 
 async def read(pv):
     return await asyncio.wait_for(aioca.caget(pv), timeout=timeout)
+
+
+async def monitor_fault(pv):
+    """Subscribe to the heartbeat; return "" when monitors flow, else what is missing.
+
+    A healthy gateway delivers the current value on subscribe and the next
+    tick within one heartbeat period. Gets answering says nothing about
+    either, so this is the only probe that sees a gateway that has stopped
+    delivering monitors.
+    """
+    updates = asyncio.Queue()
+    subscription = aioca.camonitor(pv, updates.put_nowait)
+    try:
+        try:
+            await asyncio.wait_for(updates.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return f"no initial value on subscribe within {timeout:g} s"
+        try:
+            await asyncio.wait_for(updates.get(), timeout=heartbeat_period + timeout)
+        except asyncio.TimeoutError:
+            return f"no heartbeat tick within {heartbeat_period + timeout:g} s of subscribing"
+        return ""
+    finally:
+        subscription.close()
 
 
 async def main():
@@ -188,8 +217,9 @@ async def main():
         gateway_status_pv,
     )
 
+    heartbeat_pv = gateway_status_pv(experiment, GATEWAY_HEARTBEAT)
     try:
-        heartbeat = await read(gateway_status_pv(experiment, GATEWAY_HEARTBEAT))
+        heartbeat = await read(heartbeat_pv)
         connected = await read(gateway_status_pv(experiment, GATEWAY_DEVICES_CONNECTED))
         version = await read(gateway_status_pv(experiment, "version"))
     except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
@@ -197,7 +227,15 @@ async def main():
         print("         network may be up while the gateway service is not")
         print(f"role=CA gateway\tstate=down\tnote=PVs unreadable ({type(exc).__name__})")
         raise SystemExit(1)
-    print(f"  [ OK ] gateway alive: heartbeat={int(heartbeat)}, "
+    fault = await monitor_fault(heartbeat_pv)
+    if fault:
+        print(f"  [DOWN] gateway answers gets but its monitors are not flowing ({fault})")
+        print("         every monitor client (archiver, displays, the scan worker) is")
+        print("         reading stale or no values; the gateway service needs a restart")
+        print("         on its host (GeecsCAGateway/DEPLOYMENT.md § Troubleshooting)")
+        print(f"role=CA gateway\tstate=down\tversion={version}\tnote=gets answer, monitors not flowing ({fault})")
+        raise SystemExit(1)
+    print(f"  [ OK ] gateway alive: heartbeat={int(heartbeat)} (monitor ticking), "
           f"devices_connected={int(connected)}, version={version}")
     if int(connected) == 0:
         print("  [WARN] zero devices connected — GEECS side likely down")
