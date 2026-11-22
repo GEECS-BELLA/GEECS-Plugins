@@ -253,40 +253,47 @@ class CoreScanAnalyzer(ScanAnalyzer):
             raise fold_error
 
     def _persist_scalars(self, prepared: PreparedScan, pending: list[dict]) -> None:
-        """Write this run's rows to the sidecar and the s-file: the same rows in both.
+        """Write this run's rows to the s-file and the sidecar: the same rows in both.
 
         The run owns its declared columns (``declared_columns``, plus any it
         produced) on the rows of every unit it analyzed: a success writes its
         values, a NaN included, and a unit that failed after loading writes
         them missing (``cleared_records``). Rows outside the run, and shots
-        that failed to load, keep their cells. A declared column is written
-        only when the run produced it or the s-file already has it, so a
-        failed run creates no all-NaN columns.
+        that failed to load, keep their cells. Whether a declared column the
+        run did not produce exists is decided by the merge, against the
+        s-file read under its lock, so a failed run creates no all-NaN
+        column; the sidecar then holds exactly the columns the merge wrote.
+        When the merge is refused, the in-memory rows decide.
         """
         if not pending:
             return
         updates = pd.DataFrame(pending)
         produced = [c for c in updates.columns if c != "Shotnumber"]
-        existing = set(self.auxiliary_data.columns)
-        cleared = [
-            c
-            for c in prepared.declared_columns()
-            if c not in produced and c in existing
+        targets = produced + [
+            c for c in prepared.declared_columns() if c not in produced
         ]
-        columns = produced + cleared
-        if not columns:
+        if not targets:
             return
-        updates = updates.reindex(columns=["Shotnumber", *columns])
         # The legacy wrapper wrote its scalars into the in-memory rows
         # before persisting, so a waterfall sorted by one of this run's
         # own columns resolves even when the s-file merge is refused.
-        write_scalars_into_rows(self.auxiliary_data, updates.to_dict("records"))
-        if self.write_scalar_sidecar(updates) is None:
-            self.outcome.scalar_write_failures += 1
-        if self.append_to_sfile(updates, targets=columns) is None:
+        existing = set(self.auxiliary_data.columns)
+        known = [c for c in targets if c in produced or c in existing]
+        rows = updates.reindex(columns=["Shotnumber", *known])
+        write_scalars_into_rows(self.auxiliary_data, rows.to_dict("records"))
+        merged = self.append_to_sfile(updates, targets=targets)
+        if merged is None:
             # A refused merge (the lock held past its timeout, an unreadable
             # s-file) is logged where it happens; counted here, so the run
             # cannot report a clean success.
+            self.outcome.scalar_write_failures += 1
+        else:
+            rows = updates.reindex(
+                columns=["Shotnumber", *(c for c in targets if c in merged.columns)]
+            )
+        if len(rows.columns) == 1:
+            return
+        if self.write_scalar_sidecar(rows) is None:
             self.outcome.scalar_write_failures += 1
 
     def _stream(

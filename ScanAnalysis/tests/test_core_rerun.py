@@ -167,6 +167,31 @@ def test_a_failed_first_run_creates_no_all_nan_columns(scan, monkeypatch):
     pd.testing.assert_frame_equal(after, before)
 
 
+def test_a_declared_column_added_on_disk_mid_run_is_cleared(scan, monkeypatch):
+    """Whether a declared column exists is decided under the lock, not from the snapshot."""
+    real_fail = RuntimeError("measure refused the frame")
+    planted = []
+
+    def analyze(raw, recipe, *, shot=None, inputs=None):
+        if not planted:
+            # Another writer adds a column this recipe declares, after the
+            # analyzer loaded its in-memory rows.
+            set_cells(scan, "Diag_x_CoM", {n: OLD for n in range(1, UNMAPPED + 1)})
+            planted.append(True)
+        raise real_fail
+
+    monkeypatch.setattr(stream, "analyze_compiled", analyze)
+    run(recipe())
+    rows = sfile(scan).set_index("Shotnumber")
+    assert rows.loc[1:SHOTS, "Diag_x_CoM"].isna().all()
+    assert rows.loc[UNMAPPED, "Diag_x_CoM"] == OLD
+    side = sidecar(scan).set_index("Shotnumber")
+    assert list(side.columns) == ["Diag_x_CoM"]
+    pd.testing.assert_frame_equal(
+        side, rows.loc[side.index, side.columns], check_dtype=False
+    )
+
+
 def test_mixed_success_and_failure_write_the_same_rows_to_sidecar_and_sfile(
     scan, first_run, monkeypatch
 ):
