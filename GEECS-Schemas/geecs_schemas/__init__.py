@@ -3,10 +3,9 @@
 Configs are schemas; YAML is just serialization.  This package is the single
 home of the models: presets (the saved scan: device group +
 plan call), scan requests, scan variables, trigger profiles,
-setups (named device states) and gateway derived channels — plus converters from the legacy YAML
-dialects still in use (``geecs_schemas.convert``; scan variables and presets
-have none, GEECS-Plugins#779 / #807) and a Markdown
-reference generator (``geecs_schemas.docgen``).
+setups (named device states) and gateway derived channels — every one
+authored in the new schema only (no legacy-YAML converter remains) — and a
+Markdown reference generator (``geecs_schemas.docgen``).
 
 It depends on Pydantic and GEST (the lightweight VOCS model), so anything — engine, GUI, scripts, docs
 tooling — can import it without dragging in hardware or analysis stacks.

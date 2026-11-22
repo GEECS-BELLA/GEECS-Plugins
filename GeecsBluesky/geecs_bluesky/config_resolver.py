@@ -2,11 +2,10 @@
 
 :class:`ConfigResolver` is the protocol; :class:`ConfigsRepoResolver` is the
 production implementation over the real configs-repo layout
-(``scanner_configs/experiments/<Experiment>/``).  A YAML file carrying a
-``schema_version`` key loads as the new schema directly; trigger profiles
-without one are converted from their legacy dialect via
-:mod:`geecs_schemas.convert`.  Presets, scan-variable catalogs and setups
-are new-schema only (no converter remains for them).
+(``scanner_configs/experiments/<Experiment>/``).  Every document is read in
+the new schema only: no converter remains for any config kind, and a
+trigger profile without a ``schema_version`` (the retired shot-control
+dialect) is refused naming its file.
 
 The client seam expands a preset into a plan queue item
 (:mod:`geecs_bluesky.qs_client.presets`).
@@ -57,7 +56,6 @@ from geecs_schemas import (
     TriggerProfile,
     yaml_stem,
 )
-from geecs_schemas.convert import convert_shot_control
 from geecs_schemas.setup import load_setups
 
 logger = logging.getLogger(__name__)
@@ -119,7 +117,7 @@ class ConfigResolver(Protocol):
 
 
 class ConfigsRepoResolver:
-    """Resolver over the real configs-repo layout, converter-backed.
+    """Resolver over the real configs-repo layout (new-schema documents only).
 
     Reads ``scanner_configs/experiments/<experiment>/`` (the same resolution
     roots as :func:`geecs_core.configs_repo.scanner_configs_base`):
@@ -134,9 +132,9 @@ class ConfigsRepoResolver:
     - ``optimizer_configs/<name>.yaml`` — validated native ``OptimizerConfig``
       documents, read fresh for each request.
 
-    A trigger profile whose top level carries ``schema_version`` is
-    loaded as the new schema; anything else goes through the legacy
-    converter.  Named configs resolve from
+    A trigger profile must carry ``schema_version`` at its top level; one
+    without it (usually empty, or the retired shot-control dialect) is
+    refused, never half-read.  Named configs resolve from
     either the ``.yaml`` or ``.yml`` spelling, so every listed name
     round-trips through resolution.
 
@@ -359,13 +357,16 @@ class ConfigsRepoResolver:
         return available, unavailable
 
     def resolve_trigger_profile(self, name: str) -> TriggerProfile:
-        """Load the trigger profile *name* (new schema, else converted).
+        """Load the trigger profile *name* (new schema only).
 
         Raises
         ------
         GeecsConfigurationError
-            Missing file, a file that is not YAML, or a profile that names
-            no trigger device.
+            Missing file, a file that is not YAML, or a file with no
+            ``schema_version`` (usually empty, or the retired shot-control
+            dialect).
+        pydantic.ValidationError
+            A document that is not a valid ``TriggerProfile``.
         """
         stem = yaml_stem(name)
         path = self._named_yaml_path(self.TRIGGER_FOLDER, stem)
@@ -373,15 +374,16 @@ class ConfigsRepoResolver:
             document = self._load_yaml(path, "trigger profile", name)
         except yaml.YAMLError as exc:
             raise GeecsConfigurationError(f"trigger profile {name!r}: {exc}") from exc
-        if "schema_version" in document:
-            return TriggerProfile.model_validate(document)
-        profile = convert_shot_control(document, name=stem)
-        if profile is None:
+        if "schema_version" not in document:
             raise GeecsConfigurationError(
-                f"trigger profile {name!r} ({path}) is empty / names no "
-                "device — it cannot drive a scan's trigger"
+                f"trigger profile {name!r} ({path}) has no schema_version, "
+                "which is required; the usual causes are an empty file or "
+                "the retired legacy shot-control dialect (device + "
+                "variables), which is no longer read. Give it "
+                "schema_version: 2 as a TriggerProfile (per-state write "
+                "lists), or replace it with a copy of a valid profile"
             )
-        return profile
+        return TriggerProfile.model_validate(document)
 
     def _scan_variables_catalog(self) -> ScanVariables:
         """Load the experiment's scan-variable catalog, cached until the file changes.

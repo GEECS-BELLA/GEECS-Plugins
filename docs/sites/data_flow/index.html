@@ -745,9 +745,8 @@ const INFO = {
   "The amber arrows carry instances of these models: a request leaves the scanner, is validated at the boundary, and is what the plan receives.",
   "A doc generator renders every field description to the reference page and CI fails if a field lacks one, so the documentation cannot drift from the code."
  ],
- "now": "The analysis configs joined the package on 2026-09-08; since 2026-10-16 the v3 `AnalysisRecipe` is the only analysis document (the v2 document was deleted). Scan variables are authored new-schema only as of 2026-09-04; the legacy dialect and its converter were deleted once both experiments' catalogs were regenerated.",
+ "now": "The analysis configs joined the package on 2026-09-08; since 2026-10-16 the v3 `AnalysisRecipe` is the only analysis document (the v2 document was deleted). Every scanner config kind is authored new-schema only: scan variables since 2026-09-04, trigger profiles since 2026-11-21 (#1361); each legacy dialect and its converter were deleted once the deployed files were regenerated.",
  "next": [
-  "Give the remaining config kinds the same treatment as scan variables: regenerate in new-schema form, then delete the converters (save elements, trigger profiles, action libraries, presets, optimizer configs).",
   "Named operator-shaped plan schemas (noscan, 1D, optimize) so agent UIs can render a plan's parameters.",
   "Decide the fate of the reserved but unhonored at-scan-start and at-scan-end fields on save elements."
  ],

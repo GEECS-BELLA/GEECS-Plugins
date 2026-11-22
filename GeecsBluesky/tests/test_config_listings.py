@@ -438,3 +438,77 @@ def test_configs_commit_is_the_checkouts_head_and_none_outside_one(repo):
         [vcs, "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
     assert resolver.configs_commit() == head
+
+
+#: The retired shot-control dialect: one device, ``{variable: {state: value}}``.
+LEGACY_TRIGGER = {
+    "device": "U_DG645_ShotControl",
+    "variables": {"Trigger.Source": {"SCAN": "Internal", "OFF": "Single shot"}},
+}
+
+
+#: A hand-written new-layout profile that forgot its schema_version.
+UNVERSIONED_TRIGGER = {
+    "name": "HTU-LaserOFF",
+    "states": {
+        "OFF": [
+            {
+                "device": "U_DG645_ShotControl",
+                "variable": "Trigger.Source",
+                "value": "Single shot",
+            }
+        ]
+    },  # fmt: skip
+}
+
+
+@pytest.mark.parametrize(
+    "document",
+    [LEGACY_TRIGGER, {}, UNVERSIONED_TRIGGER],
+    ids=["legacy", "empty", "unversioned"],
+)
+def test_a_trigger_profile_without_schema_version_is_refused_naming_its_file(
+    repo, document
+):
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    folder = repo / "TestExp" / ConfigsRepoResolver.TRIGGER_FOLDER
+    (folder / "HTU-LaserOFF.yaml").write_text(yaml.safe_dump(document))
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    with pytest.raises(GeecsConfigurationError) as caught:
+        resolver.resolve_trigger_profile("HTU-LaserOFF")
+    message = str(caught.value)
+    assert str(folder / "HTU-LaserOFF.yaml") in message
+    # true of every case: the version is what is missing; the dialect is a usual cause
+    assert "has no schema_version, which is required" in message
+    assert "retired legacy shot-control dialect" in message
+
+
+def test_a_new_schema_trigger_profile_loads_as_written(repo):
+    document = {
+        "schema_version": 2,
+        "name": "HTU-LaserOFF",
+        "states": {
+            "OFF": [
+                {
+                    "device": "U_DG645_ShotControl",
+                    "variable": "Trigger.Source",
+                    "value": "Single shot",
+                }  # fmt: skip
+            ],
+            "SINGLESHOT": [
+                {
+                    "device": "U_DG645_ShotControl",
+                    "variable": "Trigger.ExecuteSingleShot",
+                    "value": "on",
+                }  # fmt: skip
+            ],
+        },
+    }
+    folder = repo / "TestExp" / ConfigsRepoResolver.TRIGGER_FOLDER
+    (folder / "HTU-LaserOFF.yaml").write_text(yaml.safe_dump(document))
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    profile = resolver.resolve_trigger_profile("HTU-LaserOFF")
+    assert profile.name == "HTU-LaserOFF"
+    assert [w.value for w in profile.writes_for("OFF")] == ["Single shot"]
+    assert profile.defines_state("SINGLESHOT") and not profile.defines_state("SCAN")

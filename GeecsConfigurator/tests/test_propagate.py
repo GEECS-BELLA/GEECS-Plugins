@@ -390,8 +390,8 @@ def test_the_validate_cli_checks_changed_documents_only(root: Path) -> None:
         validate_main(["--root", str(root), f"{SETUPS}/broken.yaml"]) == 1
     )  # changed and invalid
     assert (
-        validate_main(["--root", str(root), f"{PROFILES}/legacy.yaml"]) == 0
-    )  # the reader's conversion counts
+        validate_main(["--root", str(root), f"{PROFILES}/legacy.yaml"]) == 1
+    )  # the retired dialect: its reader refuses it, so the gate does
     assert (
         validate_main(["--root", str(root)]) == 0
     )  # nothing changed: nothing to check

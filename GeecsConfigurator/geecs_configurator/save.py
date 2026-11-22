@@ -27,11 +27,6 @@ checkout, then:
   another file now has) holds for the tree the push makes. Refused on the
   first push, the **422**; only once main moved under the save, the **409**
   (the operator reopens, and the save's checks run again);
-- refuses (**428**) a trigger profile in the legacy dialect unless the save
-  confirms the conversion (``convert_legacy``): it rewrites the whole file
-  in the current schema, listed as its own change (path ``[]``, op
-  ``convert``) at the strictest tier declared anywhere in the kind's
-  schema, so it is a change even when no field moved;
 - validates the draft (422 with the errors) and diffs it against the
   document **as served**;
 - **follows the served form.** Where the file as stored and its served
@@ -49,8 +44,8 @@ checkout, then:
   the file's own and an unchanged draft is "nothing to do". The text must
   read back as the draft, as the store reads a file, before any commit; a
   change it cannot place in the text alone (a merge key, an aliased anchor
-  changed) writes the file whole and says so in ``notes``, as do a new
-  document and a legacy-dialect conversion;
+  changed) writes the file whole and says so in ``notes``, as does a new
+  document;
 - acts by the strictest tier among the changes: ``operator`` commits to
   main (the operator the git author, "Name via configurator"; the service
   the committer); ``maintainer`` pushes a branch and opens a pull request
@@ -81,11 +76,10 @@ from geecs_configurator import yaml_edit
 from geecs_configurator.ownership import Ownership
 from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, Vetoed, author_name  # fmt: skip
 from geecs_configurator.validation import deletable, referrers, stem_twins, still_named
-from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
+from geecs_configurator.store import SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest  # fmt: skip
 
 #: The served form's answer is followed where the file as stored validates differently.
 FOLLOWS_SERVED = "the file as stored and its served form validate differently (a YAML value read as a date or a number where the schema wants text, say); the save follows the served form and writes it quoted"  # fmt: skip
-CONVERTED = "the legacy-dialect file is rewritten whole in the current schema"
 #: A save that could not change only what changed (the file's layout is then the dump's).
 REWRITTEN = (
     "the file is rewritten whole: the change could not be placed in its text alone"
@@ -98,8 +92,6 @@ class SaveRequest(BaseModel):
     document: dict[str, Any]  # Any: validated by the kind's model, not here
     etag: str
     operator: str
-    #: The operator confirms rewriting a legacy-dialect file in the current schema.
-    convert_legacy: bool = False
     #: A new document: no file may be there yet (the etag is then ignored; one there is a 409).
     create: bool = False
 
@@ -275,7 +267,7 @@ class _Save:
     def _written(self, loaded: Loaded, draft: Json, notes: list[str]) -> bytes:
         """The bytes a draft is written as: the stored text with only what changed rewritten.
 
-        A new document and a legacy-dialect conversion are written whole. Any
+        A new document is written whole. Any
         other save splices the draft into the stored text
         (:func:`yaml_edit.patch`), first keeping every untouched date as it
         is, then, when that would not validate as the file reads (the
@@ -283,7 +275,7 @@ class _Save:
         The text must read back as the draft, as the store reads a file;
         when no splice does, the file is written whole and the answer says so.
         """
-        if self.request.create or loaded.note == LEGACY:
+        if self.request.create:
             return _dumped(draft)
         stem = PurePosixPath(self.doc_id).stem
         why = "it did not read back as the draft"
@@ -293,8 +285,8 @@ class _Save:
             except yaml_edit.Unpatchable as exc:
                 why = str(exc)
                 break
-            raw, errors, note = self.store.load_text(self.kind, text, stem=stem)
-            if not errors and note is None and same(yaml_edit.served(raw), yaml_edit.served(draft)):  # fmt: skip
+            raw, errors = self.store.load_text(self.kind, text, stem=stem)
+            if not errors and same(yaml_edit.served(raw), yaml_edit.served(draft)):  # fmt: skip
                 return text.encode("utf-8")
         notes.append(f"{REWRITTEN} ({why})")
         return _dumped(draft)
@@ -319,7 +311,7 @@ class _Save:
         return Loaded(kind=self.kind, experiment=self.experiment, id=self.doc_id, path=rel, document={}, etag="", yaml="", valid=True, errors=[], tier=tier, read_only=False)  # fmt: skip
 
     def _checked(self, *, deleting: bool = False) -> Loaded:
-        """The stored document, once the save may go over it: writable, readable, the served base, confirmed."""
+        """The stored document, once the save may go over it: writable, readable, the served base."""
         loaded = self.store.read(self.kind, self.experiment, self.doc_id)
         if loaded.read_only:
             raise Refused(405, f"{self.kind} is read-only here ({loaded.tier})")
@@ -327,8 +319,6 @@ class _Save:
             raise Refused(422, "the stored document did not read or parse, so there is nothing to save over; fix the file by hand")  # fmt: skip
         if self.request.etag != loaded.etag:
             raise self.conflict("the document changed since it was served", self.request.document)  # fmt: skip
-        if loaded.note == LEGACY and not self.request.convert_legacy and not deleting:
-            raise Refused(428, "the file is the legacy dialect: saving rewrites it whole in the current schema; confirm with convert_legacy")  # fmt: skip
         if not deleting:  # a twin another box or a direct commit put on main since
             self._no_twin(loaded.path)
         return loaded
@@ -349,10 +339,7 @@ class _Save:
             raise Refused(422, {"errors": [e.model_dump() for e in report.errors]})
         changes = diff_documents(served, draft, self.schema)
         notes = []
-        if loaded.note == LEGACY:
-            changes.insert(0, Change(path=[], op="convert", tier=tier_in(self.schema, self.schema)))  # fmt: skip
-            notes.append(CONVERTED)
-        elif (
+        if (
             not self.request.create
             and loaded.valid != self.store.validate(self.kind, served, stem=stem).ok
         ):

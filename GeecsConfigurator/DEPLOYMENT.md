@@ -299,8 +299,8 @@ After the switch:
    main and deletes `<STATE_DIR>/UNVERIFIED` before going on).
 3. The lab is quiet: nothing runs or waits on the worker (the switch restarts
    the worker, the scanner, the portal and Canopy).
-4. The trigger-profile catalogue is in the new schema, or the maintainer has
-   said the resolver's legacy converter stays (#1307, their own items).
+4. The trigger-profile catalogue is in the new schema: the resolver and the
+   configurator read no other (regenerated, #1361).
 
 ### 1. The share's edits, committed once (the maintainer's credential)
 

@@ -95,8 +95,8 @@ setup/closeout rituals run around the scan.
 What gets recorded for a Tier-1 device is its **`db_scalars` resolution**: by
 default (`db_scalars=true`) the recorded scalars are the device's database
 `get='yes'` variables **∪** any explicit `scalars` you list; `all_scalars=true`
-unions every database variable; `db_scalars=false` (the pin the legacy converter
-emits) records the explicit list only. Images are always Tier-1 — file saving
+unions every database variable; `db_scalars=false` (the pin the one-time conversion of
+the legacy save elements wrote) records the explicit list only. Images are always Tier-1 — file saving
 needs coordination with the device, so there is no soft version of it.
 
 Tier-1 data goes to **both** destinations: the legacy on-disk s-file
@@ -163,4 +163,6 @@ per-column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the source tree.
   hardware is touched or a scan number is used up.
 - **You describe intent, not mechanics.** Timestamp bookkeeping, synchronization
   flags, and parallel laser-off files are gone on purpose — the engine derives
-  them, and legacy files convert automatically on load.
+  them. The legacy save sets, trigger profiles and scan variables were
+  regenerated once in the new format; a legacy file met now is refused,
+  never converted on load.

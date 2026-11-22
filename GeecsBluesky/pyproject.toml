@@ -31,8 +31,8 @@ geecs-analysis = { path = "../GEECS-Analysis", develop = true, optional = true }
 # service (its PVs, over aioca) — this package imports no gateway code.
 geecs-core = { path = "../GEECS-Core", develop = true }
 
-# The schema layer: ScanRequest + the config models and
-# legacy-YAML converters consumed by scan_request_runner / session.run().
+# The schema layer: ScanRequest and the config models (new schema only; no
+# legacy-YAML converter remains) the resolver and the plans read.
 # Pydantic-only — deliberately lightweight.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
