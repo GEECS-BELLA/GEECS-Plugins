@@ -573,8 +573,10 @@ and the s-file get the same rows:
 A declared column is written only when the run produced it or the s-file
 already has it, so a failed run creates no all-NaN column; the exact columns
 are updated, never everything under the output prefix, so another recipe's
-columns under the same output name survive. A caller passing no targets
-(the scalar-columns job) keeps the old-cell-wins merge.
+columns under the same output name survive. The scalar-columns job passes
+its declared column names as the targets too: it computes every shot, so a
+value now NaN (a condition now unknown) replaces the old cell. A caller
+passing no targets keeps the old-cell-wins merge.
 
 ## Product output names are a consumed contract
 
