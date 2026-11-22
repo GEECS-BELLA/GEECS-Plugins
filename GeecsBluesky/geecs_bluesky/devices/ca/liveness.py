@@ -162,8 +162,8 @@ def probe_gateway_monitors(
     gets but delivers no monitor events.
 
     Costs two round trips when healthy; worst cases: unreachable one
-    *timeout*, or three plus a *grace* when the second get fails;
-    withheld two *timeout* budgets (at most) plus *grace*.
+    *timeout* when the first get fails, three when the second does;
+    withheld three *timeout* budgets plus *grace*.
 
     Raises
     ------
