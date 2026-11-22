@@ -282,7 +282,16 @@ class CoreScanAnalyzer(ScanAnalyzer):
         known = [c for c in targets if c in produced or c in existing]
         rows = updates.reindex(columns=["Shotnumber", *known])
         write_scalars_into_rows(self.auxiliary_data, rows.to_dict("records"))
-        merged = self.append_to_sfile(updates, targets=targets)
+        try:
+            merged = self.append_to_sfile(updates, targets=targets)
+        except Exception:
+            # A write that failed after the read (the share, a duplicate
+            # shot on disk) propagates and fails the run, as it always did;
+            # the sidecar, independent of the s-file, still keeps this
+            # run's values, resolved from the in-memory rows.
+            self.outcome.scalar_write_failures += 1
+            self.write_scalar_sidecar(rows)
+            raise
         if merged is None:
             # A refused merge (the lock held past its timeout, an unreadable
             # s-file) is logged where it happens; counted here, so the run

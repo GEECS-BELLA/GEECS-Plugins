@@ -299,6 +299,23 @@ def test_failures_load_failures_and_nans_are_counted(scan, monkeypatch):
     assert outcome.nan_values == len(OWNED_BEAM_SCALARS)
 
 
+def test_a_merge_that_raises_still_leaves_the_runs_sidecar(scan, monkeypatch):
+    """A failed s-file write fails the run, counted, with the sidecar written."""
+
+    def fail(*args, **kwargs):
+        raise PermissionError("s-file open elsewhere")
+
+    monkeypatch.setattr(base, "merge_sfile", fail)
+    analyzer = CoreScanAnalyzer(recipe(), id="Diag", priority=1)
+    with pytest.raises(PermissionError):
+        analyzer.run_analysis(TAG)
+    assert analyzer.outcome.scalar_write_failures == 1
+    side = sidecar(scan)
+    assert side["Shotnumber"].tolist() == list(range(1, SHOTS + 1))
+    assert side["Diag_x_CoM"].notna().all()
+    assert "Diag_x_CoM" not in sfile(scan).columns
+
+
 @pytest.mark.parametrize("refused", ["sfile", "sidecar"])
 def test_a_refused_scalar_write_is_counted(scan, monkeypatch, refused):
     """A failed scalar write can never read as a clean success."""
