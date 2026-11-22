@@ -14,6 +14,7 @@ baseline.
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 import logging
 from pathlib import Path
@@ -279,6 +280,9 @@ def test_deferred_pause_lands_between_the_shots_of_a_step(
     events = col.primary_events()
     assert box.fires == 10 and len(events) == 10
     assert [e["data"]["bin_number"] for e in events] == [1] * 5 + [2] * 5
+    # the first fire after the resume says so: its period spans the pause
+    flags = [e["data"]["after_pause"] for e in events]
+    assert sum(flags) == 1 and not flags[0], flags
 
 
 def test_two_cameras_share_one_fire(
@@ -295,6 +299,56 @@ def test_two_cameras_share_one_fire(
         for n in ("uc_a", "uc_b")
     ]
     assert stamps[0] == stamps[1] == [1001.0, 1002.0, 1003.0]
+
+
+def test_each_row_names_the_device_that_held_it(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+) -> None:
+    """The slowest required device and its delay after the fire; the period since the last fire."""
+    fast = _camera(RE, box, "UC_Fast")
+    slow = _camera(RE, box, "UC_Slow")
+    box.cameras.remove(slow)  # stamped late, by hand
+    advance = box.advance
+
+    def late_advance(step: float = 1.0) -> None:
+        advance(step)
+        asyncio.get_running_loop().call_later(
+            0.2, set_mock_value, slow.acq_timestamp, box.stamp
+        )
+
+    box.advance = late_advance  # type: ignore[method-assign]
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(strict_count(shot_control, [fast, slow], 3))
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["slowest_device"] for r in rows] == ["UC_Slow"] * 3
+    assert all(0.15 < r["slowest_s"] < 1.0 for r in rows)
+
+
+def test_a_required_device_that_never_reports_is_the_slowest_at_its_timeout(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+) -> None:
+    fast = _camera(RE, box, "UC_Fast")
+    dead = _camera(RE, box, "UC_Dead", shot_timeout=0.3)
+    box.cameras.remove(dead)  # never stamped
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(strict_count(shot_control, [fast, dead], 1, required=[dead]))
+    row = next(e["data"] for e in col.primary_events())
+    assert row["slowest_device"] == "UC_Dead" and "uc_dead" in row["missing"]
+    assert 0.25 <= row["slowest_s"] < 1.0
+
+
+def test_nothing_required_names_no_slowest_device(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+) -> None:
+    cam = _camera(RE, box, "UC_Cam")
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(strict_count(shot_control, [cam], 2, required=[]))
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["slowest_device"] for r in rows] == ["", ""]
+    assert all(math.isnan(r["slowest_s"]) for r in rows)
 
 
 def test_missed_frame_keeps_the_row_and_adds_a_shot(

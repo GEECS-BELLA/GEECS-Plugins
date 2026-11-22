@@ -193,7 +193,16 @@ class SlotColumns:
         make the reader time the row by a fire it does not have), and no
         ``extra_frames`` (free-running is legitimate there).
         """
-        fired = {} if self._fly else {"fire_stamp": math.nan}
+        fired = (
+            {}
+            if self._fly
+            else {
+                "fire_stamp": math.nan,
+                "slowest_device": "",
+                "slowest_s": math.nan,
+                "after_pause": False,
+            }
+        )
         witness = {} if self._fly else {"unwitnessed": False, "witness_late": False}
         extra = {} if self._fly else {"extra_frames": ""}
         self.values = {
@@ -349,6 +358,8 @@ class OnDemand:
             answered=[p.name for p in self.required if not p.framed],
         )
         self._last_fire: float | None = None
+        #: ``ShotControl.pause_count`` at the last fire (``after_pause``).
+        self._fired_pauses: int | None = None
         self._exhausted = 0
         self._reported_down: set[str] = set()
         self._refused_press: set[str] = set()
@@ -397,22 +408,45 @@ class OnDemand:
             logger.info("a pause cut the counter snapshot: taking it again")
 
     def _wait(self, base: dict[str, Any]):
-        """Plan: until every required counter advanced (or the witness, with none required)."""
+        """Plan: until every required counter advanced (or the witness, with none required).
+
+        Records the row's ``slowest_device`` — the required device the
+        worker saw deliver last (or never: it waited its whole timeout) —
+        and ``slowest_s``, seconds from the fire until the worker saw that
+        record (its counter read included, so a slow read counts): what
+        held the wait.  The rest of the row's cycle (the reads, the row,
+        the collects) is the worker's own.
+        """
         required, witness = self.required, self.witness
+        arrivals: dict[str, float] = {}
+
+        async def arrive(p: _Progress, deadline: float) -> None:
+            await _until_moved(p, base[p.name], deadline)
+            arrivals[p.name] = time.time()
 
         async def wait() -> None:
             loop = asyncio.get_running_loop()
             if required:
                 deadline = loop.time() + max(p.timeout for p in required)
-                await asyncio.gather(
-                    *(_until_moved(p, base[p.name], deadline) for p in required)
-                )
+                await asyncio.gather(*(arrive(p, deadline) for p in required))
             if witness is not None and base[""] is not None:
                 grace = WITNESS_GRACE_S if required else DEFAULT_SHOT_TIMEOUT
                 await _until_counted(witness, base[""], loop.time() + grace)
 
         if required or witness is not None:
             yield from bps.wait_for([wait])
+        self._record_slowest(arrivals)
+
+    def _record_slowest(self, arrivals: dict[str, float]) -> None:
+        """The row's ``slowest_device`` / ``slowest_s`` from each required device's arrival."""
+        values = self.columns.values
+        fired = values.get("fire_stamp", math.nan)
+        if not arrivals or "slowest_device" not in values or math.isnan(fired):
+            return
+        name, at = max(arrivals.items(), key=lambda kv: kv[1])
+        owner = next(p.owner for p in self.required if p.name == name)
+        values["slowest_device"] = geecs_name(owner)
+        values["slowest_s"] = max(0.0, at - fired)
 
     def _throttle(self):
         if self.shot_period is not None and self._last_fire is not None:
@@ -555,7 +589,15 @@ class OnDemand:
             )
             if self.gate is not None:
                 self.columns.values["gate_hold_s"] = held
+            # A pause since the previous fire (its slot's own, a gate hold's,
+            # a resume): the time between the two fires is no shot period.
+            if "after_pause" in self.columns.values:  # a fly row has none
+                self.columns.values["after_pause"] = (
+                    self._fired_pauses is not None
+                    and self.sc.pause_count != self._fired_pauses
+                )
             if (yield from self._fire()):
+                self._fired_pauses = self.sc.pause_count
                 return mark, base
             self.columns.shot_index -= 1  # nothing fired: no row
             yield from pause_on_lapses(self.gate, lapses, self._pause)

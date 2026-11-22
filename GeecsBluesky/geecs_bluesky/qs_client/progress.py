@@ -17,12 +17,13 @@ with a reason, and the manager poll stays authoritative.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,27 @@ logger = logging.getLogger(__name__)
 ROW_STREAMS: tuple[str, ...] = ("primary",)
 
 
+#: How many of the run's slowest devices :class:`RunProgress` keeps.
+SLOWEST_KEPT = 5
+
+
+class SlowDevice(BaseModel):
+    """One required device that the run's shots waited for: the last of them to deliver."""
+
+    device: str
+    held: int = Field(description="Rows it was the last required device to deliver")
+
+
 class RunProgress(BaseModel):
-    """The latest run as the streams describe it."""
+    """The latest run as the streams describe it.
+
+    The rate and the devices that held it come from the rows'
+    ``fire_stamp``, ``bin_number``, ``gate_hold_s``, ``after_pause``,
+    ``interrupted``, ``slowest_device`` and ``slowest_s`` (a strict run's
+    shot table; ``None`` / empty for a run without them).  A period is the
+    time between two fires of one bin, less the later one's gate hold;
+    none spans a step move, a pause or an interrupted row.
+    """
 
     available: bool = False
     detail: str = ""
@@ -49,6 +69,32 @@ class RunProgress(BaseModel):
     exit_status: Optional[str] = None
     paused_reason: Optional[str] = None
     updated_at: Optional[float] = None
+    current_rate_hz: Optional[float] = Field(
+        default=None,
+        description=(
+            "1 / the latest period: two consecutive fires of one bin, "
+            "less the gate hold"
+        ),
+    )
+    waiting_on: Optional[str] = Field(
+        default=None,
+        description="The latest shot's last required device to deliver (its "
+        "slowest_device; an interrupted row's is skipped)",
+    )
+    waiting_s: Optional[float] = Field(
+        default=None,
+        description="Its slowest_s: from the fire put, so up to one trigger "
+        "period of waiting for the edge is included",
+    )
+    worker_s: Optional[float] = Field(
+        default=None,
+        description="The latest period less the previous row's wait: the worker's "
+        "reads, row, collects and any throttle",
+    )
+    slowest: list[SlowDevice] = Field(
+        default_factory=list,
+        description="The devices that delivered last on the most rows, most first",
+    )
 
 
 class ProgressStream:
@@ -72,6 +118,7 @@ class ProgressStream:
         self._progress = RunProgress(detail="stream cache not started")
         self._rows: set[str] = set()
         self._version = 0
+        self._timing = _RowTiming()
 
     # ---------------------------------------------------------------- read
 
@@ -122,14 +169,20 @@ class ProgressStream:
             if str(doc.get("descriptor")) in self._rows:
                 seq = doc.get("seq_num")
                 seqs = seq if name == "event_page" else [seq]
-                counted = [_as_int(v) or 0 for v in seqs or []]
+                numbers = [_as_int(v) for v in seqs or []]
+                counted = [n or 0 for n in numbers]
                 if counted:
                     self._count_rows(max(counted), now)
+                self._timing.take(
+                    doc.get("data") or {}, numbers, page=name == "event_page"
+                )
+                self._timing.write(self._progress)
         elif name == "stop":
             self._stop(doc, now)
 
     def _start(self, doc: dict, now: float) -> None:
         self._rows = set()
+        self._timing = _RowTiming()
         self._progress = RunProgress(
             available=self._progress.available,
             detail=self._progress.detail,
@@ -273,6 +326,87 @@ def _scan_day(tag: Any) -> Optional[str]:
     except (TypeError, ValueError):
         pass
     return None
+
+
+class _RowTiming:
+    """The run's rate and the devices its shots waited for, from the rows' timing columns.
+
+    Running totals only (a count per device), so a long run costs the same
+    per row as a short one.
+    """
+
+    def __init__(self) -> None:
+        # seq_num, fire, bin, interrupted
+        self.prev: tuple[int | None, float, Any, bool] | None = None
+        self.period: float | None = None
+        self.worker: float | None = None
+        self.last_wait: float | None = None
+        self.waiting: tuple[str, float] | None = None
+        self.held: dict[str, int] = {}
+
+    def take(self, data: dict, seqs: list[int | None], *, page: bool) -> None:
+        """One event's ``data`` (or an event page's, columns of lists) and its ``seq_num``."""
+        rows = (
+            [dict(zip(data, vals, strict=False)) for vals in zip(*data.values())]
+            if page
+            else [data]
+        )
+        for i, row in enumerate(rows):
+            self._row(row, seqs[i] if i < len(seqs) else None)
+
+    def _row(self, row: dict, seq: int | None) -> None:
+        fired = _finite(row.get("fire_stamp"))
+        interrupted = bool(row.get("interrupted"))
+        if fired is not None:
+            prev = self.prev
+            # A period needs the previous fire's row: the feed is
+            # best-effort, and a lost row (a pause marker among them) would
+            # make the next one span two fires.
+            if (
+                prev is not None
+                and seq is not None
+                and prev[0] is not None
+                and seq == prev[0] + 1
+                and fired > prev[1]
+                and row.get("bin_number") == prev[2]
+                and not prev[3]
+                and not interrupted
+                and not row.get("after_pause")
+            ):
+                period = fired - prev[1] - (_finite(row.get("gate_hold_s")) or 0.0)
+                if period > 0:
+                    self.period = period
+                    # The period's part not spent waiting for the previous
+                    # row's devices; nothing required: all of it.
+                    self.worker = max(0.0, period - (self.last_wait or 0.0))
+            self.prev = (seq, fired, row.get("bin_number"), interrupted)
+        device = row.get("slowest_device")
+        delay = _finite(row.get("slowest_s"))
+        if interrupted:  # a pause cut the wait: its arrivals say nothing
+            self.last_wait = None
+            return
+        self.last_wait = delay
+        if device and delay is not None:
+            self.waiting = (str(device), delay)
+            self.held[str(device)] = self.held.get(str(device), 0) + 1
+
+    def write(self, progress: RunProgress) -> None:
+        """Set the picture's timing fields."""
+        progress.current_rate_hz = None if self.period is None else 1.0 / self.period
+        progress.worker_s = self.worker
+        progress.waiting_on, progress.waiting_s = self.waiting or (None, None)
+        ranked = sorted(self.held.items(), key=lambda kv: -kv[1])
+        progress.slowest = [
+            SlowDevice(device=device, held=n) for device, n in ranked[:SLOWEST_KEPT]
+        ]
+
+
+def _finite(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _as_int(value: Any) -> Optional[int]:

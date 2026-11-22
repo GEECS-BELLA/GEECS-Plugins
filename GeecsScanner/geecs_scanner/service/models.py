@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
+from geecs_bluesky.qs_client.progress import SlowDevice
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -267,6 +268,26 @@ class ProgressOut(BaseModel):
     day: Optional[str] = Field(
         default=None,
         description="The run's day, ISO (from the start document's scan_tag)",
+    )
+    current_rate_hz: Optional[float] = Field(
+        default=None,
+        description="1 / the latest period: two fires of one bin, less the gate hold",
+    )
+    waiting_on: Optional[str] = Field(
+        default=None,
+        description="The latest shot's last required device to deliver (GEECS name)",
+    )
+    waiting_s: Optional[float] = Field(
+        default=None,
+        description="Its delay after the fire put, seconds (up to one trigger period of edge wait included)",
+    )
+    worker_s: Optional[float] = Field(
+        default=None,
+        description="The latest period less the previous shot's wait: the worker's own time, any throttle included",
+    )
+    slowest: list[SlowDevice] = Field(
+        default_factory=list,
+        description="The devices that delivered last on the most shots",
     )
 
     @classmethod

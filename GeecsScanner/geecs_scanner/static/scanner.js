@@ -224,8 +224,23 @@
     $("meter-r").textContent = right;
     $("now-scan").textContent = p.scan_number ? "Scan " + String(p.scan_number).padStart(3, "0") : "—";
     if (p.paused_reason) $("paused-reason").textContent = "paused: " + p.paused_reason;
+    renderRate(p);
     $("lv-docs").textContent = p.available ? (done ? "event #" + done : (p.scan_number ? "start" : "quiet")) : "off";
     if (!p.available) setChip($("chip-docs"), K.degraded, "doc stream", p.detail || "not consuming");
+  }
+
+  // The rows' timing, reduced by the shared progress stream (periods within
+  // a bin, less gate holds, none across a pause): shown, never a gate.
+  function renderRate(p) {
+    function s(x) { return x.toFixed(2) + " s"; }
+    $("lv-rate").textContent = p.current_rate_hz == null ? "—" : p.current_rate_hz.toFixed(2) + " Hz";
+    $("ag-rate").textContent = p.worker_s == null ? "" : "worker " + s(p.worker_s);
+    $("lv-wait").textContent = p.waiting_on || "—";
+    $("ag-wait").textContent = p.waiting_s == null ? "" : s(p.waiting_s) + " after the fire";
+    var slow = p.slowest || [];
+    $("slowest-note").textContent = slow.length
+      ? "Delivered last most often: " + slow.map(function (d) { return d.device + " (" + d.held + " shots)"; }).join("; ")
+      : "";
   }
 
   function tickAges() {

@@ -91,7 +91,23 @@ opens this page.
 - **Current** — the running scan: state, the claimed scan number, progress
   against the planned shots, and a live tail of the scan's own `scan.log`
   (the manager's console text sits behind a toggle). **Pause**, **Resume**
-  and **Stop scan…** live here and act on the running item.
+  and **Stop scan…** live here and act on the running item. Two tiles say
+  why a scan runs at the rate it does. **rate** is one over the time
+  between the latest two fires of one step, less any shot-gate hold (never
+  across a step move or a pause), with the worker's own share of that time
+  under it (its reads, the row, the collects and any throttle). **last to
+  deliver** names the required device the latest shot waited for last, with
+  its delay after the fire. The delay counts from the fire command, which
+  leads the trigger edge by up to one trigger period, so it always includes
+  that wait: at a healthy rate a device can read nearly a full period. The
+  line under the tiles lists the devices that delivered last most often.
+  Read them against the trigger's rate. A rate equal to the trigger's means
+  nothing is holding the scan. A rate below it, with most of the time
+  between fires in the device's delay, means that device is missing the
+  next edge: untick it as required, or fix its trigger. A rate below it
+  with most of the time in the worker's share means no device is to blame,
+  and unticking one will not help. With a throttle set, the rate is the
+  throttle's by design, and the worker's share includes its sleep.
 - **New scan** — the form. **Load preset…** fills it from a saved scan
   document in the experiment's configs repository, or compose one. The
   top half is common to every scan: shots per step, trigger profile,
