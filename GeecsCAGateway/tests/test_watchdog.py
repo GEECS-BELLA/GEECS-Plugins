@@ -601,7 +601,13 @@ async def test_the_gateway_logs_the_evidence_and_exits_on_a_stall(
     finally:
         await _stop(run, served)
 
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    # The gateway's own ERROR records: caproto logs its own (a refused
+    # beacon send on a host with no CA repeater), which are not the evidence.
+    errors = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.ERROR and r.name.startswith("geecs_ca_gateway")
+    ]
     assert len(errors) == 1
     block = errors[0].getMessage()
     assert "CA monitor delivery STALLED" in block
