@@ -18,9 +18,9 @@ read live.
   move, :mod:`geecs_bluesky.plans.registry`; the strict refire gate,
   :mod:`geecs_bluesky.plans.strict`).  A typed ``str`` signal has no
   enum edge to trip over.
-
 - :func:`down_natives` — native devices (no ``CONNECTED``): a judge that raises is down.
 - :func:`probe_stale` — a frozen loop (``systimestamp`` stale): a warning only.
+- :func:`probe_gateway_monitors` — does the gateway deliver monitors at all.
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra).
 """
@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any, Awaitable, Callable, Iterable, Sequence
+from typing import Any, Awaitable, Callable, Iterable, Literal, Sequence
 
 import asyncio
 
@@ -139,6 +139,52 @@ def probe_disconnected(
         for device, reading in zip(names, readings)
         if reading is not None and str(reading) == GATEWAY_DISCONNECTED
     ]
+
+
+#: :func:`probe_gateway_monitors` verdicts.
+MonitorVerdict = Literal["delivered", "withheld", "unreachable"]
+
+
+def probe_gateway_monitors(
+    experiment: str, *, timeout: float = DEFAULT_PROBE_TIMEOUT_S
+) -> MonitorVerdict:
+    """Whether the CA gateway delivers monitors: subscribe to its heartbeat, then a get only if nothing came.
+
+    - ``"delivered"`` — the value arrived on subscribe (one round trip;
+      no get is made).
+    - ``"withheld"`` — nothing on subscribe within *timeout*, yet a get of
+      the same PV answers: the gateway serves gets but delivers no monitor
+      events, which no client sees as a disconnect.
+    - ``"unreachable"`` — nothing on subscribe and the get fails too: the
+      gateway cannot be reached, which is not a verdict on monitors
+      (fail-open, as the ``CONNECTED`` probes).
+
+    Worst case costs two *timeout* budgets (the subscribe, then the get).
+
+    Parameters
+    ----------
+    experiment : str
+        The experiment PV prefix.
+    timeout : float
+        Seconds for the subscribe, and again for the get.
+
+    Raises
+    ------
+    ImportError
+        ``aioca`` is missing (the ``ca`` extra): the probe cannot run.
+    """
+    from geecs_core.pv_naming import GATEWAY_HEARTBEAT, gateway_status_pv
+
+    from geecs_bluesky.devices.ca.oneshot import first_monitor_value, try_caget_once
+
+    pv = gateway_status_pv(experiment, GATEWAY_HEARTBEAT)
+    try:
+        first_monitor_value(pv, timeout=timeout)
+    except TimeoutError:
+        if try_caget_once(pv, timeout=timeout) is None:
+            return "unreachable"
+        return "withheld"
+    return "delivered"
 
 
 def probe_stale_pvs(

@@ -976,7 +976,13 @@ idle check of their own: the caller decides when a reopen is safe (the
 scanner's reopen route, idle and empty, under its lock); `queue_start`
 starts what waits.  `run_trigger_profile_preflight` is the worker's checks
 of an unsaved trigger profile, and `run_submit_preflight(...,
-trigger_profile=)` checks a preset under one.  The package import stays light
+trigger_profile=)` checks a preset under one.  Its checks, in order:
+`validate`, `worker_ready`, the scan-mode rule, `gateway_monitors` (one
+subscribe to the gateway heartbeat: no value on subscribe while a get
+answers is a hard refusal, an unreachable gateway is skipped),
+`gateway_liveness` (questions) and `device_loops` (notes); the gateway
+checks run only when the submit lists a device or the box writes one
+(the module docstring is the list).  The package import stays light
 (PEP 562-lazy device re-exports; `bluesky-queueserver-api` behind the
 `qs-client` extra).  One-shot blocking CA reads go through
 `devices/ca/oneshot.py` (one persistent reader loop, never a per-call
