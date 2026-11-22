@@ -1203,10 +1203,12 @@ class GeecsCaGateway:
         context = Context(self.pvdb)
         queue = install_counting_queue(context)
         server = asyncio.create_task(context.run(log_pv_names=True), name="ca-context")
-        dog = DeliveryWatchdog(queue, stall_limit_s=_watchdog.STALL_LIMIT_S)
-        watch = asyncio.create_task(
-            dog.watch(_watchdog.CHECK_PERIOD_S), name="monitor-watchdog"
+        dog = DeliveryWatchdog(
+            queue,
+            stall_limit_s=_watchdog.STALL_LIMIT_S,
+            check_period_s=_watchdog.CHECK_PERIOD_S,
         )
+        watch = asyncio.create_task(dog.watch(), name="monitor-watchdog")
         try:
             await asyncio.wait({server, watch}, return_when=asyncio.FIRST_COMPLETED)
             if server.done():

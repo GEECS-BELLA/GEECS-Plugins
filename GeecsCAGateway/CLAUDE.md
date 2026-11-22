@@ -107,14 +107,18 @@ One asyncio event loop runs everything:
   channel connected and every get answering while no client gets a
   monitor. `serve()` builds the `Context` itself, swaps its subscription
   queue for a `CountingQueue` before `run()`, and reads it every
-  `CHECK_PERIOD_S`; updates queued with none taken for `STALL_LIMIT_S`
-  (30 s) is a stall. On a stall: one ERROR block (`stall_report`), the
+  `CHECK_PERIOD_S`; updates queued with none taken while the watchdog
+  watched for `STALL_LIMIT_S` (30 s) is a stall (one read credits at most
+  two periods, so a paused process is not credited its pause). On a stall: one ERROR block (`stall_report`), the
   server stopped, `run()` returns `WATCHDOG_EXIT_CODE` (87, a failure to
   systemd, so `Restart=on-failure` relaunches), and the entrypoint arms a
   hard `os._exit` should the orderly shutdown hang. The signal is read in
   the process, not through a CA client of itself: an empty queue is idle,
   so a quiet gateway never trips it, and a busy healthy one takes updates
-  between every two reads.
+  between every two reads. Its limits are deliberate: a slow (not stopped)
+  client paces delivery without tripping it, since a restart would not cure
+  that; and it runs on the loop it watches, so a loop blocked outright
+  (not parked in an `await`) is not detected.
 - **channels/naming**: `channels.py` is the only caproto-typed layer (kept
   swappable per DESIGN.md's per-device-class PVA plan — images already run
   on PVA via `GeecsPvaGateway/`; scalars stay CA). Readback channels deny client

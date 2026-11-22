@@ -80,29 +80,40 @@ async def test_install_replaces_the_context_queue() -> None:
         install_counting_queue(context)
 
 
+def _dog(queue: CountingQueue, clock: FakeClock) -> DeliveryWatchdog:
+    """The service thresholds: a 30 s limit read every 1 s (2 s credit)."""
+    return DeliveryWatchdog(queue, stall_limit_s=30.0, check_period_s=1.0, clock=clock)
+
+
 def test_a_stalled_queue_trips_at_the_limit() -> None:
-    """Updates queued and none taken: the stall grows until the limit."""
+    """Updates queued and none taken: each read adds its period to the stall."""
     clock = FakeClock()
     queue = CountingQueue()
-    dog = DeliveryWatchdog(queue, stall_limit_s=30.0, clock=clock)
+    dog = _dog(queue, clock)
     queue.put_nowait("update")
-    for t in (1.0, 10.0, 29.0):
-        clock.now = 1000.0 + t
-        assert dog.stalled_for() == pytest.approx(t)
-    clock.now = 1030.0
+    for second in range(1, 30):
+        clock.now += 1.0
+        assert dog.stalled_for() == pytest.approx(second)
+    clock.now += 1.0
     assert dog.stalled_for() >= dog.stall_limit_s
 
 
 def test_a_busy_queue_never_trips() -> None:
-    """A loop taking updates as fast as they come is progress at every read."""
+    """A loop taking updates, however slowly, is progress at every read.
+
+    Deliberate: one take per read counts as healthy, so a client that reads
+    slowly but not zero paces every client without tripping the watchdog.
+    A restart would not cure that (the client reconnects and paces again);
+    dropping or disconnecting the slow circuit would, in caproto.
+    """
     clock = FakeClock()
     queue = CountingQueue()
-    dog = DeliveryWatchdog(queue, stall_limit_s=30.0, clock=clock)
-    for second in range(1, 600):
+    dog = _dog(queue, clock)
+    for _ in range(600):
         for _ in range(50):
             queue.put_nowait("update")
         queue.get_nowait()  # the loop falls behind, but it is taking
-        clock.now = 1000.0 + second
+        clock.now += 1.0
         assert dog.stalled_for() == 0.0
     assert queue.qsize() > 0  # a deep queue that drains is not a stall
 
@@ -110,9 +121,9 @@ def test_a_busy_queue_never_trips() -> None:
 def test_a_quiet_queue_never_trips() -> None:
     """No updates at all (no subscribers, nothing changing) is idle, not stalled."""
     clock = FakeClock()
-    dog = DeliveryWatchdog(CountingQueue(), stall_limit_s=30.0, clock=clock)
-    for second in range(1, 3600, 7):
-        clock.now = 1000.0 + second
+    dog = _dog(CountingQueue(), clock)
+    for _ in range(3600):
+        clock.now += 1.0
         assert dog.stalled_for() == 0.0
 
 
@@ -122,24 +133,65 @@ def test_startup_is_not_a_stall() -> None:
     queue = CountingQueue()
     for _ in range(100):
         queue.put_nowait("startup burst")
-    dog = DeliveryWatchdog(queue, stall_limit_s=30.0, clock=clock)
+    dog = _dog(queue, clock)
     assert dog.stalled_for() == 0.0
-    clock.now += 5.0
-    assert dog.stalled_for() == pytest.approx(5.0)
+    clock.now += 1.0
+    assert dog.stalled_for() == pytest.approx(1.0)
 
 
 def test_progress_resets_the_stall() -> None:
     """One update taken ends a stall that had not reached the limit."""
     clock = FakeClock()
     queue = CountingQueue()
-    dog = DeliveryWatchdog(queue, stall_limit_s=30.0, clock=clock)
+    dog = _dog(queue, clock)
     queue.put_nowait("a")
     queue.put_nowait("b")
-    clock.now += 25.0
+    for _ in range(25):
+        clock.now += 1.0
+        dog.stalled_for()
     assert dog.stalled_for() == pytest.approx(25.0)
     queue.get_nowait()
     clock.now += 1.0
     assert dog.stalled_for() == 0.0
+
+
+def test_a_paused_process_is_not_credited_the_pause() -> None:
+    """A gap between reads (SIGSTOP, VM pause, debugger) adds at most the credit.
+
+    A healthy process frozen for minutes resumes with updates queued that its
+    delivery loop has not yet had a turn to take; the first read after the
+    gap must not call that a stall. Only time the watchdog watched counts.
+    """
+    clock = FakeClock()
+    queue = CountingQueue()
+    dog = _dog(queue, clock)
+    for _ in range(5):  # healthy: taking
+        queue.put_nowait("update")
+        queue.get_nowait()
+        clock.now += 1.0
+        assert dog.stalled_for() == 0.0
+    queue.put_nowait("queued just before the freeze")
+    clock.now += 300.0  # frozen five minutes
+    assert dog.stalled_for() == pytest.approx(dog.max_credit_s)
+    queue.get_nowait()  # the loop gets its turn and takes
+    clock.now += 1.0
+    assert dog.stalled_for() == 0.0
+
+
+def test_late_reads_still_reach_the_limit() -> None:
+    """Reads slower than the period (a busy loop) are credited up to 2 periods."""
+    clock = FakeClock()
+    queue = CountingQueue()
+    dog = _dog(queue, clock)
+    queue.put_nowait("update")
+    for _ in range(14):
+        clock.now += 1.5
+        dog.stalled_for()
+    clock.now += 10.0  # one very late read: credited 2 s, not 10
+    assert dog.stalled_for() == pytest.approx(14 * 1.5 + 2.0)
+    while dog.stalled_for() < dog.stall_limit_s:
+        clock.now += 1.5
+    assert clock.now - 1000.0 < 60.0
 
 
 def test_the_thresholds_clear_a_healthy_worst_case() -> None:
@@ -151,7 +203,7 @@ def test_the_thresholds_clear_a_healthy_worst_case() -> None:
 async def test_watch_returns_on_a_stall_and_not_while_draining() -> None:
     """``watch`` keeps reading while a consumer drains; it returns on a stall."""
     queue = CountingQueue()
-    dog = DeliveryWatchdog(queue, stall_limit_s=0.3)
+    dog = DeliveryWatchdog(queue, stall_limit_s=0.3, check_period_s=0.05)
     stop = asyncio.Event()
 
     async def produce_and_consume() -> None:
@@ -161,7 +213,7 @@ async def test_watch_returns_on_a_stall_and_not_while_draining() -> None:
             await asyncio.sleep(0.01)
 
     worker = asyncio.create_task(produce_and_consume())
-    watch = asyncio.create_task(dog.watch(check_period_s=0.05))
+    watch = asyncio.create_task(dog.watch())
     await asyncio.sleep(1.0)
     assert not watch.done()  # draining for 3x the limit: no verdict
     stop.set()
@@ -190,6 +242,44 @@ def test_hard_exit_fires_after_the_grace_unless_cancelled() -> None:
     timer.cancel()
     timer.join(timeout=1.0)
     assert cancelled == []
+
+
+class _BrokenHandler(logging.Handler):
+    """A handler whose stream is gone: emitting and flushing both raise."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        raise OSError("stderr is closed")
+
+    def flush(self) -> None:
+        raise OSError("stderr is closed")
+
+
+def test_hard_exit_exits_even_when_logging_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broken log handler must not stop the exit the timer exists for."""
+    escaped: list[type[BaseException]] = []
+    monkeypatch.setattr(
+        threading, "excepthook", lambda args: escaped.append(args.exc_type)
+    )
+    fired: list[int] = []
+    done = threading.Event()
+
+    def fake_exit(code: int) -> None:
+        fired.append(code)
+        done.set()
+
+    broken = _BrokenHandler()
+    root = logging.getLogger()
+    root.addHandler(broken)
+    try:
+        timer = arm_hard_exit(WATCHDOG_EXIT_CODE, grace_s=0.01, exit_fn=fake_exit)
+        assert done.wait(timeout=2.0)
+        timer.join(timeout=1.0)
+    finally:
+        root.removeHandler(broken)
+    assert fired == [WATCHDOG_EXIT_CODE]
+    assert escaped == [OSError]  # the handler did break; the exit still ran
 
 
 def _fake_circuit(port: int, *, depth: int, cap: int = 3, connected: bool = True):

@@ -10,15 +10,22 @@ monitor event and the unbounded queue grows without limit. Nothing is logged.
 
 The watchdog reads the stall from inside the process: the context's queue is
 replaced by a :class:`CountingQueue`, which counts the updates taken from it.
-Delivery has stalled when the queue holds updates and none has been taken for
-:data:`STALL_LIMIT_S`. An empty queue is idle, never a stall, so a quiet
-gateway (or one with no subscribers) cannot trip it; a busy healthy gateway
-takes updates continuously, so its count advances between checks.
+Delivery has stalled when the queue holds updates and the watchdog has watched
+:data:`STALL_LIMIT_S` pass with none taken (time the process did not run is
+not counted). An empty queue is idle, never a stall, so a quiet gateway (or
+one with no subscribers) cannot trip it; a busy healthy gateway takes updates
+continuously, so its count advances between checks.
 
 On a stall the gateway logs one ERROR block (:func:`stall_report`: the stall,
 every circuit's queue state, the circuit the delivery loop is waiting on, and
 the stack of every asyncio task), then exits with :data:`WATCHDOG_EXIT_CODE`
 so the service manager restarts it.
+
+What it does not cover: a client that reads slowly but not zero keeps the loop
+taking now and then, so delivery is paced for everyone without a stall (a
+restart would not cure it; dropping or disconnecting that circuit would); and a
+loop blocked outright, since the watchdog runs on the loop it watches. The
+hard-exit timer is armed only after a detection.
 """
 
 from __future__ import annotations
@@ -45,8 +52,9 @@ logger = logging.getLogger(__name__)
 STALL_LIMIT_S = 30.0
 
 #: Seconds between two reads of the queue. Short against the limit, so a stall
-#: is acted on within ``STALL_LIMIT_S + CHECK_PERIOD_S``; a read is two
-#: attribute lookups, so its cost is nil.
+#: is acted on within ``STALL_LIMIT_S + CHECK_PERIOD_S`` of it starting while
+#: the loop runs; a read is two attribute lookups, so its cost is nil. One read
+#: credits the stall with at most twice this (``DeliveryWatchdog``).
 CHECK_PERIOD_S = 1.0
 
 #: Exit status after a stall. Any status but the restart request's 86 is a
@@ -127,17 +135,35 @@ class DeliveryWatchdog:
     """Decide, from periodic reads of the queue, whether delivery has stalled.
 
     Delivery has made progress at a read when the queue is empty or an item
-    was taken since the previous read. It has stalled once no progress has
-    been seen for ``stall_limit_s``. The watchdog starts as if progress had
-    just been seen, so startup is never a stall.
+    was taken since the previous read. A read without progress adds the time
+    since the previous read to the stall, but never more than
+    ``max_credit_s``: the stall is time the watchdog watched, so a process
+    that did not run at all (suspended, paused in a VM or a debugger, swapped
+    out) and resumes with updates queued is not credited the gap. Progress
+    resets the stall to zero; it starts at zero, so startup is never a stall.
+
+    The watchdog covers a full stop only. A loop that takes one update now and
+    then has made progress: a client that reads slowly, but reads, keeps its
+    circuit's queue full and paces delivery for every client without ever
+    tripping it. That is deliberate: a restart would not cure it (the slow
+    client reconnects and paces again), and its remedy is to drop or
+    disconnect the slow circuit in caproto.
+
+    It runs on the event loop it watches, so it sees a loop parked in an
+    ``await``; a loop blocked outright never runs it, and is not detected.
 
     Parameters
     ----------
     queue : CountingQueue
         The context's subscription queue.
     stall_limit_s : float
-        Seconds without progress, with updates queued, before :meth:`watch`
-        returns.
+        Seconds of observed stall, with updates queued and none taken, before
+        :meth:`watch` returns.
+    check_period_s : float
+        Seconds between reads in :meth:`watch`.
+    max_credit_s : float, optional
+        The most one read adds to the stall; twice ``check_period_s`` by
+        default, so a late read is credited and a missed stretch is not.
     clock : callable, optional
         Monotonic seconds; ``time.monotonic`` by default.
     """
@@ -147,33 +173,43 @@ class DeliveryWatchdog:
         queue: CountingQueue,
         *,
         stall_limit_s: float = STALL_LIMIT_S,
+        check_period_s: float = CHECK_PERIOD_S,
+        max_credit_s: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.queue = queue
         self.stall_limit_s = stall_limit_s
+        self.check_period_s = check_period_s
+        self.max_credit_s = (
+            2.0 * check_period_s if max_credit_s is None else max_credit_s
+        )
         self._clock = clock
         self._last_gets = queue.gets
-        self._last_progress = clock()
+        self._last_read = clock()
+        self._stalled = 0.0
 
     def stalled_for(self) -> float:
-        """Read the queue; return the seconds since progress was last seen."""
+        """Read the queue; return the seconds of stall observed so far."""
         now = self._clock()
         gets = self.queue.gets
         if self.queue.qsize() == 0 or gets != self._last_gets:
-            self._last_progress = now
+            self._stalled = 0.0
+        else:
+            self._stalled += min(max(now - self._last_read, 0.0), self.max_credit_s)
         self._last_gets = gets
-        return now - self._last_progress
+        self._last_read = now
+        return self._stalled
 
-    async def watch(self, check_period_s: float = CHECK_PERIOD_S) -> float:
+    async def watch(self) -> float:
         """Read the queue every ``check_period_s`` until delivery stalls.
 
         Returns
         -------
         float
-            How long delivery had stalled when the limit was passed.
+            The observed stall when the limit was passed.
         """
         while True:
-            await asyncio.sleep(check_period_s)
+            await asyncio.sleep(self.check_period_s)
             stalled = self.stalled_for()
             if stalled >= self.stall_limit_s:
                 return stalled
@@ -205,15 +241,17 @@ def arm_hard_exit(
     """
 
     def _expire() -> None:
-        logger.error(
-            "shutdown after the delivery stall did not finish in %.0f s; "
-            "exiting with status %d",
-            grace_s,
-            code,
-        )
-        for handler in logging.getLogger().handlers:
-            handler.flush()
-        exit_fn(code)
+        try:
+            logger.error(
+                "shutdown after the delivery stall did not finish in %.0f s; "
+                "exiting with status %d",
+                grace_s,
+                code,
+            )
+            for handler in logging.getLogger().handlers:
+                handler.flush()
+        finally:
+            exit_fn(code)
 
     timer = threading.Timer(grace_s, _expire)
     timer.daemon = True

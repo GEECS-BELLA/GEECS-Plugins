@@ -617,15 +617,46 @@ gets but its monitors are not flowing`).
 
 **The gateway now recovers by itself.** A watchdog in the process
 (`geecs_ca_gateway/watchdog.py`) reads caproto's context-wide monitor
-queue every second; once that queue has held updates for 30 s with none
-taken, it logs one ERROR block and exits with status **87**, which the
+queue every second; once it has watched that queue hold updates for 30 s
+with none taken, it logs one ERROR block and exits with status **87**, which the
 unit's `Restart=on-failure` relaunches 10 s later. Expect under a
 minute without monitors, then a restart, instead of hours. 87 is a failure to
 systemd (86, the restart PV's, is a clean relaunch), so the journal shows
 `Main process exited, code=exited, status=87/n/a` and the unit's restart
 counter (`systemctl show -p NRestarts geecs-ca-gateway`) counts it. A
 quiet gateway (nothing changing, or nobody subscribed) never trips it:
-an empty queue is idle, not stalled.
+an empty queue is idle, not stalled. Only time the watchdog watched
+counts, so a process that was paused (a VM snapshot, a debugger, a
+`SIGSTOP`) is not restarted for the pause. It runs on the event loop it
+watches: a loop blocked outright (not parked in an `await`) is not
+detected, and the 30 s hard-exit timer is armed only after a detection.
+
+**What it deliberately does not cover: a slow client.** A client that
+reads, but slowly (a thin VPN link, a CPU-bound GUI), keeps its circuit's
+queue full, and caproto then paces delivery to every client at that
+client's speed. The delivery loop still takes an update now and then, so
+the watchdog sees progress and does not restart: a restart would not cure
+it, since the client reconnects and paces again. To an operator it looks
+like a partial version of the symptom above: `scripts/lab_status.sh
+--hardware` can read the heartbeat monitor as DOWN or slow, a scan
+preflight that waits for the value on subscribe can refuse, displays
+update late, and the gateway does not restart itself. The remedy is the targeted fix owed
+on #1406 (caproto drops or disconnects a circuit whose queue is full);
+until it lands, find the client (`ss -tn state established '( sport =
+:<CA port> )'` on the host lists each client with its send queue; the
+slow one holds a large `Send-Q`), stop it, and restart the gateway by
+hand (`caproto-put
+[experiment:]cagateway:restart Restart`).
+
+**A repeating stall is a quiet restart loop.** If the client that
+triggers it reconnects and stalls again, the gateway restarts every
+minute or so (30 s plus the time to fill that client's queue, plus
+`RestartSec=10`). systemd's default start limit is never reached at that
+pace, so nothing stops the loop; that is kept on purpose (restarting
+beats staying down). Spot it with `systemctl show geecs-ca-gateway -p
+NRestarts` climbing (it also counts restarts from the restart PV, status
+86) and the ERROR block repeating in the journal with the same client
+address on its `waiting on` line. Find that client and stop it.
 
 Read the block with `journalctl -u geecs-ca-gateway | grep -A60 'delivery
 STALLED'`. This one is from the localhost reproduction (the test's 1 s
