@@ -193,7 +193,8 @@ async def monitor_fault(pv):
     delivering monitors. Kind "monitors": events are not delivered while
     gets answer. Kind "heartbeat": the subscribe value arrived and a get
     shows the count did not advance either, so the gateway's status loop
-    is stalled and monitor delivery is not in question.
+    is stalled and monitor delivery is not in question. Kind "unreadable":
+    that get failed, so the gateway stopped answering mid-probe.
     """
     updates = asyncio.Queue()
     subscription = aioca.camonitor(pv, updates.put_nowait)
@@ -206,7 +207,11 @@ async def monitor_fault(pv):
         try:
             await asyncio.wait_for(updates.get(), timeout=wait)
         except asyncio.TimeoutError:
-            if int(await read(pv)) != int(first):
+            try:
+                now = await read(pv)
+            except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
+                return "unreadable", f"the get after the wait failed ({type(exc).__name__})"
+            if int(now) != int(first):
                 return "monitors", f"a get advanced past {int(first)} and no event followed within {wait:g} s"
             return "heartbeat", f"the count stayed at {int(first)} for {wait:g} s, by get and by monitor"
         return "", ""
@@ -233,10 +238,11 @@ async def main():
         print("         network may be up while the gateway service is not")
         print(f"role=CA gateway\tstate=down\tnote=PVs unreadable ({type(exc).__name__})")
         raise SystemExit(1)
-    try:
-        kind, fault = await monitor_fault(heartbeat_pv)
-    except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
-        kind, fault = "heartbeat", f"the follow-up get failed ({type(exc).__name__})"
+    kind, fault = await monitor_fault(heartbeat_pv)
+    if kind == "unreadable":
+        print(f"  [DOWN] gateway PVs went unreadable during the probe ({fault})")
+        print(f"role=CA gateway\tstate=down\tversion={version}\tnote=PVs unreadable mid-probe ({fault})")
+        raise SystemExit(1)
     if kind == "monitors":
         print(f"  [DOWN] gateway answers gets but its monitors are not flowing ({fault})")
         print("         every monitor client (archiver, displays, the scan worker) is")
