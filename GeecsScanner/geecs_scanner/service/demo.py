@@ -442,6 +442,9 @@ class DemoQueueClient:
         self._run_uid = ""
         self._desc_uid = ""
         self._nonrun: Optional[str] = None
+        # The manager's queue stops after a failed item (see :meth:`fail`);
+        # only a queue start, or an add (which starts it), lets it go on.
+        self._queue_stopped = False
         self._user = user
         # Every demo run claims a folder under one temporary root and writes
         # a scan.log there the way the worker does, so the page's scan.log
@@ -487,8 +490,9 @@ class DemoQueueClient:
         return True, "environment open: done"
 
     def queue_start(self) -> tuple[bool, str]:
-        """Start the next waiting item, if any."""
+        """Start the queue: the next waiting item, if any, runs."""
         with self._lock:
+            self._queue_stopped = False
             if self._running is None and self._queue:
                 self._start_next()
         return True, "queue started"
@@ -572,6 +576,7 @@ class DemoQueueClient:
             self.streams.push_console_line(
                 f"queue: added {name} ({item['item_uid']}) by {self._user}"
             )
+            self._queue_stopped = False  # the client starts the queue after an add
             if self._running is None:
                 self._start_next()
         return SubmitResult(ok=True, message="queued", item_uid=item["item_uid"])
@@ -630,6 +635,24 @@ class DemoQueueClient:
             self._finish("stopped", "stopped by operator")
             return True, "stopped"
 
+    def fail(self, msg: str = "plan failed") -> None:
+        """Fail the running item the way the manager handles a failed plan.
+
+        The item goes to the history as ``failed``, a copy returns to the
+        front of the queue and the queue stops, so whatever waits behind it
+        stays waiting until a queue start (or an add, which starts it).
+        """
+        with self._lock:
+            if self._running is None:
+                return
+            item = {k: v for k, v in self._running.items() if k != "result"}
+            self._queue_stopped = True
+            self._finish("failed", msg)
+            self._queue.insert(0, item)
+            self.streams.push_console_line(
+                f"queue stopped: {item['name']} ({item['item_uid']}) returned to the front"
+            )
+
     def queue_items(self) -> list[dict]:
         """Waiting items, front first."""
         with self._lock:
@@ -671,7 +694,7 @@ class DemoQueueClient:
         """Advance one shot (or start the next item when idle)."""
         with self._lock:
             if self._running is None:
-                if self._queue:
+                if self._queue and not self._queue_stopped:
                     self._start_next()
                 return
             if self._re_state != "running":
@@ -849,7 +872,7 @@ class DemoQueueClient:
             self._nonrun = None
             self._re_state = "idle"
             self.streams.push_console_line(f"{item['name']} {exit_status}: {msg}")
-            if self._queue:
+            if self._queue and not self._queue_stopped:
                 self._start_next()
             return
         # RunEngine.stop() marks the run SUCCESSFUL (bluesky: "mark it as
@@ -882,8 +905,9 @@ class DemoQueueClient:
             f"Scan {self._scan_number:03d} {exit_status} after {self._shots} shots"
         )
         self._scan_log(f"finished ({exit_status}) after {self._shots} shots")
-        # The manager keeps going: the next waiting item starts at once.
-        if self._queue:
+        # The manager keeps going (unless the queue stopped): the next
+        # waiting item starts at once.
+        if self._queue and not self._queue_stopped:
             self._start_next()
 
 

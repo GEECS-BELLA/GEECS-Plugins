@@ -780,3 +780,56 @@ def test_portal_links_name_this_scanners_experiment() -> None:
         "run": "http://portal:8200/run/abc?experiment=Second%20stand",
         "bare": "http://portal:8200/day/2026-10-31",
     }
+
+
+def test_start_queue_sits_beside_clear_and_confirms_what_runs(
+    client: TestClient,
+) -> None:
+    """#1290: Start queue is enabled only for a stopped, ready queue with items waiting."""
+    html = client.get("/").text
+    queue = html[html.index('id="queue"') :]
+    footer = queue[queue.index("<footer>") : queue.index("</footer>")]
+    assert footer.index('id="btn-start-queue"') < footer.index('id="btn-clear"')
+    assert 'data-dialog-open="dlg-start-queue"' in footer
+    assert "Start queue runs them in order" in footer
+    dialog = html[html.index('<dialog id="dlg-start-queue"') :]
+    dialog = dialog[: dialog.index("</dialog>")]
+    for piece in ('id="dlg-start-queue-first"', 'id="dlg-start-queue-rest"', "data-dialog-close", 'id="do-start-queue"'):  # fmt: skip
+        assert piece in dialog, piece
+    assert "returns to the front of the queue" in dialog
+    script = (_PKG / "static" / "scanner.js").read_text()
+    handler = script[script.index('$("do-start-queue").addEventListener') :]
+    handler = handler[: handler.index("  });")]
+    assert 'verb("/api/queue/start", { operator: operator() }, refreshQueue)' in handler
+    assert '"dlg-start-queue-first").textContent = q.waiting.length ? q.waiting[0].summary' in script  # fmt: skip
+    _need_node()
+    blocker = _script_function(script, "startQueueBlocker")
+    ready = {"connected": True, "readiness": "ready", "re_state": "idle", "manager_state": "idle", "items_in_queue": 2, "reopening": False}  # fmt: skip
+    cases = {
+        "stopped": {},
+        "empty": {"items_in_queue": 0},
+        "running": {"re_state": "running"},
+        "paused": {"re_state": "paused"},
+        "started": {"manager_state": "executing_queue"},
+        "reopening": {"reopening": True},
+        "closed": {"readiness": "environment_closed"},
+        "down": {"connected": False},
+    }
+    harness = "\n".join(
+        [
+            f"function startQueueBlocker(st) {{\n{blocker}\n}}",
+            f"var base = {json.dumps(ready)}, cases = {json.dumps(cases)}, out = {{}};",
+            "Object.keys(cases).forEach(function (k) {",
+            "  out[k] = startQueueBlocker(Object.assign({}, base, cases[k]));",
+            "});",
+            "out.none = startQueueBlocker(null);",
+            "console.log(JSON.stringify(out));",
+        ]
+    )
+    out = subprocess.run(
+        ["node", "-"], input=harness, capture_output=True, text=True, check=True
+    )
+    got = json.loads(out.stdout)
+    assert got.pop("stopped") == "", "a stopped, ready queue with items waiting starts"
+    assert all(got.values()), got  # every other state disables it, with a reason
+    assert "nothing waits" in got["empty"] and "reopening" in got["reopening"]

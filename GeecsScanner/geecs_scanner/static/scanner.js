@@ -170,6 +170,9 @@
     $("btn-resume").hidden = st.re_state !== "paused";
     $("btn-stop").disabled = !running;
     $("btn-clear").disabled = !(st.items_in_queue > 0);
+    var startable = startQueueBlocker(st);
+    $("btn-start-queue").disabled = !!startable;
+    $("btn-start-queue").title = startable || "run the waiting items, front first";
     renderIdleGates();
     $("lv-manager").textContent = st.re_state || (st.connected ? "?" : "down");
     $("verb-note").textContent = st.re_state === "paused"
@@ -293,6 +296,9 @@
     $("q-summary").textContent = q.summary;
     renderProgress();
     $("dlg-clear-n").textContent = q.waiting.length + " waiting item" + (q.waiting.length === 1 ? "" : "s");
+    var rest = q.waiting.length - 1;
+    $("dlg-start-queue-first").textContent = q.waiting.length ? q.waiting[0].summary : "nothing";
+    $("dlg-start-queue-rest").textContent = rest > 0 ? ", then " + rest + " more waiting item" + (rest === 1 ? "" : "s") : "";
     if (q.running) {
       $("now-plan").textContent = q.running.summary;
       $("now-by").textContent = q.running.user ? "submitted by " + q.running.user : "";
@@ -945,6 +951,19 @@
   $("do-clear").addEventListener("click", function () {
     window.GeecsKit.confirm($("dlg-clear")).close();
     verb("/api/clear", {}, refreshQueue);
+  });
+  // A stopped queue (a failed scan stops it, and returns it to the front)
+  // keeps what waits until someone starts it again.
+  function startQueueBlocker(st) {
+    return !st ? "waiting for the manager" : !st.connected ? "manager unreachable"
+      : st.reopening ? "the worker environment is reopening"
+      : st.readiness !== "ready" ? "the worker environment is not ready (" + st.readiness + ")"
+      : st.re_state !== "idle" || (st.manager_state && st.manager_state !== "idle") ? "the queue is already going"
+      : !(st.items_in_queue > 0) ? "nothing waits in the queue" : "";
+  }
+  $("do-start-queue").addEventListener("click", function () {
+    window.GeecsKit.confirm($("dlg-start-queue")).close();
+    verb("/api/queue/start", { operator: operator() }, refreshQueue);
   });
 
   /* ------------------------------------------------- idle-only items */

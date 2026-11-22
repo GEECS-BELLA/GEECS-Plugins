@@ -337,3 +337,118 @@ def test_append_queues_in_order_and_remove_drops_only_a_waiting_item(
     assert client.get("/api/queue").json()["running"] == q["running"]
     r = client.delete("/api/queue/no-such-uid")
     assert r.status_code == 404 and r.json()["error"]["kind"] == "not_found"
+
+
+# ------------------------------------------------------------ start queue
+
+
+def _three_queued(client: TestClient, service) -> list[str]:
+    """One scan running and two appended behind it; their uids, front first."""
+    ack = ["gateway_liveness"]
+    docs = [service.preset(n) for n in ("jet_pressure_sweep", "background_dark", "eb_align_1hz")]  # fmt: skip
+    for i, doc in enumerate(docs):
+        body = {"preset": doc, "acknowledged": ack, "append": i > 0}
+        assert client.post("/api/submit", json=body).status_code == 200
+    q = client.get("/api/queue").json()
+    return [q["running"]["item_uid"]] + [w["item_uid"] for w in q["waiting"]]
+
+
+def test_start_queue_runs_what_waits_in_a_queue_a_failed_scan_stopped(
+    client: TestClient, service, manager: DemoQueueClient
+) -> None:
+    """#1290: a failure stops the queue with items stranded; Start queue runs them in order."""
+    failed, second, third = _three_queued(client, service)
+    manager.fail("detector timed out")
+    q = client.get("/api/queue").json()
+    assert q["running"] is None and q["finished"][0]["state"] == "failed"
+    # the failed item is back at the front; nothing starts by itself
+    assert [w["item_uid"] for w in q["waiting"]] == [failed, second, third]
+    manager.step()
+    assert client.get("/api/queue").json()["running"] is None
+    # the operator drops the failed scan, then starts what waits
+    assert client.delete(f"/api/queue/{failed}").status_code == 200
+    r = client.post("/api/queue/start", json={"operator": "sam"})
+    assert r.status_code == 200 and r.json()["ok"] is True, r.text
+    q = client.get("/api/queue").json()
+    assert q["running"]["item_uid"] == second
+    assert [w["item_uid"] for w in q["waiting"]] == [third]
+    for _ in range(200):
+        if client.get("/api/queue").json()["running"]["item_uid"] == third:
+            break
+        manager.step()
+    q = client.get("/api/queue").json()
+    assert q["running"]["item_uid"] == third and q["waiting"] == []
+
+
+def test_start_queue_refuses_when_nothing_waits(client: TestClient) -> None:
+    r = client.post("/api/queue/start", json={"operator": "sam"})
+    assert r.status_code == 409
+    err = r.json()["error"]
+    assert err["kind"] == "policy_refusal" and "nothing waits" in err["message"]
+
+
+def test_start_queue_refuses_while_a_plan_runs(
+    client: TestClient, service, manager: DemoQueueClient
+) -> None:
+    _three_queued(client, service)
+    r = client.post("/api/queue/start")
+    assert r.status_code == 409
+    assert "already going" in r.json()["error"]["message"]
+    manager.request_pause()
+    for _ in range(50):
+        manager.step()
+        if manager.status().re_state == "paused":
+            break
+    assert manager.status().re_state == "paused"
+    r = client.post("/api/queue/start")
+    assert r.status_code == 409 and "paused" in r.json()["error"]["message"]
+
+
+def test_start_queue_refuses_unless_the_environment_is_ready(
+    client: TestClient, service, manager: DemoQueueClient, monkeypatch
+) -> None:
+    from geecs_bluesky.qs_client import ReadinessVerdict
+
+    _three_queued(client, service)
+    manager.fail()
+    monkeypatch.setattr(manager, "readiness", lambda *a, **k: ReadinessVerdict(False, "plans_empty", "no plans"))  # fmt: skip
+    r = client.post("/api/queue/start")
+    assert r.status_code == 409 and r.json()["error"]["readiness"] == "plans_empty"
+    assert client.get("/api/queue").json()["running"] is None
+
+
+def test_start_queue_refuses_while_reopening_and_after_a_reopen_ran(
+    client: TestClient, service, manager: DemoQueueClient
+) -> None:
+    """The reopen guard every queueing verb honours: never a start across a reopen."""
+    from geecs_scanner.service.errors import ScannerError
+    from geecs_scanner.service.models import VerbIn
+
+    _three_queued(client, service)
+    manager.fail()
+    service._reopening.set()
+    try:
+        r = client.post("/api/queue/start")
+        assert r.status_code == 409 and r.json()["error"]["reopening"] is True
+    finally:
+        service._reopening.clear()
+    # a start that passed its guard, then waited on the lock while a reopen
+    # ran, is refused once it gets the lock
+    import threading
+
+    got: dict = {}
+
+    def start() -> None:
+        try:
+            got["out"] = service.start_queue(VerbIn(operator="sam"))
+        except ScannerError as err:
+            got["err"] = err
+
+    with service._lock:  # the reopen holds the lock ...
+        worker = threading.Thread(target=start, daemon=True)
+        worker.start()
+        threading.Event().wait(0.1)  # ... the start passes its guard and waits
+        service._reopen_generation += 1  # ... the reopen ran
+    worker.join(5)
+    assert "out" not in got and got["err"].extra.get("reopening") is True
+    assert client.get("/api/queue").json()["running"] is None
