@@ -185,9 +185,10 @@ opens this page.
    from the description; then the page runs the pre-submit **preflight**.
    Refusals (an unknown name, a variable no device serves, a worker that
    is not ready) come back as text and nothing is queued. One refusal is
-   about the CA gateway itself: the preflight subscribes to the gateway's
-   heartbeat, and a gateway that answers reads but delivers no value on
-   subscribe within 2 s refuses the scan. A scan then would read stale
+   about the CA gateway itself: the preflight reads the gateway's
+   heartbeat, then subscribes to it, and a gateway that keeps answering
+   reads while the subscription stays silent for a few seconds refuses
+   the scan. A scan then would read stale
    values, or time out after claiming a scan number, so no acknowledgement
    passes it: restart the gateway service (`geecs-ca-gateway`, on its host;
    capture a `py-spy dump` of it first, as

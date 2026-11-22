@@ -15,8 +15,8 @@ Checks, in order (the ``PreflightOutcome.check`` vocabulary):
   A closed environment or a missing plan is a hard refusal naming the
   recovery gesture; an unreachable manager, an unanswered plan list or no
   ``[qserver]`` config is *skipped* (fail-open).
-- ``gateway_monitors`` — the gateway heartbeat's value arrives on
-  subscribe; a get answering without it is a hard refusal, never a
+- ``gateway_monitors`` — a get of the gateway heartbeat, then its value
+  on subscribe; gets answering without it is a hard refusal, never a
   question; an unreachable gateway is *skipped* (fail-open).
 - ``gateway_liveness`` — each preset and trigger-profile device's
   ``CONNECTED`` PV, read once; only the exact ``"Disconnected"`` counts
@@ -39,14 +39,18 @@ _T = TypeVar("_T")
 #: CA read budget per liveness probe (seconds) — a dead PV costs this, once.
 _LIVENESS_TIMEOUT_S = 2.0
 
-#: Wait for the gateway heartbeat's value on subscribe (seconds); a healthy
-#: gateway answers in one round trip, so only a fault spends it.
+#: Budget for each heartbeat get and for its value on subscribe (seconds);
+#: a healthy gateway answers in a round trip, so only a fault spends it.
 _MONITOR_TIMEOUT_S = 2.0
+
+#: Further wait for a late value on subscribe once a second get has
+#: answered (seconds): a slow first event is never called withheld.
+_MONITOR_GRACE_S = 1.0
 
 #: The ``gateway_monitors`` refusal: what is wrong and what the operator does.
 GATEWAY_MONITORS_REFUSAL = (
     "The CA gateway answers gets but delivers no monitors: its heartbeat "
-    "gave no value on subscribe within {timeout:g} s. A scan now would read "
+    "gave no value on subscribe within {wait:g} s. A scan now would read "
     "stale values, or time out after claiming a scan number. Restart "
     "geecs-ca-gateway on its host (GeecsCAGateway/DEPLOYMENT.md § "
     'Troubleshooting, "Gets answer, no monitors"); the cause is not known '
@@ -258,26 +262,31 @@ def _check_gateway_monitors(report: PreflightReport, experiment: str) -> None:
     the claim: a hard refusal, never a question, because acknowledging it
     cannot make the scan work (and an agent never acknowledges).
 
-    One subscribe to the gateway's heartbeat
+    The probe is the gateway's heartbeat
     (:func:`~geecs_bluesky.devices.ca.liveness.probe_gateway_monitors`):
-    the value on subscribe passes, at one round trip's cost; no tick is
-    awaited, since the fault withholds even the first value.  Only then is
-    the heartbeat read with a get, to tell the fault from an unreachable
-    gateway.  An unreachable gateway is not this check's verdict: it is
-    recorded ``skipped`` and the submit goes on, the same fail-open
-    posture as ``gateway_liveness`` (whose reads then fail too), so a
-    VPN-slow or absent gateway never blocks here; this check refuses only
-    on "the get answers, the subscribe delivers nothing".
+    a get, then its value on subscribe, which passes (two round trips; no
+    tick is awaited, since the fault withholds even the first value).
+    Silence is judged only on one held subscription, across a second get
+    and a grace, so a gateway slow to answer (just restarted, a lost search
+    datagram) is never refused.  An unreachable gateway is not this check's
+    verdict: it is recorded ``skipped`` and the submit goes on, the same
+    fail-open posture as ``gateway_liveness`` (whose reads then fail too);
+    this check refuses only on "gets answer, the subscription stays
+    silent".  The probe sees this process's own circuit to the gateway and
+    takes it to stand for the worker's, because the observed fault
+    withheld monitors from every client at once.
     """
     from geecs_bluesky.devices.ca.liveness import probe_gateway_monitors
 
-    verdict = probe_gateway_monitors(experiment, timeout=_MONITOR_TIMEOUT_S)
+    verdict = probe_gateway_monitors(
+        experiment, timeout=_MONITOR_TIMEOUT_S, grace=_MONITOR_GRACE_S
+    )
     if verdict == "delivered":
         report.outcomes.append(("gateway_monitors", "passed", ""))
     elif verdict == "unreachable":
         logger.warning(
             "gateway_monitors preflight: the gateway heartbeat answered "
-            "neither a subscribe nor a get; not judged (fail-open)"
+            "no get; not judged (fail-open)"
         )
         report.outcomes.append(
             (
@@ -287,7 +296,9 @@ def _check_gateway_monitors(report: PreflightReport, experiment: str) -> None:
             )
         )
     else:
-        report.refusal = GATEWAY_MONITORS_REFUSAL.format(timeout=_MONITOR_TIMEOUT_S)
+        report.refusal = GATEWAY_MONITORS_REFUSAL.format(
+            wait=_MONITOR_TIMEOUT_S + _MONITOR_GRACE_S
+        )
 
 
 def _check_loops(report: PreflightReport, devices: list[str], experiment: str) -> None:

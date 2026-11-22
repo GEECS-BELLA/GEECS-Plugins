@@ -146,27 +146,24 @@ MonitorVerdict = Literal["delivered", "withheld", "unreachable"]
 
 
 def probe_gateway_monitors(
-    experiment: str, *, timeout: float = DEFAULT_PROBE_TIMEOUT_S
+    experiment: str, *, timeout: float = DEFAULT_PROBE_TIMEOUT_S, grace: float = 1.0
 ) -> MonitorVerdict:
-    """Whether the CA gateway delivers monitors: subscribe to its heartbeat, then a get only if nothing came.
+    """Whether the CA gateway delivers monitors, judged on its heartbeat over one held subscription.
 
-    - ``"delivered"`` — the value arrived on subscribe (one round trip;
-      no get is made).
-    - ``"withheld"`` — nothing on subscribe within *timeout*, yet a get of
-      the same PV answers: the gateway serves gets but delivers no monitor
-      events, which no client sees as a disconnect.
-    - ``"unreachable"`` — nothing on subscribe and the get fails too: the
-      gateway cannot be reached, which is not a verdict on monitors
-      (fail-open, as the ``CONNECTED`` probes).
+    A get first: one that fails is ``"unreachable"`` at once (not a verdict
+    on monitors; fail-open, as the ``CONNECTED`` probes), and one that
+    answers proves the channel connected.  Then one subscription, held to
+    the end: its value on subscribe within *timeout* is ``"delivered"``.
+    If nothing came, a second get on the same open subscription (failing:
+    ``"unreachable"``) and a further *grace* for the late value
+    (``"delivered"``).  ``"withheld"`` therefore means a get answered
+    before the subscribe and another after *timeout* of silence, and the
+    subscription stayed silent through *grace* too: the gateway serves
+    gets but delivers no monitor events.
 
-    Worst case costs two *timeout* budgets (the subscribe, then the get).
-
-    Parameters
-    ----------
-    experiment : str
-        The experiment PV prefix.
-    timeout : float
-        Seconds for the subscribe, and again for the get.
+    Costs two round trips when healthy; worst cases: unreachable one
+    *timeout*, or three plus a *grace* when the second get fails;
+    withheld two *timeout* budgets (at most) plus *grace*.
 
     Raises
     ------
@@ -175,16 +172,17 @@ def probe_gateway_monitors(
     """
     from geecs_core.pv_naming import GATEWAY_HEARTBEAT, gateway_status_pv
 
-    from geecs_bluesky.devices.ca.oneshot import first_monitor_value, try_caget_once
+    from geecs_bluesky.devices.ca.oneshot import FirstValueWatch, try_caget_once
 
     pv = gateway_status_pv(experiment, GATEWAY_HEARTBEAT)
-    try:
-        first_monitor_value(pv, timeout=timeout)
-    except TimeoutError:
+    if try_caget_once(pv, timeout=timeout) is None:
+        return "unreachable"
+    with FirstValueWatch(pv) as watch:
+        if watch.wait(timeout):
+            return "delivered"
         if try_caget_once(pv, timeout=timeout) is None:
             return "unreachable"
-        return "withheld"
-    return "delivered"
+        return "delivered" if watch.wait(grace) else "withheld"
 
 
 def probe_stale_pvs(

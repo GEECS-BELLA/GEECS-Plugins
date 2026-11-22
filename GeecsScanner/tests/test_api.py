@@ -328,7 +328,7 @@ def test_a_gateway_withholding_monitors_refuses_even_acknowledged(
     from geecs_scanner.web import create_app
 
     ca = "geecs_bluesky.devices.ca.liveness"
-    monkeypatch.setattr(f"{ca}.probe_gateway_monitors", lambda e, *, timeout: "withheld")  # fmt: skip
+    monkeypatch.setattr(f"{ca}.probe_gateway_monitors", lambda e, *, timeout, grace: "withheld")  # fmt: skip
     monkeypatch.setattr(f"{ca}.probe_disconnected", lambda e, d, *, timeout: [])
     monkeypatch.setattr(f"{ca}.probe_stale", lambda e, d, *, timeout: [])
     service = ScannerService(
