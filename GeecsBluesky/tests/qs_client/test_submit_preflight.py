@@ -1,11 +1,14 @@
-"""The client-side pre-submit checks over a preset (validate, worker_ready, liveness)."""
+"""The client-side pre-submit checks over a preset (validate, worker_ready, gateway monitors, liveness)."""
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+import asyncio
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from geecs_bluesky.devices.ca import liveness
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.qs_client import submit_preflight
 from geecs_bluesky.qs_client.client import QueueStatus, StubQueueClient
@@ -74,7 +77,7 @@ def _preset(**overrides) -> Preset:
 @pytest.fixture
 def engine(monkeypatch):
     """Patch the seams: the liveness probe is canned, the manager is ready."""
-    reads = {"CONNECTED": "Connected"}
+    reads = {"CONNECTED": "Connected", "MONITORS": "delivered"}
 
     # The liveness check delegates to the shared probe (its own DBR_ENUM
     # datatype=str contract is pinned in tests/test_preflight_connected.py);
@@ -87,6 +90,12 @@ def engine(monkeypatch):
 
     monkeypatch.setattr(
         "geecs_bluesky.devices.ca.liveness.probe_disconnected", fake_probe
+    )
+    # The gateway-monitors probe is canned too (TestGatewayMonitors runs the
+    # real one over a fake aioca).
+    monkeypatch.setattr(
+        "geecs_bluesky.devices.ca.liveness.probe_gateway_monitors",
+        lambda experiment, *, timeout, grace: reads["MONITORS"],
     )
     # No real CA: every loop stamp reads fresh unless a test says otherwise.
     monkeypatch.setattr(
@@ -153,6 +162,7 @@ class TestRunSubmitPreflight:
         assert report.outcomes == [
             ("validate", "passed", ""),
             ("worker_ready", "passed", ""),
+            ("gateway_monitors", "passed", ""),
             ("gateway_liveness", "passed", ""),
             ("device_loops", "passed", ""),
         ]
@@ -365,6 +375,170 @@ class TestRunSubmitPreflight:
             ("validate", "passed", ""),
             ("worker_ready", "passed", ""),
         ]
+
+
+_REAL_PROBE_GATEWAY_MONITORS = liveness.probe_gateway_monitors
+
+
+class TestGatewayMonitors:
+    """#1406: a gateway that answers gets but delivers no monitors refuses the submit.
+
+    The real probe runs over a fake ``aioca`` whose one channel connects
+    ``connect`` seconds after first use (``None``: never): a get waits for
+    the connect within its timeout, and ``camonitor`` delivers the value
+    ``late`` seconds after the connect, or never, until it is closed.
+    Nothing touches the network.
+    """
+
+    PV = "undulator:cagateway:heartbeat"
+
+    @pytest.fixture
+    def aioca(self, engine, monkeypatch):
+        monkeypatch.setattr(
+            liveness, "probe_gateway_monitors", _REAL_PROBE_GATEWAY_MONITORS
+        )
+        monkeypatch.setattr(submit_preflight, "_MONITOR_TIMEOUT_S", 0.1)
+        monkeypatch.setattr(submit_preflight, "_MONITOR_GRACE_S", 0.3)
+        state = {
+            "connect": 0.0,
+            "deliver": True,
+            "late": 0.0,
+            "fail_get": set(),  # indices of gets that fail
+            "subscribed": [],
+            "closed": 0,
+            "gets": [],
+            "t0": None,
+        }
+        module = ModuleType("aioca")
+
+        def connected_in(loop):
+            if state["t0"] is None:
+                state["t0"] = loop.time()
+            if state["connect"] is None:
+                return None
+            return max(state["t0"] + state["connect"] - loop.time(), 0.0)
+
+        def camonitor(pv, callback, **_):
+            loop = asyncio.get_running_loop()
+            state["subscribed"].append(pv)
+            wait = connected_in(loop)
+            handle = None
+            if state["deliver"] and wait is not None:
+                handle = loop.call_later(wait + state["late"], callback, 7)
+
+            def close():
+                state["closed"] += 1
+                if handle is not None:
+                    handle.cancel()
+
+            return SimpleNamespace(close=close)
+
+        async def caget(pv, timeout=None, datatype=None):
+            index = len(state["gets"])
+            state["gets"].append(pv)
+            wait = connected_in(asyncio.get_running_loop())
+            if wait is None or wait > timeout or index in state["fail_get"]:
+                raise TimeoutError("no answer")
+            await asyncio.sleep(wait)
+            return 7
+
+        module.camonitor = camonitor
+        module.caget = caget
+        monkeypatch.setitem(sys.modules, "aioca", module)
+        return state
+
+    @staticmethod
+    def _outcome(report):
+        return next(o for o in report.outcomes if o[0] == "gateway_monitors")
+
+    def test_a_get_then_the_value_on_subscribe_passes(self, aioca):
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None
+        assert self._outcome(report) == ("gateway_monitors", "passed", "")
+        assert aioca["gets"] == [self.PV]  # healthy: one get, then the value
+        assert aioca["subscribed"] == [self.PV]
+        assert aioca["closed"] == 1
+
+    def test_a_value_late_inside_the_grace_passes(self, aioca):
+        """After the first wait, before the grace ends: delivered, never withheld."""
+        aioca["late"] = 0.2
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None
+        assert self._outcome(report)[1] == "passed"
+        assert aioca["gets"] == [self.PV, self.PV]
+        assert aioca["subscribed"] == [self.PV] and aioca["closed"] == 1
+
+    def test_a_slow_first_get_inside_its_budget_passes(self, aioca):
+        aioca["connect"] = 0.07
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None
+        assert self._outcome(report)[1] == "passed"
+
+    def test_a_channel_connecting_after_the_first_budget_is_never_refused(self, aioca):
+        """The restart case: it connects late and then answers; not judged, not refused."""
+        aioca["connect"] = 0.15
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None
+        assert self._outcome(report)[1] == "skipped"
+
+    def test_a_failed_first_get_is_unreachable_without_a_subscribe(self, aioca, caplog):
+        aioca["connect"] = None
+        with caplog.at_level("WARNING", logger="geecs_bluesky.qs_client"):
+            report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None
+        assert self._outcome(report)[1] == "skipped"
+        assert ("gateway_liveness", "passed", "") in report.outcomes
+        assert aioca["gets"] == [self.PV] and aioca["subscribed"] == []
+        assert any("gateway_monitors" in r.message for r in caplog.records)
+
+    def test_a_failed_second_get_is_unreachable(self, aioca):
+        aioca["deliver"], aioca["fail_get"] = False, {1}
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None
+        assert self._outcome(report)[1] == "skipped"
+        assert aioca["closed"] == 1
+
+    def test_silent_through_the_grace_with_gets_answering_is_a_refusal(self, aioca):
+        aioca["deliver"] = False
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is not None
+        assert "answers gets but delivers no monitors" in report.refusal
+        assert "Restart geecs-ca-gateway" in report.refusal
+        assert "Gets answer, no monitors" in report.refusal
+        assert "py-spy dump" in report.refusal
+        assert aioca["gets"] == [self.PV, self.PV]
+        assert aioca["subscribed"] == [self.PV] and aioca["closed"] == 1
+
+    def test_the_refusal_is_never_a_question(self, aioca):
+        """Nothing to acknowledge: no question, and the liveness check never ran."""
+        aioca["deliver"] = False
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is not None
+        assert report.questions == []
+        assert [check for check, *_ in report.outcomes] == ["validate", "worker_ready"]
+
+    def test_a_missing_ca_extra_is_skipped_not_raised(self, aioca, monkeypatch):
+        monkeypatch.setitem(sys.modules, "aioca", None)  # import raises
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None
+        assert self._outcome(report)[1] == "skipped"
+        assert ("gateway_liveness", "passed", "") in report.outcomes  # still runs
+
+    def test_a_submit_with_no_devices_is_not_probed(self, aioca):
+        """As ``gateway_liveness``: nothing to probe when the run lists no device and no box."""
+        aioca["deliver"] = False
+        report = run_submit_preflight(_preset(devices=[]), "Undulator")
+        assert report.refusal is None
+        assert aioca["gets"] == [] and aioca["subscribed"] == []
+
+    def test_a_device_less_preset_with_a_box_is_probed(self, aioca, monkeypatch):
+        aioca["deliver"] = False
+        resolver = _FakeResolver({"HTU-Test": _profile()}, default="HTU-Test")
+        report = run_submit_preflight(
+            _preset(devices=[]), "Undulator", resolver=resolver
+        )
+        assert report.refusal is not None
+        assert aioca["subscribed"] == [self.PV]
 
 
 class TestTriggerProfileLiveness:

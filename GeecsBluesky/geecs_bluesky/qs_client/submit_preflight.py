@@ -15,12 +15,14 @@ Checks, in order (the ``PreflightOutcome.check`` vocabulary):
   A closed environment or a missing plan is a hard refusal naming the
   recovery gesture; an unreachable manager, an unanswered plan list or no
   ``[qserver]`` config is *skipped* (fail-open).
+- ``gateway_monitors`` — a get of the gateway heartbeat, then its value
+  on subscribe; gets answering without it is a hard refusal, never a
+  question; an unreachable gateway is *skipped* (fail-open).
 - ``gateway_liveness`` — each preset and trigger-profile device's
   ``CONNECTED`` PV, read once; only the exact ``"Disconnected"`` counts
   as down (fail-open).
 
-Heavy dependencies (``aioca``) import lazily: this module must import
-light and offline.
+Heavy dependencies (``aioca``) import lazily: the module imports offline.
 """
 
 from __future__ import annotations
@@ -28,12 +30,32 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
 
+_T = TypeVar("_T")
+
 #: CA read budget per liveness probe (seconds) — a dead PV costs this, once.
 _LIVENESS_TIMEOUT_S = 2.0
+
+#: Budget for each heartbeat get and for its value on subscribe (seconds);
+#: a healthy gateway answers in a round trip, so only a fault spends it.
+_MONITOR_TIMEOUT_S = 2.0
+
+#: Further wait for a late value on subscribe once a second get has
+#: answered (seconds): a slow first event is never called withheld.
+_MONITOR_GRACE_S = 1.0
+
+#: The ``gateway_monitors`` refusal: what is wrong and what the operator does.
+GATEWAY_MONITORS_REFUSAL = (
+    "The CA gateway answers gets but delivers no monitors: its heartbeat "
+    "gave no value on subscribe within {wait:g} s. A scan now would read "
+    "stale values, or time out after claiming a scan number. Restart "
+    "geecs-ca-gateway on its host (GeecsCAGateway/DEPLOYMENT.md § "
+    'Troubleshooting, "Gets answer, no monitors"); the cause is not known '
+    "yet, so first capture `py-spy dump` of the gateway process if you can."
+)
 
 
 @dataclass(frozen=True)
@@ -51,7 +73,7 @@ class PreflightQuestion:
 class PreflightReport:
     """Everything the check phase computed, for the client's ask phase.
 
-    ``refusal`` set means submission must not proceed (validation failed) —
+    ``refusal`` set means submission must not proceed (a check refused) —
     ``questions`` and ``outcomes`` are then partial and irrelevant.
     ``outcomes`` holds the already-decided checks as
     ``(check, result, detail)`` tuples in the ``PreflightOutcome``
@@ -167,6 +189,7 @@ def run_submit_preflight(
             experiment,
             needed={*item.needed, *box},
             listed=item.devices,
+            monitors=True,
             loops=True,
         )
 
@@ -202,19 +225,80 @@ def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) 
     return report
 
 
-def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None, listed: Collection[str] = (), loops: bool = False) -> None:  # fmt: skip
-    """:func:`_check_liveness` (then, with *loops*, :func:`_check_loops`), recorded ``skipped`` (never raised) when a probe itself fails."""
-    check = "gateway_liveness"
+def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None, listed: Collection[str] = (), monitors: bool = False, loops: bool = False) -> None:  # fmt: skip
+    """The gateway checks over *devices*, each recorded ``skipped`` (never raised) when its probe itself fails.
+
+    With *monitors*, :func:`_check_gateway_monitors` first (its refusal ends
+    here); then :func:`_check_liveness`; then, with *loops* and a liveness
+    answer, :func:`_check_loops` over the devices not down.
+    """
+    if monitors:
+        _fail_open(report, "gateway_monitors", lambda: _check_gateway_monitors(report, experiment))  # fmt: skip
+        if report.refusal is not None:
+            return
+    down = _fail_open(report, "gateway_liveness", lambda: _check_liveness(report, devices, experiment, needed=needed, listed=listed))  # fmt: skip
+    if loops and down is not None:
+        _fail_open(report, "device_loops", lambda: _check_loops(report, [d for d in devices if d not in down], experiment))  # fmt: skip
+
+
+def _fail_open(report: PreflightReport, check: str, run: Callable[[], _T]) -> _T | None:  # fmt: skip
+    """*run* the check; when it raises, record it ``skipped`` with the error and answer ``None``."""
     try:
-        down = _check_liveness(
-            report, devices, experiment, needed=needed, listed=listed
-        )
-        if loops:
-            check = "device_loops"
-            _check_loops(report, [d for d in devices if d not in down], experiment)
+        return run()
     except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning("%s preflight failed: %s", check, exc)
         report.outcomes.append((check, "skipped", str(exc)))
+        return None
+
+
+def _check_gateway_monitors(report: PreflightReport, experiment: str) -> None:
+    """Refuse when the CA gateway answers gets but delivers no monitors (``gateway_monitors``).
+
+    The gateway can keep every channel connected and answer every get
+    while delivering no monitor events at all — not even the value on
+    subscribe — and no client sees a disconnect.  A scan started then
+    reads stale monitor caches without error, or times out on its first
+    monitor read after claiming a scan number, so the check refuses before
+    the claim: a hard refusal, never a question, because acknowledging it
+    cannot make the scan work (and an agent never acknowledges).
+
+    The probe is the gateway's heartbeat
+    (:func:`~geecs_bluesky.devices.ca.liveness.probe_gateway_monitors`):
+    a get, then its value on subscribe, which passes (two round trips; no
+    tick is awaited, since the fault withholds even the first value).
+    Silence is judged only on one held subscription, across a second get
+    and a grace, so a gateway slow to answer (just restarted, a lost search
+    datagram) is never refused.  An unreachable gateway is not this check's
+    verdict: it is recorded ``skipped`` and the submit goes on, the same
+    fail-open posture as ``gateway_liveness`` (whose reads then fail too);
+    this check refuses only on "gets answer, the subscription stays
+    silent".  The probe sees this process's own circuit to the gateway and
+    takes it to stand for the worker's, because the observed fault
+    withheld monitors from every client at once.
+    """
+    from geecs_bluesky.devices.ca.liveness import probe_gateway_monitors
+
+    verdict = probe_gateway_monitors(
+        experiment, timeout=_MONITOR_TIMEOUT_S, grace=_MONITOR_GRACE_S
+    )
+    if verdict == "delivered":
+        report.outcomes.append(("gateway_monitors", "passed", ""))
+    elif verdict == "unreachable":
+        logger.warning(
+            "gateway_monitors preflight: the gateway heartbeat answered "
+            "no get; not judged (fail-open)"
+        )
+        report.outcomes.append(
+            (
+                "gateway_monitors",
+                "skipped",
+                "the gateway heartbeat is unreadable: not judged",
+            )
+        )
+    else:
+        report.refusal = GATEWAY_MONITORS_REFUSAL.format(
+            wait=_MONITOR_TIMEOUT_S + _MONITOR_GRACE_S
+        )
 
 
 def _check_loops(report: PreflightReport, devices: list[str], experiment: str) -> None:

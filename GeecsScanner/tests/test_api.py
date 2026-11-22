@@ -317,6 +317,42 @@ def test_a_gated_preset_is_refused_as_retired(
     assert queue["running"] is None and queue["waiting"] == []
 
 
+def test_a_gateway_withholding_monitors_refuses_even_acknowledged(
+    manager: DemoQueueClient, streams, tmp_path, monkeypatch
+) -> None:
+    """#1406: from the real preflight, a refusal no acknowledgement passes; nothing queued."""
+    from geecs_bluesky.qs_client import run_submit_preflight
+
+    from geecs_scanner.service import ScannerService
+    from geecs_scanner.service.demo import DemoResolver
+    from geecs_scanner.web import create_app
+
+    ca = "geecs_bluesky.devices.ca.liveness"
+    monkeypatch.setattr(f"{ca}.probe_gateway_monitors", lambda e, *, timeout, grace: "withheld")  # fmt: skip
+    monkeypatch.setattr(f"{ca}.probe_disconnected", lambda e, d, *, timeout: [])
+    monkeypatch.setattr(f"{ca}.probe_stale", lambda e, d, *, timeout: [])
+    service = ScannerService(
+        manager,
+        DemoResolver(),
+        experiment="Demo",
+        identity="geecs-scanner test",
+        streams=streams,
+        preflight=run_submit_preflight,
+        heartbeat_path=tmp_path / "heartbeat.json",
+    )
+    client = TestClient(create_app(service))
+    preset = service.preset("eb_align_1hz")
+    out = client.post("/api/preflight", json=preset).json()
+    assert "answers gets but delivers no monitors" in out["refusal"]
+    assert out["questions"] == []
+    every = ["gateway_monitors", "gateway_liveness"]
+    r = client.post("/api/submit", json={"preset": preset, "acknowledged": every})
+    assert r.status_code == 400
+    assert r.json()["error"]["message"] == out["refusal"]
+    queue = client.get("/api/queue").json()
+    assert queue["running"] is None and queue["waiting"] == []
+
+
 def test_append_queues_in_order_and_remove_drops_only_a_waiting_item(
     client: TestClient, service
 ) -> None:

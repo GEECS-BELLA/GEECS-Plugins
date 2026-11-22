@@ -95,6 +95,7 @@ def test_expansion_preflight_and_submission_share_optimizer_resolution(monkeypat
     assert observed["args"] == expected.args and observed["kwargs"] == expected.kwargs
     monkeypatch.setattr(submit_preflight, "_check_worker_ready", lambda *args: None)
     monkeypatch.setattr(submit_preflight, "_trigger_profile_devices", lambda *args: [])
+    monkeypatch.setattr(submit_preflight, "_check_gateway_monitors", lambda *args: None)
     monkeypatch.setattr(
         submit_preflight,
         "_check_liveness",
