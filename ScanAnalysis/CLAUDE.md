@@ -217,9 +217,16 @@ serial one at 0 ulp. Every run also counts what it did into a fresh
 units attempted, succeeded and failed, shots that failed to load, NaN
 values, product writes that did not land (`SavedProducts.failed`, a per-shot
 table, sibling output or shot store), scalar writes that did not land (the
-sidecar, a refused s-file merge) and fold errors. `run_analysis`'s return
-is unchanged; a host that shows a run's state reads the outcome (the
-portal's Analysis tab), the task queue does not. Hosts that run analyses (the portal's thread pool, the
+sidecar, a refused s-file merge) and fold errors. The rule a host applies
+lives beside the counts: `RunOutcome.verdict()` says `no_data` (no unit
+attempted), `failed` (none succeeded) or `done`, degraded when any of
+`DEGRADING_COUNTS` (failed units, load failures, products or scalars not
+written) is nonzero — NaN values are shown, never judged, and the
+small-scan figure gate, waterfall sort exclusions and a summary's notes
+are never counted; `report()` is the counts plus that verdict as plain
+JSON for a host that does not import this package. A raise is a host's
+`failed` whatever the counts. `run_analysis`'s return is unchanged; the
+portal's Analysis tab reads the report, the task queue does not. Hosts that run analyses (the portal's thread pool, the
 task queue, MCP's detached worker) are threaded processes; the pool is
 `spawn`, so their entry points must keep their `__main__` guards.
 A missing or empty device folder, or stack-only input without a stack, raises

@@ -86,39 +86,30 @@ AnalyzerFactory = Callable[..., ScanAnalyzerLike]
 #: What a run reports into: ``(done, total, phase)`` — frames so far, of
 #: how many, in which phase (``"writing"``, ``"verifying"``, …).
 ProgressSink = Callable[[int, int, str], None]
-#: Where a run hands its analyzer's outcome counts (``RunOutcome`` as a dict).
+#: Where a run hands its analyzer's outcome report: ScanAnalysis'
+#: ``RunOutcome.report()``, ``{"counts", "state", "degraded", "message"}``.
 OutcomeSink = Callable[[dict], None]
 
-#: Outcome counts that make a finished run ``degraded``: a failure the run
-#: continued past. NaN values are shown, never judged; the small-scan
-#: figure gate, waterfall sort exclusions and a summary's notes are never
-#: counted at all.
-DEGRADING_COUNTS = (
-    "units_failed",
-    "shots_load_failed",
-    "product_write_failures",
-    "scalar_write_failures",
-)
+#: The verdict words a run's outcome report may carry; anything else is
+#: read as ``done`` (an analyzer newer than this portal never fails a run here).
+_VERDICT_STATES = frozenset({DONE, FAILED, NO_DATA})
 
 
-def judge_outcome(outcome: Optional[dict]) -> tuple[str, bool, Optional[str]]:
+def judge_outcome(report: Optional[dict]) -> tuple[str, bool, Optional[str]]:
     """``(state, degraded, error)`` of a run that returned display files.
 
-    ``outcome`` is the analyzer's counts, or ``None`` for an analyzer that
-    does not count its units (it stays ``done``, as before). No unit
-    attempted is ``no_data`` (no shot of the scan mapped to a data file);
-    units that ran with none succeeding is ``failed``; otherwise ``done``,
-    ``degraded`` when any of :data:`DEGRADING_COUNTS` is nonzero. A run
-    that raised never reaches here: ``failed`` is never softened.
+    The verdict is the analyzer's own (``RunOutcome.verdict`` in
+    ScanAnalysis: the rule lives beside the counts), read here, never
+    re-derived; ``report`` is ``None`` for an analyzer that does not count
+    its units, which stays ``done``. A run that raised never reaches here:
+    ``failed`` is never softened.
     """
-    if outcome is None:
+    if report is None:
         return DONE, False, None
-    attempted = int(outcome.get("units_attempted", 0))
-    if attempted == 0:
-        return NO_DATA, False, "no shot of this scan mapped to a data file"
-    if int(outcome.get("units_succeeded", 0)) == 0:
-        return FAILED, False, f"every unit failed ({attempted} of {attempted}; see log)"
-    return DONE, any(int(outcome.get(k, 0)) for k in DEGRADING_COUNTS), None
+    state = report.get("state")
+    if state not in _VERDICT_STATES:
+        return DONE, False, None
+    return state, bool(report.get("degraded")), report.get("message")
 
 
 def scan_analysis_factory(
@@ -209,6 +200,8 @@ class RunReport:
 
     def __init__(self, job: AnalysisJob):
         self._job = job
+        #: The analyzer's outcome report (counts + verdict), once given.
+        self.verdict: Optional[dict] = None
 
     def __call__(self, done: int, total: int, phase: str) -> None:
         """Record one progress report: one dict assignment, read whole or not at all."""
@@ -218,8 +211,10 @@ class RunReport:
             "phase": str(phase),
         }
 
-    def outcome(self, counts: dict) -> None:
-        """Record the analyzer's outcome counts on the job."""
+    def outcome(self, report: dict) -> None:
+        """Record the analyzer's outcome report: its counts on the job, its verdict here."""
+        self.verdict = report
+        counts = report.get("counts") or {}
         self._job.outcome = {str(k): int(v) for k, v in counts.items()}
 
 
@@ -415,7 +410,7 @@ class AnalysisRunner:
                 final = NO_DATA
             else:
                 job.artifacts = [_relativize(a, relative_to) for a in artifacts]
-                final, job.degraded, job.error = judge_outcome(job.outcome)
+                final, job.degraded, job.error = judge_outcome(report.verdict)
         except BaseException as exc:  # noqa: BLE001 — every outcome becomes a record
             job.error = f"{type(exc).__name__}: {exc}"
             final = NO_DATA if _is_no_data(exc) else FAILED
@@ -501,8 +496,9 @@ def run_scan_analyzer(
     task runner's duty in the queue path and ours here.  *progress* is
     handed to an analyzer that has a ``progress`` attribute (the
     ``ScanAnalyzer`` hook); one without it simply never reports.
-    *outcome* receives the analyzer's ``outcome`` counts after the run,
-    raised or not, when it has one (``ScanAnalyzer.outcome``).
+    *outcome* receives the analyzer's outcome report after the run,
+    raised or not, when it has one (``ScanAnalyzer.outcome.report()``:
+    the counts and the analyzer's own verdict).
     *allow_destructive* reaches the factory: a kind that deletes data
     files is built only when the caller confirmed it.
     """
@@ -512,10 +508,10 @@ def run_scan_analyzer(
     try:
         return analyzer.run_analysis(scan_tag)
     finally:
-        counts = getattr(analyzer, "outcome", None)
-        if outcome is not None and counts is not None:
-            dump = getattr(counts, "model_dump", None)
-            outcome(dump() if callable(dump) else dict(counts))
+        counted = getattr(analyzer, "outcome", None)
+        report = getattr(counted, "report", None)
+        if outcome is not None and callable(report):
+            outcome(report())
         analyzer.cleanup()
 
 

@@ -319,3 +319,50 @@ def test_a_stale_outcome_never_survives_into_the_next_run(scan, monkeypatch):
     with pytest.raises(base.DataUnavailableWarning):
         analyzer.run_analysis(TAG)
     assert analyzer.outcome == base.RunOutcome()
+
+
+def _counts(**given: int) -> dict:
+    """A clean six-unit run's counts, then *given*."""
+    return {"units_attempted": 6, "units_succeeded": 6, **given}
+
+
+@pytest.mark.parametrize(
+    ("counts", "state", "degraded"),
+    [
+        pytest.param(_counts(), "done", False, id="clean"),
+        pytest.param(
+            _counts(units_attempted=0, units_succeeded=0), "no_data", False, id="none"
+        ),
+        pytest.param(
+            _counts(units_succeeded=0, units_failed=6), "failed", False, id="all-failed"
+        ),
+        pytest.param(
+            _counts(units_succeeded=5, units_failed=1), "done", True, id="unit-failed"
+        ),
+        pytest.param(_counts(shots_load_failed=1), "done", True, id="load-failed"),
+        pytest.param(
+            _counts(product_write_failures=1), "done", True, id="product-not-written"
+        ),
+        pytest.param(
+            _counts(scalar_write_failures=1), "done", True, id="scalar-write-failed"
+        ),
+        # The small-scan figure gate draws nothing and counts nothing.
+        pytest.param(
+            _counts(units_attempted=2, units_succeeded=2), "done", False, id="small"
+        ),
+        pytest.param(_counts(nan_values=18), "done", False, id="nan-only"),
+    ],
+)
+def test_the_state_table(counts, state, degraded):
+    outcome = base.RunOutcome(**counts)
+    verdict = outcome.verdict()
+    assert (verdict.state, verdict.degraded) == (state, degraded)
+    assert (verdict.message is not None) == (state != "done")
+    report = outcome.report()
+    assert report == {
+        "counts": outcome.model_dump(),
+        "state": state,
+        "degraded": degraded,
+        "message": verdict.message,
+    }
+    assert set(base.DEGRADING_COUNTS) <= set(base.RunOutcome.model_fields)

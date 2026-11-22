@@ -397,3 +397,16 @@ renderAnalysis(row(null), false);
 check(drawn[2].includes("freshness unknown"), "no record: freshness unknown");
 """,
     )
+
+
+def test_the_outcome_terms_name_real_run_outcome_fields() -> None:
+    """``OUTCOME_TERMS`` repeats ScanAnalysis' count names: a rename there fails here."""
+    base = pytest.importorskip("scan_analysis.base")
+    run = (_TEMPLATES[0].parent / "run.html").read_text()
+    block = re.search(r"const OUTCOME_TERMS = \[(.*?)\];", run, re.S).group(1)
+    names = re.findall(r'\["(\w+)", "', block)
+    assert names
+    fields = set(base.RunOutcome.model_fields)
+    assert set(names) <= fields
+    # every count but the two the line leads with is drawn
+    assert set(names) == fields - {"units_attempted", "units_succeeded"}

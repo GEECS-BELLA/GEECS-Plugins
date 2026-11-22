@@ -52,13 +52,32 @@ class DataUnavailableWarning(Exception):
     """
 
 
+#: Outcome counts that make a finished run degraded: a failure the run
+#: continued past. NaN values are shown, never judged; the small-scan figure
+#: gate, waterfall sort exclusions and a summary's notes are never counted.
+DEGRADING_COUNTS = (
+    "units_failed",
+    "shots_load_failed",
+    "product_write_failures",
+    "scalar_write_failures",
+)
+
+
+class RunVerdict(NamedTuple):
+    """A returned run's state word (the task queue's), degraded flag and reason."""
+
+    state: str
+    degraded: bool
+    message: Optional[str]
+
+
 class RunOutcome(BaseModel):
     """What one analysis run did, counted, beside the display files it returns.
 
     Set by an analyzer that runs units (``CoreScanAnalyzer``) at the start
     of its run and filled as the run goes. A host reads it after
-    ``run_analysis`` returns to tell a clean run from a degraded one; the
-    return value itself is unchanged.
+    ``run_analysis`` returns to tell a clean run from a degraded one
+    (:meth:`verdict`); the return value itself is unchanged.
     """
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
@@ -79,6 +98,35 @@ class RunOutcome(BaseModel):
     scalar_write_failures: int = 0
     #: Results the products could not fold (the run raises after its scalars).
     fold_errors: int = 0
+
+    def verdict(self) -> RunVerdict:
+        """The state of a run that returned: ``no_data``, ``failed`` or ``done``.
+
+        No unit attempted is ``no_data`` (no shot mapped to a data file);
+        units that ran with none succeeding is ``failed``; otherwise
+        ``done``, degraded when any of :data:`DEGRADING_COUNTS` is nonzero.
+        A run that raised is a host's ``failed`` whatever the counts: the
+        outcome never softens it.
+        """
+        if self.units_attempted == 0:
+            return RunVerdict(
+                "no_data", False, "no shot of this scan mapped to a data file"
+            )
+        if self.units_succeeded == 0:
+            n = self.units_attempted
+            return RunVerdict(
+                "failed", False, f"every unit failed ({n} of {n}; see log)"
+            )
+        return RunVerdict("done", any(getattr(self, k) for k in DEGRADING_COUNTS), None)
+
+    def report(self) -> dict:
+        """What a host that does not import this package records: the counts and the verdict.
+
+        ``{"counts": {field: int}, "state", "degraded", "message"}`` — plain
+        JSON values, so a host reads a verdict instead of re-deriving it.
+        """
+        verdict = self.verdict()
+        return {"counts": self.model_dump(), **verdict._asdict()}
 
 
 class ScanParameter(NamedTuple):

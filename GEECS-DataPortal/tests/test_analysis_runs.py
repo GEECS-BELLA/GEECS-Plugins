@@ -161,7 +161,9 @@ class FakeAnalyzer:
             raise RuntimeError("boom")
         if self.behaviour in OUTCOMES:
             # A counting analyzer (``ScanAnalyzer.outcome``), raising or not.
-            self.outcome = dict(OUTCOMES[self.behaviour])
+            from scan_analysis.base import RunOutcome
+
+            self.outcome = RunOutcome(**OUTCOMES[self.behaviour])
             if self.behaviour == "counted_then_raised":
                 raise ValueError("Averaged results must have matching units")
             return []
@@ -1141,37 +1143,34 @@ def test_a_long_text_label_is_not_a_file(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("outcome", "state", "degraded"),
+    ("report", "judged"),
     [
-        pytest.param(None, "done", False, id="an analyzer that does not count"),
-        pytest.param(_counts(), "done", False, id="clean"),
+        pytest.param(None, ("done", False, None), id="an analyzer that does not count"),
         pytest.param(
-            _counts(units_attempted=0, units_succeeded=0), "no_data", False, id="none"
+            {"counts": {}, "state": "done", "degraded": True, "message": None},
+            ("done", True, None),
+            id="degraded",
         ),
         pytest.param(
-            _counts(units_succeeded=0, units_failed=6), "failed", False, id="all-failed"
+            {"counts": {}, "state": "failed", "degraded": False, "message": "m"},
+            ("failed", False, "m"),
+            id="failed",
         ),
         pytest.param(
-            _counts(units_succeeded=5, units_failed=1), "done", True, id="unit-failed"
-        ),
-        pytest.param(_counts(shots_load_failed=1), "done", True, id="load-failed"),
-        pytest.param(
-            _counts(product_write_failures=1), "done", True, id="product-not-written"
+            {"counts": {}, "state": "no_data", "degraded": False, "message": "m"},
+            ("no_data", False, "m"),
+            id="no_data",
         ),
         pytest.param(
-            _counts(scalar_write_failures=1), "done", True, id="scalar-write-failed"
+            {"counts": {}, "state": "something new", "degraded": False},
+            ("done", False, None),
+            id="an unknown word",
         ),
-        # The small-scan figure gate draws nothing and counts nothing.
-        pytest.param(
-            _counts(units_attempted=2, units_succeeded=2), "done", False, id="small"
-        ),
-        pytest.param(_counts(nan_values=18), "done", False, id="nan-only"),
     ],
 )
-def test_the_state_table(outcome, state, degraded):
-    got_state, got_degraded, error = analysis_runs.judge_outcome(outcome)
-    assert (got_state, got_degraded) == (state, degraded)
-    assert (error is not None) == (state != "done")
+def test_the_portal_reads_the_analyzers_verdict(report, judged):
+    """The rule is ScanAnalysis' (``RunOutcome.verdict``); the portal reads it."""
+    assert analysis_runs.judge_outcome(report) == judged
 
 
 class TestOutcome:
@@ -1231,9 +1230,7 @@ class TestOutcome:
         analysis_runs.run_scan_analyzer(
             lambda *_, **__: Counting(), "X", Path("."), None, outcome=seen.append
         )
-        assert seen == [
-            base.RunOutcome(units_attempted=3, units_succeeded=3).model_dump()
-        ]
+        assert seen == [base.RunOutcome(units_attempted=3, units_succeeded=3).report()]
 
 
 class TestRealOutcome:
@@ -1293,8 +1290,8 @@ class TestRealOutcome:
             tag,
             outcome=seen.append,
         )
-        (counts,) = seen
-        return analysis_runs.judge_outcome(counts)[:2], counts
+        (report,) = seen
+        return analysis_runs.judge_outcome(report)[:2], report["counts"]
 
     def test_a_partial_load_failure_is_degraded(self, tmp_path, monkeypatch):
         pytest.importorskip("scan_analysis")

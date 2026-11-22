@@ -540,15 +540,13 @@ thread still releases before any next job starts);
 `run_analysis` returning `None` and `DataUnavailableWarning` map to
 `no_data` (the worklist runner's own mapping).  **A run's outcome**: an
 analyzer that counts its units (ScanAnalysis' `RunOutcome` on
-`analyzer.outcome`; `run_scan_analyzer` hands it to the job's
-`RunReport.outcome`, raised or not) puts its counts on the record's
-`outcome`, and a run that returned files is judged by
-`analysis_runs.judge_outcome`: no unit attempted → `no_data`, units ran
-and none succeeded → `failed`, else `done` with `degraded: true` when any
-of `DEGRADING_COUNTS` (failed units, shots that failed to load, products
-or scalars not written) is nonzero.  A raise is `failed` whatever the
-counts; NaN values are shown, never judged; the small-scan figure gate,
-waterfall sort exclusions and a summary's notes are not counted at all.
+`analyzer.outcome`; `run_scan_analyzer` hands its `report()` — the
+counts and the analyzer's own verdict — to the job's `RunReport.outcome`,
+raised or not) puts its counts on the record's `outcome`, and a run that
+returned files takes the verdict's state, `degraded` flag and message
+(`analysis_runs.judge_outcome` reads it, never re-derives it: the rule is
+`RunOutcome.verdict` in ScanAnalysis, beside the counts).  A raise is
+`failed` whatever the counts.
 No new state word: the tab draws `done` + `degraded` as the kit's
 `degraded` chip (*done · degraded*) with the counts under the row
 (`renderOutcome`), and above the files *files may predate this run
