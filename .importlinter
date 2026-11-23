@@ -275,6 +275,12 @@ type = forbidden
 source_modules =
     geecs_mcp
 forbidden_modules =
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_control_room
+    geecs_configurator
+    geecs_analysis_worker
     geecs_bluesky
     scan_analysis
     geecs_analysis
@@ -356,30 +362,11 @@ forbidden_modules =
     geecs_log_triage
 allow_indirect_imports = True
 
-[importlinter:contract:mcp-edges]
-name = GEECS-MCP imports GeecsBluesky's client side, GEECS-Data-Utils and ScanAnalysis: never the scanner, the portal, the logbook, Core, Schemas (test-only), GEECS-Analysis, the web theme or the EPICS side
-type = forbidden
-source_modules =
-    geecs_mcp
-forbidden_modules =
-    geecs_scanner
-    geecs_portal
-    geecs_logbook
-    geecs_control_room
-    geecs_core
-    geecs_schemas
-    geecs_analysis
-    geecs_web_theme
-    geecs_archiver
-    geecs_log_triage
-allow_indirect_imports = True
-
 [importlinter:contract:no-engine-internals]
-name = GeecsScanner and GEECS-MCP never import the worker's engine internals: only qs_client and the import-light client modules
+name = GeecsScanner never imports the worker's engine internals: only qs_client and the import-light client modules (GEECS-MCP imports no GeecsBluesky at all: mcp-is-a-client)
 type = forbidden
 source_modules =
     geecs_scanner
-    geecs_mcp
 forbidden_modules =
     geecs_bluesky.plans
     geecs_bluesky.devices

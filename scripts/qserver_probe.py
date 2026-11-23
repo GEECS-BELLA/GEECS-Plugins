@@ -7,19 +7,23 @@ start, and a closed environment means the manager knows **zero plans**, so
 every submission fails with "Plan '…' is not in the list of allowed plans"
 (live incident 2026-09-04). Port liveness therefore says nothing about
 readiness. This probe asks the manager over 0MQ for its ``status`` and the
-``plans_allowed`` of one user group and reduces both to a verdict:
+``plans_allowed`` of one user group and reduces both to a verdict — the
+one definition of ready, ``geecs_bluesky.qs_client.readiness_verdict``:
 
     exit 0  ready     environment exists and at least one plan is allowed
-    exit 5  notready  the manager answered but cannot accept a scan (reason follows)
+    exit 5  notready  the manager answered but cannot accept a scan: its
+                      environment is closed, still opening, or allows no plans
+                      (the verdict's sentence follows)
     exit 6  unknown   ``status`` answered but ``plans_allowed`` did not (timed out
-                      or ``success: false``) — readiness cannot be asserted
+                      or ``success: false``), or ``geecs_bluesky`` does not import
+                      here — readiness cannot be asserted
     exit 1  down      no answer within the timeout
     exit 2  no address to ask (no ``--addr`` and no ``[qserver]`` config)
 
 One status line on stdout: the verdict word, then a compact summary the
 fleet table can carry as-is. Read-only — two bounded requests, no writes.
-Run from an environment that has ``bluesky-queueserver`` installed (the
-GeecsBluesky env; ``scripts/lib/net_probes.sh`` finds one).
+Run from an environment that has ``bluesky-queueserver`` and ``geecs_bluesky``
+installed (the GeecsBluesky env; ``scripts/lib/net_probes.sh`` finds one).
 
 The manager address is ``--addr`` when given; otherwise the ``[qserver]``
 section of ``~/.config/geecs_python_api/config.ini`` — its ``control_addr``
@@ -111,6 +115,10 @@ def summarize(
 ) -> tuple[int, str]:
     """Reduce the manager's ``status`` + ``plans_allowed`` replies to a verdict.
 
+    The verdict is ``geecs_bluesky.qs_client.readiness_verdict``'s; this
+    function maps its state to an exit code and appends the compact summary.
+    A ``plans_allowed`` reply with ``success: false`` counts as unanswered.
+
     Parameters
     ----------
     status : dict[str, Any] | None
@@ -137,43 +145,39 @@ def summarize(
     re_state = status.get("re_state")
     queue = status.get("items_in_queue")
     running = "running" if status.get("running_item_uid") else None
-    n_plans = len((plans_allowed or {}).get("plans_allowed") or {})
     plans_ok = bool(plans_allowed and plans_allowed.get("success", True))
+    plans = ((plans_allowed or {}).get("plans_allowed") or {}) if plans_ok else None
 
     summary = f"manager {manager} · environment {env_state}"
     if re_state:
         summary += f" · RE {re_state}"
-    if plans_ok:
-        summary += f" · {n_plans} plans allowed ({user_group})"
+    if plans is not None:
+        summary += f" · {len(plans)} plans allowed ({user_group})"
     else:
-        summary += " · plans_allowed unanswered"
+        reason = (plans_allowed or {}).get("msg") or "no answer within the timeout"
+        summary += f" · plans_allowed unanswered for '{user_group}' ({reason})"
     if queue is not None:
         summary += f" · queue {queue}"
     if running:
         summary += " · item running"
 
-    if not env_exists:
-        return 5, (
-            f"notready worker environment CLOSED — 0 plans, every submission is refused "
-            f"as 'not in the list of allowed plans'; nothing opens it at service start "
-            f"(`qserver environment open`; #793). {summary}"
+    try:
+        from geecs_bluesky.qs_client.client import (
+            queue_status_from_manager,
+            readiness_verdict,
         )
-    if not plans_ok:
-        # status answered but the plan list did not (a second-request timeout,
-        # or the manager refused it): the environment may be fine, but "ready"
-        # is an assertion about plans, and there is none to make.
-        reason = (plans_allowed or {}).get("msg") or "no answer within the timeout"
+    except ImportError as exc:  # a probe python without geecs_bluesky
         return 6, (
-            f"unknown plans_allowed unanswered for '{user_group}' ({reason}) — "
-            f"readiness cannot be asserted; re-run, then check the manager log. "
+            f"unknown geecs_bluesky does not import in this interpreter "
+            f"({type(exc).__name__}) — readiness cannot be judged (see /env-doctor). "
             f"{summary}"
         )
-    if n_plans == 0:
-        return 5, (
-            f"notready environment {env_state} but the manager allows 0 plans for "
-            f"'{user_group}' — profile import or permissions problem. {summary}"
-        )
-    return 0, f"ready {summary}"
+    verdict = readiness_verdict(queue_status_from_manager(status), plans)
+    if verdict.ready:
+        return 0, f"ready {summary}"
+    if verdict.state == "plans_unknown":
+        return 6, f"unknown {verdict.detail} {summary}"
+    return 5, f"notready {verdict.detail} {summary}"
 
 
 def main(argv: list[str] | None = None) -> int:

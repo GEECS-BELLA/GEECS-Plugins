@@ -18,7 +18,8 @@ The out-of-plan probe over device *names* runs before any device exists,
 so there is no signal to read yet — and it gathers its reads concurrently
 (:func:`try_caget_many`) so the worst case costs one timeout budget,
 never one per device.  :class:`FirstValueWatch` is the one bounded
-subscription here (subscribe once, wait for its first value, close).
+subscription here (subscribe once, wait for its first value or first few,
+close).
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra), so the
 module itself imports anywhere.
@@ -99,10 +100,11 @@ class FirstValueWatch:
     """One subscription on the shared loop, held while the caller waits for its first value.
 
     A context manager: entering subscribes to *pv* (aioca ``camonitor``),
-    :meth:`wait` blocks until the first event or its timeout and may be
-    called again on the same subscription, and leaving closes it on every
-    path.  A CA server sends the current value as the first event, so a
-    connected, healthy one answers within a round trip.
+    :meth:`wait` blocks until the first event (or the first *events*) or
+    its timeout and may be called again on the same subscription, and
+    leaving closes it on every path.  :attr:`values` holds the events in
+    arrival order.  A CA server sends the current value as the first event,
+    so a connected, healthy one answers within a round trip.
 
     Raises ``ImportError`` on entering when ``aioca`` (the ``ca`` extra) is
     missing.
@@ -110,15 +112,21 @@ class FirstValueWatch:
 
     def __init__(self, pv: str) -> None:
         self.pv = pv
-        self._arrived = threading.Event()
+        self.values: list[Any] = []
+        self._arrived = threading.Condition()
         self._subscription: Any = None
+
+    def _on_value(self, value: Any) -> None:
+        with self._arrived:
+            self.values.append(value)
+            self._arrived.notify_all()
 
     def __enter__(self) -> FirstValueWatch:
         """Subscribe; the first event sets the flag :meth:`wait` blocks on."""
         from aioca import camonitor
 
         async def _subscribe() -> Any:
-            return camonitor(self.pv, lambda _value: self._arrived.set())
+            return camonitor(self.pv, self._on_value)
 
         future = asyncio.run_coroutine_threadsafe(_subscribe(), _shared_loop())
         try:
@@ -128,9 +136,10 @@ class FirstValueWatch:
             raise
         return self
 
-    def wait(self, timeout: float) -> bool:
-        """Whether the first value has arrived, waiting up to *timeout* seconds."""
-        return self._arrived.wait(timeout)
+    def wait(self, timeout: float, *, events: int = 1) -> bool:
+        """Whether *events* values have arrived, waiting up to *timeout* seconds."""
+        with self._arrived:
+            return self._arrived.wait_for(lambda: len(self.values) >= events, timeout)
 
     def __exit__(self, *exc: object) -> None:
         """Close the subscription on the loop that owns it."""
