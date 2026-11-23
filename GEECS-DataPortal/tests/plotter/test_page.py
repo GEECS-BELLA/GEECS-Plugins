@@ -258,3 +258,101 @@ def test_y2_off_on_a_scan_without_its_column_but_kept(
     )
     saved = json.loads((settings_dir / "default.json").read_text())
     assert saved["y2"] == ALIASED
+
+
+def test_a_refused_copy_opens_the_help_from_its_no_clipboard_branch(
+    client: TestClient,
+) -> None:
+    """Both copy paths (the plot's, the strip's Copy grid) open the help
+    when the page has no clipboard, and the page loads it before them."""
+    page = post(client, scan=1)
+    help_tag = 'static/clipboard_help.js" defer'
+    assert help_tag in page
+    assert page.index(help_tag) < page.index('static/plot_tools.js" defer')
+    for name in ("plot_tools.js", "strip_export.js"):
+        script = (_PKG / "static" / name).read_text()
+        branch = script[script.index("if (!CLIPBOARD_OK)") :][:160]
+        assert "refused()" in branch, name
+        assert "ClipboardHelp.show()" in script
+
+
+#: A document just big enough for clipboard_help.js: elements keep their
+#: attributes, children and text; the dialog records showModal and close.
+_HELP_HARNESS = r"""
+const made = [];
+function element(tag) {
+  const el = { tag, attrs: {}, kids: [], listeners: {}, open: false,
+    setAttribute(k, v) { this.attrs[k] = v; },
+    append(...c) { this.kids.push(...c); },
+    addEventListener(kind, fn) { this.listeners[kind] = fn; },
+    showModal() { this.open = true; }, close() { this.open = false; } };
+  made.push(el);
+  return el;
+}
+const text = (el) => typeof el === "string" ? el : el.kids.map(text).join("");
+const body = element("body");
+globalThis.document = { createElement: element, body };
+globalThis.location = { origin: ORIGIN };
+// node has a navigator of its own, read-only: replace it outright.
+Object.defineProperty(globalThis, "navigator", { value: { userAgent: AGENT }, configurable: true });
+globalThis.window = globalThis;
+window.isSecureContext = SECURE;
+"""
+
+
+def _help_shown(origin: str, agent: str, secure: bool) -> dict:
+    """Load clipboard_help.js under node, call show(), report the dialog."""
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to run clipboard_help.js")
+    run = (
+        _HELP_HARNESS.replace("ORIGIN", json.dumps(origin))
+        .replace("AGENT", json.dumps(agent))
+        .replace("SECURE", json.dumps(secure))
+        + (_PKG / "static" / "clipboard_help.js").read_text()
+        + r"""
+window.ClipboardHelp.show();
+window.ClipboardHelp.show();
+const dialogs = body.kids.filter((el) => el.tag === "dialog");
+const ok = made.find((el) => el.tag === "button");
+const shown = { count: dialogs.length, id: dialogs[0].attrs.id,
+  open: dialogs[0].open, text: text(dialogs[0]) };
+ok.listeners.click();
+shown.closed = !dialogs[0].open;
+console.log(JSON.stringify(shown));
+"""
+    )
+    done = subprocess.run([node, "-e", run], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+CHROME = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/131.0 Safari/537.36"
+EDGE = CHROME + " Edg/131.0"
+FIREFOX = "Mozilla/5.0 (X11; Linux x86_64; rv:115.0) Gecko/20100101 Firefox/115.0"
+
+
+def test_on_plain_http_the_help_names_the_address_and_chromes_flag() -> None:
+    shown = _help_shown("http://192.168.6.10:8200", CHROME, secure=False)
+    assert shown["count"] == 1 and shown["id"] == "clip-help"  # built once
+    assert shown["open"] and shown["closed"]  # stays open until OK
+    assert "http://192.168.6.10:8200" in shown["text"]
+    assert "https address" in shown["text"]
+    assert "chrome://flags/#unsafely-treat-insecure-origin-as-secure" in shown["text"]
+
+
+def test_edge_gets_its_own_flags_page_and_firefox_none() -> None:
+    edge = _help_shown("http://192.168.6.10:8200", EDGE, secure=False)["text"]
+    assert "edge://flags/#unsafely" in edge and "chrome://" not in edge
+    firefox = _help_shown("http://192.168.6.10:8200", FIREFOX, secure=False)["text"]
+    assert "flags" not in firefox and "https address" in firefox
+
+
+def test_on_a_secure_page_the_help_blames_the_browser_not_the_address() -> None:
+    shown = _help_shown("http://127.0.0.1:8200", FIREFOX, secure=True)
+    assert "This browser cannot put pictures on the clipboard" in shown["text"]
+    assert "127.0.0.1:8200" not in shown["text"] and "flags" not in shown["text"]

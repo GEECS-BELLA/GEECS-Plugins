@@ -140,3 +140,8 @@
 /* The grid export's "full res" switch: pressed reads like the kit's .seg pick. */
 .kit .btn[data-strip-full][aria-pressed="true"] { color: var(--ink); background: var(--surface-2); font-weight: 600; }
 .conditions + .scan-scalars { margin-top: calc(-0.5 * var(--gap)); }
+
+/* The clipboard help dialog (clipboard_help.js), at the kit's dialog width:
+   an address or flags page selected whole on one click, to copy by hand. */
+.kit #clip-help ol { margin: 0; padding-left: 1.25rem; font-size: 13px; color: var(--slate); display: flex; flex-direction: column; gap: 6px; }
+.kit .clip-paste { user-select: all; word-break: break-all; color: var(--ink); }

@@ -22,6 +22,10 @@
   if (!holder || !copyButton || !saveButton) return;
   const toast = (text) => { if (window.GeecsKit) window.GeecsKit.toast(text); };
   const CLIPBOARD_OK = !!(navigator.clipboard && window.ClipboardItem);
+  const refused = () => {
+    if (window.ClipboardHelp) window.ClipboardHelp.show();
+    else toast("Clipboard needs an https or localhost page: downloaded the PNG instead");
+  };
   const MAX_WIDTH = 6000;  // px; a wider grid is scaled down to this
   const FULL_KEY = "geecs.strip.fullres";
   const fullButton = document.querySelector("[data-strip-full]");
@@ -188,10 +192,11 @@
   });
   copyButton.addEventListener("click", async () => {
     // A bitmap reaches the clipboard only on a secure (https or localhost)
-    // page; elsewhere the grid downloads, and the toast says why.
+    // page; elsewhere the grid downloads, and a dialog says why and how to
+    // copy from this address (it stays until read; a toast was missed).
     const png = render();
     if (!CLIPBOARD_OK) {
-      try { download(await png); toast("Clipboard needs an https or localhost page: downloaded the PNG instead"); }
+      try { download(await png); refused(); }
       catch (error) { toast(`Could not copy the grid: ${reason(error)}`); }
       return;
     }
