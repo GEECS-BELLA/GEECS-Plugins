@@ -44,6 +44,7 @@ from geecs_interlocks.present import (
     KIT_STATE,
     is_age,
     number_text,
+    stall_age,
     status_is_age,
     verdict_text,
 )
@@ -82,15 +83,22 @@ def status_json(status: InterlockStatus) -> dict[str, Any]:
 def snapshot_json(snapshot: Snapshot, engine: Engine) -> dict[str, Any]:
     """The whole snapshot as the page reads it: the verdict, every interlock, the stream."""
     headline, detail = verdict_text(snapshot)
+    safe = snapshot.safe
+    stalled = stall_age(snapshot)
+    if stalled is not None:
+        # Every reader treats an old snapshot as no snapshot, as the stream does.
+        safe, headline = False, "Not updating"
+        detail = f"evaluation stopped {stalled:.0f} s ago"
     order = ("tripped", "waiting", "settling", "ok", "off")
     statuses = sorted(snapshot.statuses, key=lambda s: order.index(s.state))
     return {
         "taken": snapshot.taken,
         "sent": time.time(),
-        "safe": snapshot.safe,
+        "safe": safe,
+        "stalled": stalled is not None,
         "headline": headline,
         "detail": detail,
-        "kit_state": "ok" if snapshot.safe else "failed",
+        "kit_state": "ok" if safe else "failed",
         "source": snapshot.source,
         "configuration": engine.path.stem if engine.path is not None else None,
         "clients": len(engine.stream.clients()),

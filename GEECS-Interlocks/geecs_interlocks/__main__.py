@@ -91,7 +91,10 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--arm-at-start",
         action="store_true",
-        help="arm the config_change interlocks once their settings have arrived",
+        help=(
+            "arm the config_change interlocks with the first settings that arrive: "
+            "by hand only, never in an automatic restart (it would arm a changed setting)"
+        ),
     )
 
     listen = commands.add_parser("listen", help="print the frames a server sends")
@@ -224,6 +227,10 @@ def serve(args: argparse.Namespace) -> int:
         sender = FakeSender(engine.signals.ports())
         sender.start()
     if args.arm_at_start:
+        logger.warning(
+            "--arm-at-start: the settings checks hold whatever values arrive first; "
+            "use it only when those settings are known to be right"
+        )
         threading.Thread(target=_arm_when_ready, args=(engine,), daemon=True).start()
     host, port = engine.stream.address
     logger.info(

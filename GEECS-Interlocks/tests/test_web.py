@@ -124,3 +124,20 @@ class TestTemplateGuards:
 
     def test_no_inline_scripts(self):
         assert inline_scripts(WEB / "templates" / "index.html") == []
+
+
+def test_a_stalled_snapshot_is_never_reported_safe(engine):
+    """/api/status follows the stream's rule: an old snapshot is no snapshot."""
+    import dataclasses
+    import time as _time
+
+    from geecs_interlocks.monitor import InterlockStatus, Snapshot
+    from geecs_interlocks.web import snapshot_json
+
+    safe = Snapshot((InterlockStatus("a", "", "", "ok"),), mono=_time.monotonic() - 5)
+    assert safe.safe
+    data = snapshot_json(safe, engine)
+    assert data["safe"] is False and data["stalled"] is True
+    assert data["headline"] == "Not updating" and data["kit_state"] == "failed"
+    fresh = dataclasses.replace(safe, mono=_time.monotonic())
+    assert snapshot_json(fresh, engine)["safe"] is True

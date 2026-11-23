@@ -24,7 +24,7 @@ it; the log goes to stderr.
 | `--config NAME` | Run the configuration `interlocks/NAME.yaml` |
 | `--interlocks FILE` | Run a configuration file from anywhere instead |
 | `--experiment NAME` | The experiment, when `config.ini` names none |
-| `--arm-at-start` | Arm the settings checks once their values arrive |
+| `--arm-at-start` | Arm the settings checks with the first values that arrive (see below) |
 | `--no-web` | Do not serve the web page |
 | `--fake-devices` | Fake GEECS devices on this computer: try everything without the lab |
 
@@ -79,7 +79,7 @@ say). Master Control sees one line per interlock.
 | Threshold | A variable crosses a limit (`>`, `>=`, `<`, `<=`, `==`, `!=`) |
 | Alignment | A variable is the tolerance or further from a target variable |
 | Stale | A device disconnects, or (with a maximum age) stops publishing |
-| External signal | A program outside GEECS sends a UDP packet starting with `warning` or `unsafe`, until it sends one starting with `safe` |
+| External signal | A program outside GEECS sends a UDP packet starting with `warning` or `unsafe`, until it sends one starting with `safe` (from its `sender` address, when one is set) |
 | Settings unchanged | A device's settings move from the values recorded when it was armed |
 
 An interlock is also unsafe before anything has been heard from its
@@ -94,7 +94,17 @@ A sender's packet must **start** with `safe`, `warning` or `unsafe`
 counts as unsafe until a recognised packet arrives, so `not safe` can never
 read as safe. A sender that also sends keepalive or status packets in
 other words trips the signal with each one: it should send only those
-three words.
+three words. Set the check's `sender` to the sending computer's address so
+no other host can clear the signal: a packet from anywhere else counts as
+unsafe.
+
+!!! warning "Arming settings"
+    A **settings unchanged** check is unsafe until it is armed, and arming
+    records whatever values the device reports at that moment. Today the
+    only way to arm is `--arm-at-start`, which takes the first values that
+    arrive: use it when you start the server by hand with the settings known
+    to be right, never in an automatic restart, which would arm a setting
+    someone had just changed. Arming from the web page comes next.
 
 ## Edit a configuration
 

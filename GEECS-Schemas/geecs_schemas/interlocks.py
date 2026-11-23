@@ -180,6 +180,14 @@ class ExternalCondition(SchemaModel):
         "",
         description="Optional name of the sending program, shown to operators.",
     )
+    sender: str = Field(
+        "",
+        description=(
+            "The sending computer's IP address. When set, a packet from any "
+            "other address is unrecognised (unsafe): no other host can clear "
+            "the signal. Leave empty to accept any sender."
+        ),
+    )
     max_age_s: float | None = Field(
         None,
         gt=0,

@@ -66,6 +66,13 @@ the code.
 - **Logging has one owner.** `main` configures it (stderr, which journald
   keeps under a unit); uvicorn runs with `log_config=None`, because its own
   config replaces the handlers already installed.
+- **Arming records the moment, so it is a person's act.** `config_change`
+  holds the settings seen when it is armed. `--arm-at-start` arms the first
+  values that arrive and must never run in an automatic restart (a unit's
+  `ExecStart`): it would arm a setting someone had just changed.
+- **An external signal can name its sender.** `ExternalCondition.sender`
+  set, a packet from any other address is unsafe, so a stray host (or a
+  forgotten `--fake-devices` run) cannot clear it.
 - **Facility values have one home:** ports, bind hosts and the wire format
   come from `config.ini [interlocks]`; without them every server listens
   on `127.0.0.1` only.

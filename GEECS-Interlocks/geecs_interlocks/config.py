@@ -38,6 +38,7 @@ from pathlib import Path
 from geecs_core.configs_repo import (
     read_config_entry,
     scanner_configs_base,
+    settled_exists,
 )
 from geecs_schemas import INTERLOCKS_FOLDER, InterlockSet
 from pydantic import BaseModel, ConfigDict, Field
@@ -126,7 +127,9 @@ def load_interlocks(path: Path | None) -> tuple[InterlockSet, str]:
     """
     if path is None:
         return InterlockSet(), "no configs repo found (config.ini [Paths])"
-    if not path.exists():
+    # The configurator fast-forwards this checkout: wait out a rewrite in
+    # progress so a file is never read missing or half written.
+    if not settled_exists(path):
         logger.warning("no interlocks file at %s", path)
         return InterlockSet(), f"no interlocks file at {path}"
     return InterlockSet.from_path(path), str(path)

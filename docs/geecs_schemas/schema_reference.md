@@ -498,6 +498,7 @@ Unsafe while an external program says so over UDP.
 | `kind` | `'external'` | yes | — | Condition type. 'external' follows UDP status packets. |
 | `port` | `int` | yes | — | UDP port the interlock server listens on for this signal. Conditions naming the same port share one signal. |
 | `source` | `str` | no | '' | Optional name of the sending program, shown to operators. |
+| `sender` | `str` | no | '' | The sending computer's IP address. When set, a packet from any other address is unrecognised (unsafe): no other host can clear the signal. Leave empty to accept any sender. |
 | `max_age_s` | `float (optional)` | no | None | Seconds without a packet before the signal counts as lost. Leave empty when the sender transmits only on a change (silence is normal). |
 
 ### ConfigChangeCondition

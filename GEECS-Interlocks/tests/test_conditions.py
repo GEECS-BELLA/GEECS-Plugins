@@ -226,3 +226,26 @@ class TestStaleness:
     def test_a_silent_device_is_unsafe(self):
         verdict = evaluate(thr(), Inputs(value=0, stale=[("G", 7.25)]), tripped=False)
         assert verdict.unsafe and verdict.diagnostic == "G: no new data for 7.2 s"
+
+
+class TestExternalSender:
+    def check(self, sender, expected):
+        condition = ExternalCondition(kind="external", port=5050, sender=expected)
+        signal = SignalReading(False, 0.0, "safe", sender)
+        return evaluate(condition, Inputs(signal=signal, age_s=1.0), tripped=False)
+
+    def test_the_named_sender_clears_it(self):
+        assert not self.check("10.0.0.5", "10.0.0.5").unsafe
+
+    def test_any_other_host_cannot(self):
+        verdict = self.check("10.0.0.9", "10.0.0.5")
+        assert verdict.unsafe and "expected 10.0.0.5" in verdict.diagnostic
+
+    def test_no_sender_set_accepts_any(self):
+        assert not self.check("10.0.0.9", "").unsafe
+
+
+def test_an_unarmed_check_names_no_missing_control():
+    change = ConfigChangeCondition(kind="config_change", device="W", variables=["P"])
+    verdict = evaluate(change, Inputs(settings={"P": 1}, baseline=None), tripped=False)
+    assert verdict.diagnostic == "W: not armed"

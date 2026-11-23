@@ -119,6 +119,12 @@
           "title": "Source",
           "type": "string"
         },
+        "sender": {
+          "default": "",
+          "description": "The sending computer's IP address. When set, a packet from any other address is unrecognised (unsafe): no other host can clear the signal. Leave empty to accept any sender.",
+          "title": "Sender",
+          "type": "string"
+        },
         "max_age_s": {
           "anyOf": [
             {

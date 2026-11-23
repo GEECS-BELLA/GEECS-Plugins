@@ -170,3 +170,14 @@ class TestReloadRollback:
             assert [s.name for s in eng.snapshot().statuses] == ["vac"]
         finally:
             eng.stop()
+
+
+def test_loading_waits_out_a_checkout_rewrite(tmp_path, monkeypatch):
+    """The file is looked for through settled_exists (the configurator fast-forwards it)."""
+    import geecs_interlocks.config as config
+
+    path = write(tmp_path / "main.yaml", threshold())
+    seen = []
+    monkeypatch.setattr(config, "settled_exists", lambda p: seen.append(p) or True)
+    config.load_interlocks(path)
+    assert seen == [path]

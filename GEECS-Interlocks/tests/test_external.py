@@ -223,3 +223,13 @@ class TestFakeSender:
         finally:
             sender.stop()
             listener.stop()
+
+
+def test_the_listener_records_the_sender():
+    listener = UdpListener(0, LOCAL)
+    listener.start()
+    try:
+        send(listener.address[1], "safe")
+        assert wait_for(lambda: listener.reading().sender == LOCAL)
+    finally:
+        listener.stop()

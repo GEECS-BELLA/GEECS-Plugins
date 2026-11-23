@@ -262,6 +262,13 @@ def _external(
     max_age = condition.max_age_s
     if max_age is not None and age_s is not None and age_s > max_age:
         return Verdict(True, f"{name}: no packet for {age_s:.1f} s (max {max_age:g} s)")
+    if condition.sender and signal.sender != condition.sender:
+        # Any other host's packet is not this signal: never let it clear it.
+        return Verdict(
+            True,
+            f"{name}: packet from {signal.sender or 'an unknown sender'}, "
+            f"expected {condition.sender}",
+        )
     if signal.state is None:
         return Verdict(True, f"{name}: unrecognised packet {signal.raw!r}")
     if signal.state:
@@ -283,7 +290,7 @@ def _config_change(
     baseline: Mapping[str, Any] | None,
 ) -> Verdict:
     if baseline is None:
-        return Verdict(True, f"{condition.device}: not armed (press Arm)")
+        return Verdict(True, f"{condition.device}: not armed")
     missing = [v for v in condition.variables if settings.get(v) is None]
     if missing:
         return Verdict(

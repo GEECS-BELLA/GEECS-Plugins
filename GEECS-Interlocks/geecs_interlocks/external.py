@@ -55,11 +55,14 @@ class SignalReading:
         the first.
     raw :
         The last packet's text (trimmed), for operators.
+    sender :
+        The address the last packet came from.
     """
 
     state: bool | None = None
     received: float | None = None
     raw: str = ""
+    sender: str = ""
 
 
 #: The reading of a signal nothing has been heard from.
@@ -182,11 +185,8 @@ class UdpListener:
         raw = payload.decode("utf-8", errors="replace").strip()[:RAW_KEPT]
         with self._lock:
             old = self._reading
-            self._reading = SignalReading(
-                state,
-                time.monotonic(),
-                raw,  # unrecognised = unknown = unsafe
-            )
+            # An unrecognised packet stores state None: unknown, so unsafe.
+            self._reading = SignalReading(state, time.monotonic(), raw, sender)
         port = self.address[1]
         if state is None:
             logger.warning("UDP %d: unrecognised packet %r from %s", port, raw, sender)
