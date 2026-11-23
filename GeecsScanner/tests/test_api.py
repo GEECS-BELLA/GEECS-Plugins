@@ -353,6 +353,46 @@ def test_a_gateway_withholding_monitors_refuses_even_acknowledged(
     assert queue["running"] is None and queue["waiting"] == []
 
 
+def test_preflight_outcomes_on_the_wire_are_pinned(
+    manager: DemoQueueClient, streams, tmp_path
+) -> None:
+    """Each outcome's bytes as the page, GEECS-MCP and the saved records read them."""
+    from geecs_bluesky.qs_client import PreflightReport
+    from geecs_schemas import PreflightCheckResult, PreflightOutcome
+
+    from geecs_scanner.service import ScannerService
+    from geecs_scanner.service.demo import DemoResolver
+    from geecs_scanner.web import create_app
+
+    def preflight(preset, experiment, **_):
+        report = PreflightReport()
+        for result in PreflightCheckResult:
+            report.outcomes.append(
+                PreflightOutcome(check=f"c_{result.value}", result=result, detail="ü")
+            )
+        report.passed("bare")
+        return report
+
+    service = ScannerService(
+        manager,
+        DemoResolver(),
+        experiment="Demo",
+        identity="geecs-scanner test",
+        streams=streams,
+        preflight=preflight,
+        heartbeat_path=tmp_path / "heartbeat.json",
+    )
+    client = TestClient(create_app(service))
+    body = client.post("/api/preflight", json=service.preset("eb_align_1hz")).content
+    assert (
+        '"outcomes":['
+        '{"check":"c_passed","result":"passed","detail":"ü"},'
+        '{"check":"c_continued","result":"continued","detail":"ü"},'
+        '{"check":"c_skipped","result":"skipped","detail":"ü"},'
+        '{"check":"bare","result":"passed","detail":""}]'
+    ).encode() in body
+
+
 def test_append_queues_in_order_and_remove_drops_only_a_waiting_item(
     client: TestClient, service
 ) -> None:

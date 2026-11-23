@@ -45,6 +45,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Optional
 
+from geecs_schemas import PreflightCheckResult, PreflightOutcome
+
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.trajectory import TrajectoryOut
 from geecs_scanner.service.models import (
@@ -61,7 +63,6 @@ from geecs_scanner.service.models import (
     SetBestIn,
     PlanCallOut,
     PreflightOut,
-    PreflightOutcomeOut,
     PreflightQuestionOut,
     ProgressOut,
     QueueOut,
@@ -525,7 +526,10 @@ class ScannerService:
                 ],
             )
         outcomes = list(report.outcomes) + [
-            (q.check, "continued", q.message) for q in report.questions
+            PreflightOutcome(
+                check=q.check, result=PreflightCheckResult.CONTINUED, detail=q.message
+            )
+            for q in report.questions
         ]
         from geecs_bluesky.qs_client import build_submission_record
 
@@ -1353,10 +1357,7 @@ def _preflight_out(report: Any) -> PreflightOut:
     return PreflightOut(
         refusal=report.refusal,
         questions=[PreflightQuestionOut(**vars(q)) for q in report.questions],
-        outcomes=[
-            PreflightOutcomeOut(check=c, result=r, detail=d)
-            for c, r, d in report.outcomes
-        ],
+        outcomes=list(report.outcomes),
     )
 
 

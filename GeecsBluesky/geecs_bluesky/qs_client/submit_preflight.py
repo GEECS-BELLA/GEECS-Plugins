@@ -30,7 +30,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
+
+if TYPE_CHECKING:
+    from geecs_schemas import PreflightOutcome, SubmissionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +79,31 @@ class PreflightReport:
     ``refusal`` set means submission must not proceed (a check refused) —
     ``questions`` and ``outcomes`` are then partial and irrelevant.
     ``outcomes`` holds the already-decided checks as
-    ``(check, result, detail)`` tuples in the ``PreflightOutcome``
-    vocabulary (``passed`` / ``skipped``); each entry in ``questions``
-    becomes ``continued`` (or an abort) once the operator answers.
+    :class:`geecs_schemas.PreflightOutcome` (``passed`` / ``skipped``);
+    each entry in ``questions`` becomes ``continued`` (or an abort) once
+    the operator answers.
     """
 
     refusal: Optional[str] = None
-    outcomes: list[tuple[str, str, str]] = field(default_factory=list)
+    outcomes: list[PreflightOutcome] = field(default_factory=list)
     questions: list[PreflightQuestion] = field(default_factory=list)
+
+    def passed(self, check: str, detail: str = "") -> None:
+        """Record *check* as ``passed``, with an optional note."""
+        self._decide(check, "passed", detail)
+
+    def skipped(self, check: str, detail: str) -> None:
+        """Record *check* as ``skipped`` (it could not run), saying why."""
+        self._decide(check, "skipped", detail)
+
+    def _decide(self, check: str, result: str, detail: str) -> None:
+        from geecs_schemas import PreflightCheckResult, PreflightOutcome
+
+        self.outcomes.append(
+            PreflightOutcome(
+                check=check, result=PreflightCheckResult(result), detail=detail
+            )
+        )
 
 
 def run_submit_preflight(
@@ -138,7 +158,7 @@ def run_submit_preflight(
 
         resolver = resolver or _make_default_resolver(experiment)
         item = expand_preset(preset, catalog=catalog, resolver=resolver)
-        report.outcomes.append(("validate", "passed", ""))
+        report.passed("validate")
     except Exception as exc:  # noqa: BLE001 — refusal carries the error
         report.refusal = str(exc)
         return report
@@ -159,7 +179,7 @@ def run_submit_preflight(
         )
     except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning("worker-ready preflight failed: %s", exc)
-        report.outcomes.append(("worker_ready", "skipped", str(exc)))
+        report.skipped("worker_ready", str(exc))
     if report.refusal is not None:
         return report
 
@@ -219,7 +239,7 @@ def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) 
     except (ValidationError, GeecsConfigurationError, TypeError, ValueError) as exc:
         report.refusal = str(exc)
         return report
-    report.outcomes.append(("validate", "passed", ""))
+    report.passed("validate")
     if devices:
         _liveness_fail_open(report, devices, experiment)
     return report
@@ -247,7 +267,7 @@ def _fail_open(report: PreflightReport, check: str, run: Callable[[], _T]) -> _T
         return run()
     except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning("%s preflight failed: %s", check, exc)
-        report.outcomes.append((check, "skipped", str(exc)))
+        report.skipped(check, str(exc))
         return None
 
 
@@ -282,18 +302,14 @@ def _check_gateway_monitors(report: PreflightReport, experiment: str) -> None:
         experiment, timeout=_MONITOR_TIMEOUT_S, grace=_MONITOR_GRACE_S
     )
     if verdict == "delivered":
-        report.outcomes.append(("gateway_monitors", "passed", ""))
+        report.passed("gateway_monitors")
     elif verdict == "unreachable":
         logger.warning(
             "gateway_monitors preflight: the gateway heartbeat answered "
             "no get; not judged (fail-open)"
         )
-        report.outcomes.append(
-            (
-                "gateway_monitors",
-                "skipped",
-                "the gateway heartbeat is unreadable: not judged",
-            )
+        report.skipped(
+            "gateway_monitors", "the gateway heartbeat is unreadable: not judged"
         )
     else:
         report.refusal = GATEWAY_MONITORS_REFUSAL.format(
@@ -312,7 +328,7 @@ def _check_loops(report: PreflightReport, devices: list[str], experiment: str) -
 
     stale = probe_stale(experiment, devices, timeout=_LIVENESS_TIMEOUT_S)
     note = f"frozen loop, recorded anyway: {stale_text(stale)}" if stale else ""
-    report.outcomes.append(("device_loops", "passed", note))
+    report.passed("device_loops", note)
 
 
 def _make_default_resolver(experiment: str) -> Any:
@@ -473,9 +489,7 @@ def _check_worker_ready(
         client = _make_default_client(experiment)
     try:
         if isinstance(client, StubQueueClient):
-            report.outcomes.append(
-                ("worker_ready", "skipped", "no [qserver] config — submission is off")
-            )
+            report.skipped("worker_ready", "no [qserver] config — submission is off")
             return item
         # The ONE assembly of ready (status → plans if the env exists →
         # verdict); any client with status() + allowed_plan_names() qualifies.
@@ -509,9 +523,9 @@ def _check_worker_ready(
                 if left_out
                 else ""
             )
-            report.outcomes.append(("worker_ready", "passed", note))
+            report.passed("worker_ready", note)
         elif verdict.state in _FAIL_OPEN_READINESS_STATES:
-            report.outcomes.append(("worker_ready", "skipped", verdict.detail))
+            report.skipped("worker_ready", verdict.detail)
         else:
             report.refusal = verdict.detail
         return item
@@ -549,19 +563,16 @@ def _check_liveness(
 
     down = probe_disconnected(experiment, devices, timeout=_LIVENESS_TIMEOUT_S)
     if not down:
-        report.outcomes.append(("gateway_liveness", "passed", ""))
+        report.passed("gateway_liveness")
         return []
     must = set(devices) if needed is None else set(needed)
     refusing = sorted(d for d in down if d in must)
     left_out = sorted(d for d in down if d not in must)
     everything = bool(listed) and set(listed) <= set(down)
     if not refusing and not everything:
-        report.outcomes.append(
-            (
-                "gateway_liveness",
-                "passed",
-                f"left out, disconnected and not required: {', '.join(left_out)}",
-            )
+        report.passed(
+            "gateway_liveness",
+            f"left out, disconnected and not required: {', '.join(left_out)}",
         )
         return down
     parts: list[str] = []
@@ -594,8 +605,8 @@ def _check_liveness(
 
 
 def build_submission_record(
-    outcomes: list[tuple[str, str, str]], *, client: str
-) -> Any:
+    outcomes: list[PreflightOutcome], *, client: str
+) -> SubmissionRecord:
     """Build the ``SubmissionRecord`` that travels beside the request.
 
     Clients pass it as run metadata —
@@ -606,8 +617,8 @@ def build_submission_record(
     Parameters
     ----------
     outcomes :
-        Final ``(check, result, detail)`` tuples — the report's decided
-        outcomes plus one ``continued`` entry per question answered.
+        Final outcomes — the report's decided ones plus one ``continued``
+        entry per question answered.
     client :
         Client identity string, e.g. ``"geecs-scanner 0.24.0"``.
 
@@ -618,15 +629,12 @@ def build_submission_record(
     """
     from datetime import datetime, timezone
 
-    from geecs_schemas import PreflightOutcome, SubmissionRecord
+    from geecs_schemas import SubmissionRecord
 
     return SubmissionRecord(
         client=client,
         # Aware local time — the tz-offset contract the schema documents
         # (naive datetime.now().isoformat() is exactly the bug to avoid).
         submitted_at=datetime.now(timezone.utc).astimezone().isoformat(),
-        preflight=[
-            PreflightOutcome(check=check, result=result, detail=detail)
-            for check, result, detail in outcomes
-        ],
+        preflight=list(outcomes),
     )

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from geecs_bluesky.qs_client.progress import SlowDevice
+from geecs_schemas import PreflightOutcome
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -174,14 +175,6 @@ class PreflightQuestionOut(BaseModel):
     abort_label: str = "Abort"
 
 
-class PreflightOutcomeOut(BaseModel):
-    """One check already decided (``passed`` / ``skipped``)."""
-
-    check: str
-    result: str
-    detail: str = ""
-
-
 class PlanCallOut(BaseModel):
     """The expanded plan call — what the queue would receive."""
 
@@ -196,7 +189,7 @@ class PreflightOut(BaseModel):
 
     refusal: Optional[str] = None
     questions: list[PreflightQuestionOut] = Field(default_factory=list)
-    outcomes: list[PreflightOutcomeOut] = Field(default_factory=list)
+    outcomes: list[PreflightOutcome] = Field(default_factory=list)
     plan: Optional[PlanCallOut] = None
     summary: str = ""
     planned_shots: Optional[int] = None
