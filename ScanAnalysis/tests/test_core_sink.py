@@ -386,3 +386,37 @@ class TestShotStore:
         scan.mkdir(parents=True)
         with pytest.raises(ValueError):
             shot_store_path(scan_recipe(document()), scan, "../w")
+
+
+def test_band_draws_from_the_shots_and_is_a_display_file(tmp_path):
+    scan = tmp_path / "scans" / "Scan001"
+    scan.mkdir(parents=True)
+    doc = document(True, summaries=[{"kind": "band"}, {"kind": "waterfall"}])
+    shots = tuple(
+        Product(i, product(True).measurement, 11.0 if i < 3 else 21.0)
+        for i in (1, 2, 3, 4)
+    )
+    saved = save_products(
+        ProductPlan(shots=shots, position_label="motor"), scan_recipe(doc), scan
+    )
+    # no bin panels: the waterfall is skipped silently, the band drawn
+    assert [p.name for p in saved.files] == ["Device_summary_band.png"]
+    assert saved.display_files == saved.files
+    assert parse_output_filename(saved.files[0].name) == ("summary", None)
+
+
+def test_band_notes_reach_the_sink_notes(tmp_path):
+    scan = tmp_path / "scans" / "Scan001"
+    scan.mkdir(parents=True)
+    doc = document(True, summaries=[{"kind": "band", "min_shots": 2}])
+    shots = tuple(
+        Product(i, product(True).measurement, p)
+        for i, p in ((1, 1.0), (2, 1.0), (3, 2.0))
+    )
+    saved = save_products(
+        ProductPlan(shots=shots, position_label="motor"), scan_recipe(doc), scan
+    )
+    assert [p.name for p in saved.files] == ["Device_summary_band.png"]
+    assert saved.notes == (
+        "summary_band: motor = 2: 1 shot(s), fewer than min_shots 2; not drawn",
+    )

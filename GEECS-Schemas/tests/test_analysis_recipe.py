@@ -14,6 +14,7 @@ from geecs_schemas.analysis import (
     SUMMARY_KINDS,
     AnalysisRecipe,
     AverageSummary,
+    BandSummary,
     CameraInput,
     ImageGridSummary,
     LineInput,
@@ -62,13 +63,15 @@ class TestRegistry:
         assert SCHEMA_REGISTRY["analysis_recipe"] is AnalysisRecipe
         assert EXPORTED_SCHEMAS["analysis_recipe"] is AnalysisRecipe
 
-    def test_summary_kinds_are_the_frozen_four(self):
+    def test_summary_kinds_are_the_frozen_five(self):
         assert SUMMARY_KINDS == {
             "image_grid": ImageGridSummary,
             "waterfall": WaterfallSummary,
             "average": AverageSummary,
+            "band": BandSummary,
             "scalar_fit": ScalarFitSummary,
         }
+        assert BandSummary.frame_ndim == {1}
         assert ImageGridSummary.frame_ndim == {2}
         assert WaterfallSummary.frame_ndim == {1}
         assert AverageSummary.frame_ndim == {1, 2}
@@ -270,3 +273,29 @@ class TestNames:
         assert declared_schema_version({}) is None
         assert stale_schema_version({"schema_version": "1"}, 2)
         assert not stale_schema_version({}, 2)
+
+
+class TestBandSummary:
+    def test_a_band_is_refused_on_a_camera_recipe(self):
+        with pytest.raises(ValidationError):
+            AnalysisRecipe.model_validate(
+                {
+                    "device": "Cam",
+                    "input": {"kind": "camera"},
+                    "summaries": [{"kind": "band"}],
+                }
+            )
+
+    def test_a_band_round_trips_on_a_line_recipe(self):
+        doc = AnalysisRecipe.model_validate(
+            {
+                "device": "Scope",
+                "input": {"kind": "line", "loading": {"data_type": "npy"}},
+                "summaries": [
+                    {"kind": "band", "statistic": "median", "percentiles": [0.1, 0.9]}
+                ],
+            }
+        )
+        (band,) = doc.summaries
+        assert isinstance(band, BandSummary) and band.percentiles == (0.1, 0.9)
+        assert AnalysisRecipe.model_validate(doc.model_dump()) == doc

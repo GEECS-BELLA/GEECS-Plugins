@@ -1076,7 +1076,7 @@ One device's analysis: input, ordered steps, a measure, the draw, the summaries.
 | `measure` | `MeasureRef` | no | MeasureRef(kind='none') | What is measured on each processed frame. |
 | `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True, workers=1) | How the recipe runs over a scan. |
 | `figure` | `FigureStyle` | no | FigureStyle(imshow={}, pcolormesh={}, plot={}, colorbar={}, axes={}, fig={}, overlays={}) | The per-frame draw, reused by every summary kind. |
-| `summaries` | `list[ImageGridSummary \| WaterfallSummary \| AverageSummary \| ScalarFitSummary]` | no | empty | Scan-level figures, each a frozen kind with its own options; an empty list draws no summary. |
+| `summaries` | `list[ImageGridSummary \| WaterfallSummary \| AverageSummary \| BandSummary \| ScalarFitSummary]` | no | empty | Scan-level figures, each a frozen kind with its own options; an empty list draws no summary. |
 
 Example:
 
@@ -1241,6 +1241,22 @@ The scan's averaged frame (a noscan or count scan), drawn with ``figure``.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'average'` | no | 'average' | The scan's averaged frame. |
+
+### BandSummary
+
+A centre line with the shot-to-shot spread as a band, per bin or per scan.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'band'` | no | 'band' | A centre line with the shot-to-shot spread as a band. |
+| `statistic` | `'mean' \| 'median'` | no | 'mean' | 'mean' draws mean ± sigma standard deviations; 'median' draws the median between the percentiles. |
+| `sigma` | `float` | no | 1.0 | Band half-width in standard deviations (statistic: mean). |
+| `percentiles` | `tuple[float, float]` | no | (0.25, 0.75) | Band (low, high) as fractions in [0, 1] (statistic: median); the default is the quartiles. |
+| `layout` | `'overlay' \| 'panels'` | no | 'overlay' | On a parameter scan: 'overlay' draws every bin on one axes, a colour per bin; 'panels' one panel per bin with a shared y axis. |
+| `columns` | `int (optional)` | no | None | Panels per row (layout: panels); unset squares the grid. |
+| `band_color` | `str (optional)` | no | None | Band colour (any matplotlib colour); unset is gray, except overlay bands, which take their line's colour. |
+| `band_alpha` | `float` | no | 0.3 | Band opacity, 0 to 1. |
+| `min_shots` | `int` | no | 2 | Draw a bin only when at least this many shots reached it. |
 
 ### ScalarFitSummary
 
@@ -1573,3 +1589,4 @@ One readback a captured value was read from.
 |---|---|---|---|---|
 | `device` | `str` | yes | — | The device read. |
 | `variable` | `str` | yes | — | The variable read. |
+

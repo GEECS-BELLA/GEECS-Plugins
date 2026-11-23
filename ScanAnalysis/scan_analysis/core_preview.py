@@ -108,7 +108,8 @@ def preview_summary(
 
     A kind that consumes the ordered panels draws one panel per array at
     its position; the ``average`` kind draws the arrays' noscan average
-    (``average_results``, the run's convention). ``label`` names the
+    (``average_results``, the run's convention); a kind that consumes the
+    shots draws them as one group (every position ``None``), a noscan's. ``label`` names the
     positions (a noscan's ``core_products.NOSCAN_POSITION_LABEL``). Raises
     ``LookupError`` when the document has no summary at *index*,
     ``RenderError`` when the frames cannot be summarised (mixed shapes; a
@@ -132,4 +133,6 @@ def preview_summary(
         if averaged is None:
             raise RenderError("the frames do not average: their shapes differ")
         return draw_summary(options, [averaged], [None], label, figure).figure
+    if summary_definition(options).consumes == "shots":
+        positions = [None] * len(results)
     return draw_summary(options, results, positions, label, figure).figure

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisRecipe
+from geecs_schemas.analysis import AnalysisRecipe, BandSummary
 
 import scan_analysis.base as base
 from scan_analysis.base import DataUnavailableWarning
@@ -371,3 +371,26 @@ def test_write_scalars_into_rows_matches_the_cell_loop(records):
     _cell_by_cell(expected, records)
     write_scalars_into_rows(rows, records)
     pd.testing.assert_frame_equal(rows, expected)
+
+
+@pytest.mark.parametrize("noscan", [False, True])
+def test_a_band_summary_draws_every_shot_by_bin(tmp_path, monkeypatch, noscan):
+    """A recipe with a band keeps every shot's trace; the run writes its figure."""
+    doc = recipe("line")
+    doc = doc.model_copy(
+        update={"summaries": [*doc.summaries, BandSummary(layout="panels")]}
+    )
+    scan, display, plan = run(monkeypatch, tmp_path, "band", doc, noscan=noscan)
+    positions = [p.position for p in plan.shots]
+    assert [p.identifier for p in plan.shots] == list(range(1, SHOTS + 1))
+    if noscan:
+        assert positions == [None] * SHOTS
+    else:
+        # each bin's position is the mean of its scalar rows (1.0 and 1.05, ...)
+        assert positions == pytest.approx([1.025, 1.025, 2.025, 2.025, 3.025, 3.025])
+    assert any(Path(p).name == "Spec_summary_band.png" for p in display)
+
+
+def test_a_recipe_without_a_band_keeps_no_shots(tmp_path, monkeypatch):
+    _, _, plan = run(monkeypatch, tmp_path, "plain", recipe("line"), noscan=False)
+    assert plan.shots == ()

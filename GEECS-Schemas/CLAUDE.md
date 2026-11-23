@@ -80,7 +80,7 @@ the same neutral names (`device`, `data_folder`, `effective_output_name`,
 without asking which it holds. The recipe types the document's frame —
 naming, `input`, `inputs`, `scan`, `figure` (`FigureStyle`, the per-frame
 draw) and the summary kinds' option models (`image_grid`, `waterfall`,
-`average`, `scalar_fit`, each declaring the frame dimensionality it draws,
+`average`, `band`, `scalar_fit`, each declaring the frame dimensionality it draws,
 which the document checks against the input) — and carries `steps` /
 `measure` as registry references (`StepRef` / `MeasureRef`, extra keys
 allowed on purpose): the numerical vocabulary is GEECS-Analysis' registry and is

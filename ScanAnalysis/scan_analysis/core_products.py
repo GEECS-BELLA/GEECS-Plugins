@@ -10,7 +10,7 @@ planning over a sequence of outcomes already in hand, built on it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -45,14 +45,17 @@ class ProductPlan:
 
     ``singles`` are the per-unit products (each bin, or the scan's average on
     a noscan); ``summary`` the ordered panels a scan-level summary kind draws
-    (bin averages, or every shot on a noscan waterfall). Which kinds draw
-    them is the recipe's ``summaries`` list, resolved by the sink.
+    (bin averages, or every shot on a noscan waterfall); ``shots`` every
+    shot's trace at its bin's position (``None`` on an unbinned run), kept
+    only when a kind consumes them (the ``band``). Which kinds draw them is
+    the recipe's ``summaries`` list, resolved by the sink.
     """
 
     singles: tuple[Product, ...] = ()
     summary: tuple[Product, ...] = ()
     position_label: str = ""
     notes: tuple[str, ...] = ()
+    shots: tuple[Product, ...] = ()
 
 
 def bin_of_shot(rows: pd.DataFrame) -> dict[int, int]:
@@ -87,7 +90,10 @@ class ProductCollector:
     waterfall draws it
     (:func:`~geecs_analysis.summaries.waterfall.display_trace`: block means
     once a trace is longer than the figure can show), never the whole
-    recording. :meth:`plan` then chooses the products
+    recording. With ``keep_shots`` (a recipe with a kind consuming
+    ``"shots"``) a line run also keeps every shot's trace the same way,
+    with its bin; a camera run, or one averaging frames before analysis,
+    keeps none. :meth:`plan` then chooses the products
     exactly as the old sequence planner did (see :func:`plan_products`).
     """
 
@@ -99,6 +105,7 @@ class ProductCollector:
         average_before_analysis: bool,
         noscan: bool,
         sort_requested: bool = False,
+        keep_shots: bool = False,
     ) -> None:
         self.recipe = recipe
         self.line = recipe.input_kind == "line"
@@ -116,6 +123,8 @@ class ProductCollector:
         self._bin_of: dict[int, int] = {}
         self._bins: dict[int, RunningAverage] = {}
         self._raw_bins: dict[int, Measurement] = {}
+        self.keep_shots = keep_shots and self.line and not average_before_analysis
+        self._shots: dict[int, Measurement] = {}
         if self.unbinned:
             self._whole = RunningAverage(recipe, mode="noscan")
         elif not average_before_analysis:
@@ -139,23 +148,42 @@ class ProductCollector:
         if self.unbinned:
             self._whole.add(measurement)
             if self.line:
-                frame = measurement.frame
-                self._lengths[key] = frame.data.shape[0]
-                shown = display_trace(frame)
-                # The rows feed only the waterfall, which reads the frame.
-                self._units[key] = (
-                    measurement if shown is frame else Measurement({}, shown)
-                )
+                self._units[key] = self._shown(key, measurement)
+                if self.keep_shots:
+                    self._shots[key] = self._units[key]
         elif self.average_before_analysis:
             self._raw_bins[key] = measurement
         else:
             bin_key = self._bin_of.get(key)
             if bin_key is None:
                 return
+            if self.keep_shots:
+                self._shots[key] = self._shown(key, measurement)
             running = self._bins.get(bin_key)
             if running is None:
                 running = self._bins[bin_key] = RunningAverage(self.recipe, mode="bin")
             running.add(measurement)
+
+    def _shown(self, key: int, measurement: Measurement) -> Measurement:
+        """A unit's trace as a summary draws it; its recorded length noted."""
+        frame = measurement.frame
+        self._lengths[key] = frame.data.shape[0]
+        shown = display_trace(frame)
+        # Kept rows feed only the line summaries, which read the frame.
+        return measurement if shown is frame else Measurement({}, shown)
+
+    def _shot_products(
+        self, position: Callable[[int], float | None], label: str
+    ) -> tuple[tuple[Product, ...], list[str]]:
+        """The kept shots at their positions, refused when recordings differ in length."""
+        shots = tuple(
+            Product(key, self._shots[key], position(key)) for key in sorted(self._shots)
+        )
+        lengths = {self._lengths[p.identifier] for p in shots}
+        if len(lengths) > 1 and max(lengths) > MAX_COLUMNS:
+            # Block means of unequal recordings can share a length.
+            return (), [f"Skipped {label}: traces of different lengths"]
+        return shots, []
 
     def plan(
         self,
@@ -201,6 +229,8 @@ class ProductCollector:
         )
         if not self.line:
             return ProductPlan(singles=singles, notes=tuple(notes))
+        shots, skipped = self._shot_products(lambda key: None, "band")
+        notes.extend(skipped)
         panels = []
         for key in sorted(self._units):
             position = float(key)
@@ -228,12 +258,18 @@ class ProductCollector:
             # waterfall would then stack rows it refuses as recorded. Only
             # the rows the sort kept count, as they did before reduction.
             notes.append("Skipped waterfall: traces of different lengths")
-            return ProductPlan(singles=singles, notes=tuple(notes))
+            return ProductPlan(
+                singles,
+                position_label=sort_column or NOSCAN_POSITION_LABEL,
+                notes=tuple(notes),
+                shots=shots,
+            )
         return ProductPlan(
             singles,
             tuple(panels),
             sort_column or NOSCAN_POSITION_LABEL,
             tuple(notes),
+            shots,
         )
 
     def _plan_binned(
@@ -257,17 +293,30 @@ class ProductCollector:
             }
         panels = []
         notes = []
+        positions: dict[int, float] = {}
+
+        def bin_position(key: int) -> float:
+            # Every scalar row in the bin, not only the loaded shots.
+            if key not in positions:
+                values = rows.loc[rows["Bin #"] == key, parameter_column]
+                positions[key] = float(values.mean())
+            return positions[key]
+
         for key, measurement in sorted(measurements.items()):
             if measurement is None:
                 notes.append(f"Skipped bin {key}: incompatible result shapes")
                 continue
-            position = float(rows.loc[rows["Bin #"] == key, parameter_column].mean())
-            panels.append(Product(key, measurement, position))
+            panels.append(Product(key, measurement, bin_position(key)))
+        shots, skipped = self._shot_products(
+            lambda shot: bin_position(self._bin_of[shot]), "band"
+        )
+        notes.extend(skipped)
         return ProductPlan(
             tuple(panels),
             tuple(panels) if len(panels) > 1 else (),
             parameter_column,
             tuple(notes),
+            shots,
         )
 
 
@@ -283,6 +332,7 @@ def plan_products(
     sort_column: str | None = None,
     sort_bounds: tuple[float, float] | None = None,
     sort_sigma: float | None = 3.0,
+    keep_shots: bool = False,
 ) -> ProductPlan:
     """Choose v2 scan products while retaining the old grouping conventions.
 
@@ -298,7 +348,8 @@ def plan_products(
     The fold is :class:`ProductCollector`'s, one definition for both; a
     scanned per-shot run's bins are folded in scalar-row order whatever
     order the outcomes are given in, the order the old planner reduced in
-    (the analyzer already yields them that way).
+    (the analyzer already yields them that way). ``keep_shots`` keeps every
+    shot's trace for a kind that consumes them (``ProductPlan.shots``).
     """
     collector = ProductCollector(
         recipe,
@@ -306,6 +357,7 @@ def plan_products(
         average_before_analysis=average_before_analysis,
         noscan=noscan,
         sort_requested=sort_requested,
+        keep_shots=keep_shots,
     )
     if not collector.unbinned and not average_before_analysis and "Bin #" in rows:
         position = {int(n): i for i, n in enumerate(rows["Shotnumber"])}

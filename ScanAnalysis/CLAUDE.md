@@ -163,7 +163,11 @@ it** (`geecs_analysis.summaries.waterfall.display_trace`: block means above
 recorded length with any one reduced skip the waterfall with a note); a scanned per-shot run
 keeps one `RunningAverage` per bin, folded in row order — the order the old
 `group_shots`/`average_results` pair reduced in, so the numbers are
-identical; a raw-bin run keeps each bin's measurement. A camera frame is
+identical; a raw-bin run keeps each bin's measurement. A line recipe with a
+kind that consumes `shots` (the `band`) also keeps every shot's display
+trace with its bin (`ProductPlan.shots`, the bin's position or `None` on an
+unbinned run; unequal recordings with any one reduced skip them with a
+note) — a raw-bin run has no shots and keeps none. A camera frame is
 folded and dropped, so a camera scan holds one running frame per product
 however long it is (memory target: bins × one frame or trace + the
 waterfall's display rows + the in-flight window; `test_core_streaming.py`
@@ -182,7 +186,7 @@ resolves the sibling `analysis/ScanNNN/<output_name>/Array{1,2}DScanAnalyzer/`
 directory from an existing raw scan folder, refuses path components and
 symlinks that escape it, and never creates `scans/ScanNNN/`. File names keep
 the legacy shapes (`{device}_{id}_processed.h5`, `_processed_visual.png`,
-`_averaged_image_grid.png`, `_summary_waterfall.png`) so `parse_output_filename`
+`_averaged_image_grid.png`, `_summary_waterfall.png`, `_summary_band.png`) so `parse_output_filename`
 and MCP's display-file contract are unchanged. A summary kind that computes
 scan-level numbers (`scalar_fit`) also gets `<stem>.json` beside its PNG
 (nonfinite as `null`; never a display file; classified `summary` by the
@@ -390,7 +394,7 @@ AnalysisRecipe                    # One YAML per diagnostic (schema_version 3)
   scan: RecipeRuntime             # priority (100 default; lower runs first),
                                   #   average_frames_first, save, workers
   figure: FigureStyle             # the per-frame draw
-  summaries: [Summary]            # image_grid | waterfall | average | scalar_fit
+  summaries: [Summary]            # image_grid | waterfall | average | band | scalar_fit
 
 AnalysisGroup                     # One YAML per group under groups/
   analyzers: List[AnalyzerRef]    # bare stems or {ref, enabled, priority}
