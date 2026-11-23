@@ -141,8 +141,13 @@ class ProductCollector:
         self._shots: dict[int, Measurement] = {}
         if self.unbinned:
             self._whole = RunningAverage(recipe, mode="noscan")
-        if not average_before_analysis and not noscan:
-            # A sorted waterfall's run is unbinned, but its band is still per bin.
+        if (
+            not average_before_analysis
+            and not noscan
+            and (not self.unbinned or self.keep_shots)
+        ):
+            # A sorted waterfall's run is unbinned, but its band is still per
+            # bin; without a band that run never reads the bins.
             self._bin_of = bin_of_shot(rows)
 
     @property

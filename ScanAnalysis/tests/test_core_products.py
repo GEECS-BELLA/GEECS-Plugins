@@ -562,3 +562,20 @@ def test_a_scan_without_a_parameter_column_keeps_no_band_shots():
     )
     assert plan.shots == ()
     assert "summary_band: missing bin or parameter column; not drawn" in plan.notes
+
+
+def test_a_sorted_waterfall_without_a_band_never_reads_the_bins():
+    """Only a band asks a sorted run for its bins (a fractional Bin # refuses)."""
+    frame = rows().assign(**{"Bin #": [1, 1.5, 2, 2, 3, 3], "charge": range(6)})
+    kwargs = dict(
+        average_before_analysis=False,
+        noscan=False,
+        parameter_column="motor",
+        sort_requested=True,
+        sort_column="charge",
+    )
+    outcomes = [band_outcome(n, n) for n in range(1, 7)]
+    plan = plan_products(recipe(True), outcomes, frame, **kwargs)
+    assert len(plan.summary) == 6 and plan.shots == ()
+    with pytest.raises(ValueError, match="integers"):
+        plan_products(recipe(True), outcomes, frame, keep_shots=True, **kwargs)
