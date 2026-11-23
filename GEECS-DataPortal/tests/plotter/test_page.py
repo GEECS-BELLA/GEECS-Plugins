@@ -258,3 +258,24 @@ def test_y2_off_on_a_scan_without_its_column_but_kept(
     )
     saved = json.loads((settings_dir / "default.json").read_text())
     assert saved["y2"] == ALIASED
+
+
+def test_a_copy_the_browser_refuses_says_why_until_read(client: TestClient) -> None:
+    """On a plain-http address Copy downloads; a dialog, not a toast, says why.
+
+    The dialog names this page's address and the Chrome/Edge flag that lets
+    copy work there; both the plot's copy and the strip's Copy grid open it.
+    """
+    page = post(client, scan=1)
+    help_tag = 'static/clipboard_help.js" defer'
+    assert help_tag in page
+    assert page.index(help_tag) < page.index('static/plot_tools.js" defer')
+    helper = (_PKG / "static" / "clipboard_help.js").read_text()
+    assert "location.origin" in helper
+    assert "chrome://flags/#unsafely-treat-insecure-origin-as-secure" in helper
+    assert "showModal" in helper and "GeecsKit.confirm" in helper
+    for name in ("plot_tools.js", "strip_export.js"):
+        script = (_PKG / "static" / name).read_text()
+        assert "if (!CLIPBOARD_OK)" in script
+        assert "ClipboardHelp.show()" in script
+        assert "refused()" in script
