@@ -144,7 +144,10 @@ def test_offsets_shift_each_channel_and_amps_per_volt_scales():
 def test_the_measure_reports_the_current_frame_markers_and_photodiode():
     t, current, pd = scope_shot()
     result = analyze_compiled(table(t, current, pd), compile_recipe(recipe()))
-    assert set(result.scalars) == compile_recipe(recipe()).analysis.measure.emitted_scalars()
+    assert (
+        set(result.scalars)
+        == compile_recipe(recipe()).analysis.measure.emitted_scalars()
+    )
     assert result.frame.unit == "A" and result.frame.axes[0].unit == "ns"
     assert result.frame.axes[0].values[0] == pytest.approx(100.0)
     assert result.extras["photodiode"].axes[0].values[0] == pytest.approx(15.0)
@@ -204,3 +207,25 @@ def test_the_measure_gates_on_photodiode_min_v():
         compile_recipe(recipe(measure={"photodiode_min_v": None})),
     )
     assert np.isfinite(ungated.scalars["laser_time_ns"])
+
+
+def test_a_photodiode_with_no_crossing_is_not_reported_as_below_threshold():
+    t, current, pd = scope_shot()
+    offset = pd + 6.0  # 6 V DC under a 5 V pulse: never below half its 11 V peak
+    result = analyze_compiled(table(t, current, offset), compile_recipe(recipe()))
+    assert np.isnan(result.scalars["laser_time_ns"])
+    assert not any("Photodiode below" in note for note in result.notes)
+    assert any("never below laser_fraction" in note for note in result.notes)
+
+
+def test_a_microsecond_axis_reads_with_either_mu():
+    t, current, pd = scope_shot()
+    base = analyze_compiled(table(t, current, pd), compile_recipe(recipe())).scalars
+    for unit in ("µs", "μs"):
+        doc = recipe().model_dump()
+        doc["input"]["x_unit"] = unit
+        doc["input"]["x_scale"] = 1e6
+        got = analyze_compiled(
+            table(t, current, pd), compile_recipe(AnalysisRecipe.model_validate(doc))
+        ).scalars
+        assert got["laser_minus_peak_ns"] == pytest.approx(base["laser_minus_peak_ns"])

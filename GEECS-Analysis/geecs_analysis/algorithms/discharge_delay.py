@@ -17,8 +17,9 @@ any unit; no baseline is subtracted.
   noise.
 
 A crossing that does not exist (the trace never falls below the level before
-its peak), a missing photodiode, or an arrival outside the current trace's
-time span yields NaN for every quantity that depends on it.
+its peak) or a missing photodiode yields NaN for every quantity that depends
+on it. An arrival outside the current trace's time span leaves only
+``current_at_laser_A`` NaN; the delays are still differences of times.
 """
 
 from __future__ import annotations

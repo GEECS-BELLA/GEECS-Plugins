@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 PHOTODIODE = "photodiode"
 
 #: Nanoseconds per unit of a time axis.
-_NS_PER = {"s": 1e9, "ms": 1e6, "us": 1e3, "µs": 1e3, "ns": 1.0}
+_NS_PER = {"s": 1e9, "ms": 1e6, "us": 1e3, "\u00b5s": 1e3, "\u03bcs": 1e3, "ns": 1.0}
 
 SCALARS: Mapping[str, str] = {
     "peak_current_A": "Maximum of the current trace (volts × amps_per_volt), A",
@@ -139,15 +139,15 @@ def discharge_delay(
     import numpy as np
     from geecs_data_utils.frames import Axis, Frame
 
-    from geecs_analysis.algorithms.discharge_delay import discharge_delay as measure_shot
+    from geecs_analysis.algorithms.discharge_delay import (
+        discharge_delay as measure_shot,
+    )
     from geecs_analysis.measurement import Marker, Measurement
 
     if frame.data.ndim != 1 or frame.data.size < 2:
         raise ValueError("discharge_delay requires a trace of at least two samples")
     time_ns = _time_ns(frame, spec.current_offset_ns)
-    current = (
-        _smoothed(frame.data, time_ns, spec.median_window_ns) * spec.amps_per_volt
-    )
+    current = _smoothed(frame.data, time_ns, spec.median_window_ns) * spec.amps_per_volt
     photodiode = channels.get(PHOTODIODE)
     pd_time = pd = None
     if photodiode is not None:
@@ -179,8 +179,13 @@ def discharge_delay(
     ]
     if photodiode is None:
         notes: tuple[str, ...] = ("No photodiode channel",)
-    elif not np.isfinite(result.laser_time_ns) and spec.photodiode_min_v is not None:
+    elif spec.photodiode_min_v is not None and np.max(pd) < spec.photodiode_min_v:
         notes = (f"Photodiode below {spec.photodiode_min_v} V: no laser timed",)
+    elif not np.isfinite(result.laser_time_ns):
+        notes = (
+            "Photodiode never below laser_fraction of its peak before the peak: "
+            "no laser timed",
+        )
     else:
         notes = ()
     label = frame.axes[0].label or "Time"
