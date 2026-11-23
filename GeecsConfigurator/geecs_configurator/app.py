@@ -532,12 +532,33 @@ def home(request: Request, experiment: str = "", kind: str = "", id: str = "") -
         docs = store.list(kind, experiment) if kind else []
     except NotFound:
         docs = []
+    docs = _own_first(request.app.state.commit, store, kind, experiment, docs)
     return _TEMPLATES.TemplateResponse(request, "home.html", {
         "settings": settings, "experiments": known, "experiment": experiment, "catalogue": catalogue,
         "kind": kind, "docs": docs, "doc_id": id if id in {d.id for d in docs} else "",
         "commits": request.app.state.repo is not None, "scanner": experiment in request.app.state.consumers.scanners, "applies": setups.applies_for(settings, experiment),
         "not_owned": _not_owned(request.app.state.commit, catalogue, kind, experiment, store.folder(kind, experiment) / id if id in {d.id for d in docs} else None),
     })  # fmt: skip
+
+
+def _own_first(commit: CommitPath | None, store: DocumentStore, kind: str, experiment: str, docs: list[Entry]) -> list[Entry]:  # fmt: skip
+    """The documents this box may save first, each half in the store's order.
+
+    In the shared analysis tree a box owns a few facility folders among many,
+    and a listing sorted by name put its own documents below every other
+    facility's. Without the commit path, or where it owns all or none, the
+    order is the store's.
+    """
+    if commit is None or not docs:
+        return docs
+    folder = store.folder(kind, experiment)
+    root = commit.store.root
+
+    def owned(doc: Entry) -> bool:
+        path = folder / doc.id
+        return path.is_relative_to(root) and commit.ownership.owns_file(root, path.relative_to(root).as_posix())  # fmt: skip
+
+    return sorted(docs, key=lambda d: not owned(d))
 
 
 def _not_owned(commit: CommitPath | None, catalogue: list[KindInfo], kind: str, experiment: str, opened: Path | None = None) -> str:  # fmt: skip

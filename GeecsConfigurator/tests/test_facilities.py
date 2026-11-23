@@ -484,3 +484,15 @@ def test_another_facilitys_link_replaced_by_a_file_is_judged_through_the_chain(b
     git("push", "--quiet", "origin", "HEAD:main", cwd=other)
     cp.fetch()
     assert cp.repo.live_head() == chained
+
+
+def test_the_listing_puts_this_boxs_own_folders_first(box: TestClient, other: Path) -> None:  # fmt: skip
+    """Another facility's recipe sorts before Ns by name; the box's own still lists first."""
+    push_change(other, "scan_analysis_configs/analyzers/Aa/first.yaml", "device: x\n", "Aa's recipe")  # fmt: skip
+    _cp(box).fetch()
+    page = box.get("/?kind=analysis_recipe").text
+    ours, theirs = page.index(">Ns/recipe.yaml"), page.index(">Aa/first.yaml")
+    assert ours < theirs
+    # the API keeps the store's order: the listing's order is the page's alone
+    ids = [d["id"] for d in box.get("/api/documents/analysis_recipe").json()]
+    assert ids.index("Aa/first.yaml") < ids.index("Ns/recipe.yaml")
