@@ -274,8 +274,11 @@ class Monitor:
         origin: str = "",
         tick: float = TICK_S,
         clock: Callable[[], float] = time.monotonic,
+        on_tick: Callable[[], None] | None = None,
     ) -> None:
         self._source = source
+        #: Called after every evaluation that succeeds (the systemd watchdog).
+        self._on_tick = on_tick
         self._signals = signals
         self._stale_after = interlocks.stale_after_s
         #: (interlock name, condition index) → the settings recorded at arming.
@@ -321,6 +324,9 @@ class Monitor:
             except Exception:
                 logger.exception("interlock evaluation failed")
                 self._fail_all("evaluation error (see the server log)")
+            else:
+                if self._on_tick is not None:
+                    self._on_tick()
             self._stop.wait(self._tick)
 
     # -- reads ----------------------------------------------------------------

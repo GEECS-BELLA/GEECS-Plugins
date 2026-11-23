@@ -141,3 +141,102 @@ def test_a_stalled_snapshot_is_never_reported_safe(engine):
     assert data["headline"] == "Not updating" and data["kit_state"] == "failed"
     fresh = dataclasses.replace(safe, mono=_time.monotonic())
     assert snapshot_json(fresh, engine)["safe"] is True
+
+
+HOLD = {"kind": "config_change", "device": "W", "variables": ["Pos"]}
+
+
+@pytest.fixture
+def armable(tmp_path):
+    path = tmp_path / "main.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "stale_after_s": None,
+                "interlocks": [
+                    threshold(),
+                    {"name": "stage", "conditions": [HOLD]},
+                ],
+            }
+        )
+    )
+
+    def make(_doc):
+        source = FakeSource()
+        source.push("Gauge", P=1.0)
+        source.push("W", Pos=3.0)
+        return source
+
+    eng = Engine(path, make, Settings(status_port=0))
+    eng.start()
+    eng.monitor.step()
+    yield eng, path, TestClient(create_app(eng))
+    eng.stop()
+
+
+class TestActions:
+    def test_an_action_needs_an_operator(self, armable):
+        eng, _, client = armable
+        for path in ("/api/arm", "/api/reload"):
+            for body in ({}, {"operator": "  "}):
+                r = client.post(path, json=body)
+                assert r.status_code == 400 and "operator" in r.json()["detail"]
+        assert eng.monitor.baseline("stage", 0) is None  # nothing was armed
+
+    def test_arm_all_records_the_settings_and_logs_who(self, armable, caplog):
+        eng, _, client = armable
+        caplog.set_level("INFO")
+        r = client.post("/api/arm", json={"operator": "Ada"})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True, "message": "armed stage", "armed": ["stage"]}
+        assert eng.monitor.baseline("stage", 0) == {"Pos": 3.0}
+        assert "armed stage by Ada" in caplog.text
+
+    def test_arm_one_by_name(self, armable):
+        _, _, client = armable
+        r = client.post("/api/arm", json={"operator": "Ada", "interlock": "stage"})
+        assert r.status_code == 200 and r.json()["armed"] == ["stage"]
+
+    def test_arm_refused_is_409_with_the_engines_words(self, armable, caplog):
+        eng, _, client = armable
+        r = client.post("/api/arm", json={"operator": "Ada", "interlock": "vac"})
+        assert r.status_code == 409 and not r.json()["ok"]
+        assert "holds no settings" in r.json()["message"]
+        assert "by Ada refused" in caplog.text
+
+    def test_arm_refused_while_a_setting_has_no_value(self, armable):
+        eng, _, client = armable
+        eng.monitor._source.drop("W")
+        r = client.post("/api/arm", json={"operator": "Ada"})
+        assert r.status_code == 409 and "cannot arm" in r.json()["message"]
+        assert eng.monitor.baseline("stage", 0) is None
+
+    def test_reload_swaps_the_monitor_and_drops_the_arming(self, armable):
+        eng, _, client = armable
+        client.post("/api/arm", json={"operator": "Ada"})
+        before = eng.monitor
+        r = client.post("/api/reload", json={"operator": "Ada"})
+        assert r.status_code == 200 and r.json()["message"].startswith("reloaded 2")
+        assert eng.monitor is not before
+        assert eng.monitor.baseline("stage", 0) is None
+
+    def test_reload_refused_keeps_the_running_interlocks(self, armable):
+        eng, path, client = armable
+        before = eng.monitor
+        path.write_text("schema_version: 1\ninterlocks: [{name: x}]\n")
+        r = client.post("/api/reload", json={"operator": "Ada"})
+        assert r.status_code == 409 and r.json()["message"].startswith("reload refused")
+        assert eng.monitor is before
+
+    def test_page_carries_the_operator_and_the_actions(self, armable):
+        _, _, client = armable
+        html = client.get("/").text
+        for marker in (
+            'id="operator"',
+            'id="btn-arm"',
+            'id="btn-reload"',
+            'id="btn-arm-one"',
+            '<dialog id="confirm"',
+        ):
+            assert marker in html

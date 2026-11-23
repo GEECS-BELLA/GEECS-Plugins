@@ -1,4 +1,5 @@
-/* The interlocks' web client: live verdict, table, inspector, events — read only.
+/* The interlocks' web client: live verdict, table, inspector, events, and the
+ * two actions on the server (Arm, Reload).
  *
  * The stream (/api/stream) carries every new snapshot. The page counts the
  * age of the last one itself: past STALE_S it shows the stale banner and
@@ -8,6 +9,10 @@
  *
  * The selection lives in the URL (?interlock=<name>), so a link opens the
  * same inspector.
+ *
+ * An action needs the operator's name (kept in this browser, the scanner's
+ * key) and a confirmation in the kit's dialog; it is sent once and the
+ * page shows the server's own message, never a retry.
  */
 (function () {
   "use strict";
@@ -135,6 +140,7 @@
     state.textContent = status.state;
     $("detail-since").textContent = "since " + clock(status.since);
     $("detail-description").textContent = status.description || status.condition;
+    $("btn-arm-one").hidden = !status.armable;
   }
 
   function drawTrend(data) {
@@ -208,6 +214,88 @@
       .then(function (events) { drawHistory(events, $("events")); })
       .catch(function () {});
   }
+
+  // -- the actions -------------------------------------------------------------
+
+  var OP_KEY = "geecs.operator";
+  try { $("operator").value = window.localStorage.getItem(OP_KEY) || ""; } catch (e) { /* private window */ }
+  $("operator").addEventListener("change", function () {
+    try { window.localStorage.setItem(OP_KEY, $("operator").value.trim()); } catch (e) { /* ignore */ }
+  });
+  function operator() { return $("operator").value.trim(); }
+
+  var busy = false;           // one action in flight at a time
+  var pending = null;         // the action the dialog is asking about
+
+  function say(message, failed) {
+    $("action").hidden = false;
+    if (failed) $("action").dataset.state = "error";
+    else delete $("action").dataset.state;
+    $("action-text").textContent = clock(Date.now() / 1000) + "  " + message;
+  }
+
+  function ask(title, question, action) {
+    if (busy) { say("Another action is still running.", true); return; }
+    if (!operator()) {
+      say("Enter your name (operator) before acting.", true);
+      $("operator").focus();
+      return;
+    }
+    pending = action;
+    $("confirm-title").textContent = title;
+    $("confirm-text").textContent = question;
+    window.GeecsKit.confirm($("confirm")).open();
+  }
+
+  $("confirm-ok").addEventListener("click", function () {
+    var action = pending;
+    pending = null;
+    window.GeecsKit.confirm($("confirm")).close();
+    if (action) action();
+  });
+
+  function send(path, body) {
+    busy = true;
+    ["btn-arm", "btn-reload", "btn-arm-one"].forEach(function (id) { $(id).disabled = true; });
+    body.operator = operator();
+    fetch(root + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.json().then(function (data) {
+        // 200/409 carry the engine's message; 400/422 FastAPI's detail.
+        var message = data.message || (typeof data.detail === "string" ? data.detail : r.status + " " + r.statusText);
+        say(message, !(r.ok && data.ok));
+      }, function () { say(r.status + " " + r.statusText, true); });
+    }).catch(function (e) {
+      say("Not sent: " + e.message + ". Check the verdict before trying again.", true);
+    }).then(function () {
+      busy = false;
+      ["btn-arm", "btn-reload", "btn-arm-one"].forEach(function (id) { $(id).disabled = false; });
+      refreshEvents();
+    });
+  }
+
+  $("btn-arm").addEventListener("click", function () {
+    ask("Arm every settings check",
+      "Record the settings every settings check sees now as the ones to hold. " +
+      "Arm only when you know the settings are right.",
+      function () { send("/api/arm", {}); });
+  });
+  $("btn-arm-one").addEventListener("click", function () {
+    var name = selected;
+    ask("Arm " + name,
+      "Record the settings " + name + " sees now as the ones to hold. " +
+      "Arm only when you know they are right.",
+      function () { send("/api/arm", { interlock: name }); });
+  });
+  $("btn-reload").addEventListener("click", function () {
+    ask("Reload the configuration",
+      "Re-read the running configuration file. Every interlock then waits for fresh " +
+      "values (unsafe meanwhile), and every settings check must be armed again.",
+      function () { send("/api/reload", {}); });
+  });
 
   // -- the stream --------------------------------------------------------------
 

@@ -63,6 +63,7 @@ TEMPLATES=(
     GeecsControlRoom/deploy/geecs-control-room.service
     GeecsConfigurator/deploy/geecs-configurator.service
     GeecsAnalysisWorker/deploy/geecs-analysis-worker.service
+    GEECS-Interlocks/deploy/geecs-interlocks.service
     # Per-experiment instance templates (`<unit>@<Instance>`): beside the
     # units above, never instead of them — see deploy/experiments.env.example.
     GeecsCAGateway/deploy/geecs-ca-gateway@.service
@@ -71,6 +72,7 @@ TEMPLATES=(
     GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service
     GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service
     GeecsScanner/deploy/geecs-scanner@.service
+    GEECS-Interlocks/deploy/geecs-interlocks@.service
 )
 if [ $# -gt 0 ]; then TEMPLATES=("$@"); fi
 

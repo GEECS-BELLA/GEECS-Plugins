@@ -65,6 +65,10 @@ def geecs_sources(
     return make
 
 
+#: How a refused reload's message starts (the web route answers 409 on it).
+RELOAD_REFUSED = "reload refused"
+
+
 class Engine:
     """Run the interlocks at *path* over sources from *make_source*.
 
@@ -76,12 +80,21 @@ class Engine:
         Builds the source for a document.
     settings :
         Where the stream and the external signals listen, and the wire format.
+    on_tick :
+        Called after every successful evaluation of whichever monitor runs
+        (the systemd watchdog, :class:`~geecs_interlocks.notify.Notifier`).
     """
 
     def __init__(
-        self, path: Path | None, make_source: SourceFactory, settings: Settings
+        self,
+        path: Path | None,
+        make_source: SourceFactory,
+        settings: Settings,
+        *,
+        on_tick: Callable[[], None] | None = None,
     ) -> None:
         self.path = path
+        self._on_tick = on_tick
         self.settings = settings
         self._make_source = make_source
         self._lock = threading.Lock()
@@ -104,6 +117,7 @@ class Engine:
             self._make_source(interlocks),
             signals=self.signals,
             origin=origin,
+            on_tick=self._on_tick,
         )
 
     def start(self) -> None:
@@ -184,7 +198,7 @@ class Engine:
             if fresh is not None:
                 fresh.stop()
             self.signals.retain(before)  # close only what this reload opened
-            return f"reload refused, old interlocks kept: {exc}"
+            return f"{RELOAD_REFUSED}, old interlocks kept: {exc}"
         with self._lock:
             old, self._monitor = self._monitor, fresh
             self._interlocks = interlocks
@@ -197,6 +211,7 @@ class Engine:
 
 
 __all__ = [
+    "RELOAD_REFUSED",
     "Engine",
     "SourceFactory",
     "device_variables",

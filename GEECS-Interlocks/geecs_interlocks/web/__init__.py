@@ -1,4 +1,4 @@
-"""The web client: a read-only page on the kit, served by the interlock server itself.
+"""The web client: a page on the kit, served by the interlock server itself.
 
 Routes (JSON for the browser only — every file this package writes is YAML):
 
@@ -16,21 +16,30 @@ Routes (JSON for the browser only — every file this package writes is YAML):
 ``GET /api/events?limit=``
     The latest state changes, newest first.
 
-Nothing here writes yet: arming and reloading from the page come next, and
-configurations are edited in the configurator.
+``POST /api/arm`` ``{"operator", "interlock"?}``
+    Arm the settings checks (of one interlock, when named): ``Monitor.arm``.
+``POST /api/reload`` ``{"operator"}``
+    Re-read the running configuration file: ``Engine.reload``.
+
+The two actions act on the server, never on the experiment. Each needs the
+operator's name (400 without it), is logged with it, and answers the
+engine's own message: 200 when done, 409 when refused (nothing to arm, a
+setting with no value yet, a file that does not validate). The page asks
+for a confirmation first. Configurations are edited in the configurator.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from geecs_web_theme.web import (
     ForwardedPrefixMiddleware,
     RevalidatingStaticFiles,
@@ -38,8 +47,10 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_interlocks.engine import Engine
+from geecs_interlocks.engine import RELOAD_REFUSED, Engine
 from geecs_interlocks.monitor import Event, InterlockStatus, Snapshot
+from pydantic import BaseModel, Field
+
 from geecs_interlocks.present import (
     KIT_STATE,
     is_age,
@@ -49,11 +60,41 @@ from geecs_interlocks.present import (
     verdict_text,
 )
 
+logger = logging.getLogger(__name__)
+
 _PKG = Path(__file__).parent
 #: Snapshots sent per second at most, per browser.
 STREAM_HZ = 4.0
 #: Events ``/api/events`` returns when the page asks for no number.
 EVENTS_DEFAULT = 100
+
+
+class ActionIn(BaseModel):
+    """An operator's request to arm or reload."""
+
+    operator: str | None = Field(None, description="Who pressed the button")
+    interlock: str | None = Field(
+        None, description="Arm this interlock only (arm; ignored by reload)"
+    )
+
+
+class ActionOut(BaseModel):
+    """The engine's answer to an action."""
+
+    ok: bool
+    message: str
+    armed: list[str] = Field(default_factory=list)
+
+
+def _operator(body: ActionIn) -> str:
+    operator = (body.operator or "").strip()
+    if not operator:
+        raise HTTPException(400, "enter your name (operator) before acting")
+    return operator
+
+
+def _answer(out: ActionOut) -> JSONResponse:
+    return JSONResponse(out.model_dump(), status_code=200 if out.ok else 409)
 
 
 def status_json(status: InterlockStatus) -> dict[str, Any]:
@@ -130,6 +171,7 @@ def create_app(engine: Engine, *, experiment: str | None = None) -> FastAPI:
     )
     _add_page(app, engine, experiment)
     _add_api(app, engine)
+    _add_actions(app, engine)
     return app
 
 
@@ -201,7 +243,33 @@ def _add_api(app: FastAPI, engine: Engine) -> None:
         )
 
 
+def _add_actions(app: FastAPI, engine: Engine) -> None:
+    @app.post("/api/arm", response_model=ActionOut)
+    def arm(body: ActionIn) -> JSONResponse:
+        operator = _operator(body)
+        name = (body.interlock or "").strip() or None
+        try:
+            armed = engine.arm(name)
+        except ValueError as exc:  # NothingToArm too
+            logger.warning("arm %s by %s refused: %s", name or "(all)", operator, exc)
+            return _answer(ActionOut(ok=False, message=str(exc)))
+        message = f"armed {', '.join(armed)}"
+        logger.info("%s by %s", message, operator)
+        return _answer(ActionOut(ok=True, message=message, armed=armed))
+
+    @app.post("/api/reload", response_model=ActionOut)
+    def reload(body: ActionIn) -> JSONResponse:
+        operator = _operator(body)
+        logger.info("reload asked by %s", operator)
+        message = engine.reload()
+        ok = not message.startswith(RELOAD_REFUSED)
+        (logger.info if ok else logger.warning)("%s (by %s)", message, operator)
+        return _answer(ActionOut(ok=ok, message=message))
+
+
 __all__ = [
+    "ActionIn",
+    "ActionOut",
     "EVENTS_DEFAULT",
     "STREAM_HZ",
     "create_app",
