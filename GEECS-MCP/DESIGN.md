@@ -244,10 +244,9 @@ Polls `GET /api/run/{uid}/analysis` every 2 s until
    `payload`, when given, is the schema's `AnalysisPayload`
    (`{kind: "analysis", analyzer, metrics, figures}`) passed through as a
    dict — the logbook validates it, as the thin-client rule says.
-   (`EntryCreate` therefore stays in the logbook's `routes/entries.py`;
-   GeecsLogbook's CLAUDE.md "deferred decisions" row that planned to move
-   it beside `LogEntry` "for GEECS-MCP to validate" is updated in PR F to
-   record this: the MCP validates nothing.)
+   (`EntryCreate`, the logbook's create body, lives in
+   `geecs_schemas.log_entry` for the Data Portal's plot send; this server
+   still imports nothing and validates nothing.)
 2. For each figure — a portal artifact reference
    `{scan_number, day?, path, caption?}` — resolve `uid` with the §4.4
    jump (once per distinct scan, `matched` checked), then one call to
