@@ -191,8 +191,10 @@ deploy/
   gateway `connected` PV, so a Disconnected LabVIEW device is listed; a live
   one is not read in detail: its roles carry no module verdict); "In alarm" every device whose
   state or any role's verdict is `error` (the module's word for severity
-  major or invalid, and for a tripped fault bit). The strip's run word is
-  the manager's `re_state`, as on the scanner's page. A list the module
+  major or invalid, and for a tripped fault bit). The strip's run word and
+  its kit state are the scanner's own (`/api/status` `run_word`, `run_kit`),
+  so the strip and the scanner's page agree; a scanner that sends neither
+  (older, mid-deploy) falls back to the manager's `re_state`. A list the module
   could not give reads "unknown", never "none". A row's cause is the module's evidence (heartbeat word,
   roles by verdict). The launcher is `<experiment>/home.yaml` (GEECS-Schemas
   `HomeLayout`); its link URLs are settings, never the file's.
@@ -809,7 +811,7 @@ dev-only dependency; `geecs_control_room` never imports it.
 `test_scanner_contract.py` is the strip's: GeecsScanner's own app over its
 demo manager (stepped by hand) behind the scanner client, driven through
 `/api/home/strip`. It pins what the strip reads of `/api/status`
-(`connected`, `re_state`) and `/api/progress` (`scan_number`, `shots_done`,
+(`run_word`, `run_kit`; `connected`, `re_state` for the fallback) and `/api/progress` (`scan_number`, `shots_done`,
 `planned_total`, `state`). geecs-scanner is in the optional `contract`
 group (`poetry install --with dev,contract`): without it the test skips, and
 CI and `scripts/check.sh` fail on that skip.

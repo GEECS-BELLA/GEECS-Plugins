@@ -28,6 +28,8 @@ geecs_scanner/
     streams.py    StreamCache: qs_client ProgressStream + the console ring + optimization record
     demo.py       DemoQueueClient / DemoResolver / demo_preflight — a manager in memory
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
+    verdicts.py   whether start, an idle-only item or a reopen may run now, and the run word:
+                  pure over one poll; the verbs raise them and StatusOut carries them
     setups.py     setups: the preview, the hazard confirms (geecs_schemas.setup_hazards),
                   the apply's questions and the item's md
     scanlog.py    read the run's scan.log from the folder the start document names
@@ -209,6 +211,15 @@ deploy/           the unit template + DEPLOYMENT.md
   page reads one readback per name when it loads or adds it, never polls.
   Not the configs repo: a list edited daily would keep that checkout
   dirty and, once committed, block `git pull` on the host.
+- **The page derives no verdict.** Whether Start queue, a move, a setup, a
+  calibration or Set to best may run, and the run word and its colour, are
+  `service/verdicts.py`'s, computed once per status poll and raised by the
+  verbs themselves (`StatusOut.start_queue_blocker`, `idle_blocker`,
+  `run_word`, `run_kit`). The page relays them, and a field it does not
+  find blocks its control (never a pass); a copy of the rule in
+  `scanner.js` drifts (it did: a reopen ignored). A closed worker
+  environment (no run-engine state, no plans) blocks the idle-only items.
+  The Control Room's strip relays the same run word.
 - **Portal links are URL only.** `--portal-url` (a site value) prefixes
   `/run/<uid>` and `/day/<iso>` links in the rail, and each carries this
   scanner's experiment as the portal's `experiment` query (`portalHref` in

@@ -11,7 +11,7 @@ from geecs_web_theme import PANE_STATES, STATES
 from geecs_web_theme.testing import bare_url_for_calls, unknown_data_states
 
 from geecs_portal import app as portal_app
-from geecs_portal.app import run_state
+from geecs_portal.app import run_state, run_word
 
 _TEMPLATES = sorted(
     (Path(__file__).resolve().parents[1] / "geecs_portal" / "templates").glob("*.html")
@@ -58,6 +58,30 @@ def test_the_page_scripts_state_words_are_kit_words() -> None:
 def test_a_runs_exit_status_is_a_kit_status_word(exit_status, state) -> None:
     assert run_state(exit_status) == state
     assert state in STATES
+
+
+@pytest.mark.parametrize(
+    ("exit_status", "word"),
+    [
+        ("abort", "aborted"),
+        ("success", "success"),
+        ("fail", "fail"),
+        (None, "unknown"),
+        ("", "unknown"),
+    ],  # fmt: skip
+)
+def test_an_aborted_run_reads_aborted(exit_status, word) -> None:
+    """The chip's text for a stored ``abort`` is "aborted", as the scanner and the logbook say it."""
+    assert run_word(exit_status) == word
+
+
+def test_the_run_chips_show_the_run_word() -> None:
+    """Every place a run's exit status is printed goes through ``run_word``."""
+    parent = _TEMPLATES[0].parent
+    for name in ("run.html", "day.html"):
+        page = (parent / name).read_text()
+        assert 'exit_status or "unknown"' not in page, name
+        assert "exit_status | run_word" in page, name
 
 
 def test_the_glue_is_the_themes_own() -> None:
