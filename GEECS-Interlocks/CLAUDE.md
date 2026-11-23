@@ -41,7 +41,7 @@ the code.
   (`{operator}`, `Engine.reload` of the running file, never another path)
   refuse a blank operator (400), log the operator with the outcome, and
   answer the engine's own message (`ActionOut`: 200 done, 409 refused). The
-  page asks for the name (the scanner's `geecs.operator` key), confirms in
+  page asks for the name (remembered in the browser), confirms in
   the kit's dialog, sends once and never retries. A reload, like a start,
   leaves every settings check unarmed.
 - **One snapshot, many readers.** The stream and the page draw the

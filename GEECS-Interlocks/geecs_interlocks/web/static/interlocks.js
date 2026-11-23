@@ -10,8 +10,8 @@
  * The selection lives in the URL (?interlock=<name>), so a link opens the
  * same inspector.
  *
- * An action needs the operator's name (kept in this browser, the scanner's
- * key) and a confirmation in the kit's dialog; it is sent once and the
+ * An action needs the operator's name (kept in this browser's storage)
+ * and a confirmation in the kit's dialog; it is sent once and the
  * page shows the server's own message, never a retry.
  */
 (function () {

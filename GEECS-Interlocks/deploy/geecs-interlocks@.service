@@ -16,9 +16,12 @@
 #
 # One instance per experiment: `systemctl enable --now geecs-interlocks@<Instance>`.
 # Runtime values come from site.env and THEN @EXPERIMENTS_DIR@/<Instance>.env,
-# which overrides it (the experiment, the configuration, the ports — keys in
-# deploy/experiments.env.example). The non-templated unit is the main
-# experiment's.
+# which overrides it (keys in deploy/experiments.env.example). The
+# configuration and the ports are read from GEECS_INTERLOCKS_INSTANCE_* keys,
+# names site.env never sets: an instance file without them leaves the port
+# arguments empty and the server exits 2 (not restarted), so an instance never
+# runs on the main experiment's configuration or stream port. The
+# non-templated unit is the main experiment's.
 #
 # Upgrade: GEECS-Interlocks/DEPLOYMENT.md.
 
@@ -38,7 +41,7 @@ EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
 # Its own clone: a safety reporter never moves with another service's pull
 # (docs/platform/fleet_map.md, one clone per service).
 WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/interlocks-checkout/GEECS-Interlocks
-ExecStart=@POETRY@ run geecs-interlocks serve --experiment ${GEECS_EXPERIMENT} --config ${GEECS_INTERLOCKS_CONFIG} --status-host ${GEECS_INTERLOCKS_STATUS_HOST} --status-port ${GEECS_INTERLOCKS_STATUS_PORT} --web-host ${GEECS_INTERLOCKS_WEB_HOST} --web-port ${GEECS_INTERLOCKS_WEB_PORT} --external-host ${GEECS_INTERLOCKS_EXTERNAL_HOST} $GEECS_INTERLOCKS_EXTRA_ARGS
+ExecStart=@POETRY@ run geecs-interlocks serve --experiment ${GEECS_EXPERIMENT} --config ${GEECS_INTERLOCKS_INSTANCE_CONFIG} --status-host ${GEECS_INTERLOCKS_STATUS_HOST} --status-port ${GEECS_INTERLOCKS_INSTANCE_STATUS_PORT} --web-host ${GEECS_INTERLOCKS_WEB_HOST} --web-port ${GEECS_INTERLOCKS_INSTANCE_WEB_PORT} --external-host ${GEECS_INTERLOCKS_EXTERNAL_HOST} $GEECS_INTERLOCKS_EXTRA_ARGS
 Restart=on-failure
 RestartSec=2
 RestartPreventExitStatus=2

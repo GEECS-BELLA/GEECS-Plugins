@@ -47,7 +47,7 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_interlocks.engine import RELOAD_REFUSED, Engine
+from geecs_interlocks.engine import Engine
 from geecs_interlocks.monitor import Event, InterlockStatus, Snapshot
 from pydantic import BaseModel, Field
 
@@ -261,10 +261,10 @@ def _add_actions(app: FastAPI, engine: Engine) -> None:
     def reload(body: ActionIn) -> JSONResponse:
         operator = _operator(body)
         logger.info("reload asked by %s", operator)
-        message = engine.reload()
-        ok = not message.startswith(RELOAD_REFUSED)
-        (logger.info if ok else logger.warning)("%s (by %s)", message, operator)
-        return _answer(ActionOut(ok=ok, message=message))
+        result = engine.reload()
+        log = logger.info if result.ok else logger.warning
+        log("%s (by %s)", result.message, operator)
+        return _answer(ActionOut(ok=result.ok, message=result.message))
 
 
 __all__ = [

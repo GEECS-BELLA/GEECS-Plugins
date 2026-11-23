@@ -14,6 +14,11 @@
 <script src="{{ root }}/theme/theme-boot.js"></script>
 <link rel="stylesheet" href="{{ root }}/theme/theme.css">
 <link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<style>
+  /* The operator box, as the scanner draws it (tokens only). */
+  .kit .who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+  .kit .who input{font:inherit;font-size:12.5px;height:26px;padding:0 8px;width:11ch;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface);color:var(--ink)}
+</style>
 </head>
 <body class="kit" data-root="{{ root }}" data-stream-hz="{{ stream_hz }}">
 

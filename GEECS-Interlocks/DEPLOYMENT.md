@@ -23,6 +23,11 @@ value below is a placeholder.
   under systemd (exit 2, `RestartPreventExitStatus=2`). After every start
   (and every reload) the settings checks are unarmed, so unsafe, until an
   operator arms them from the page.
+- **The page's actions are open to the lab network.** Anyone who reaches
+  the page and types a name can arm or reload; arming after a setting moved
+  makes the moved value the one held. Bind `GEECS_INTERLOCKS_WEB_HOST` to an
+  interface only operators reach (or put the page behind the front door's
+  access rules), and read the journal's operator lines after an incident.
 - **Its own clone**, `<checkout root>/interlocks-checkout`: no other
   service's pull moves the code that reports to Master Control
   (`docs/platform/fleet_map.md` § "One clone per service").
@@ -44,10 +49,12 @@ service account's `~/.config/geecs_python_api/config.ini` (`[Paths]`), as
 for the other services that read it; the devices are reached through the
 GEECS DB named there.
 
-An instance's file `/etc/geecs/experiments/<Instance>.env` overrides
-`GEECS_INTERLOCKS_CONFIG`, `_STATUS_PORT` and `_WEB_PORT`
-(`deploy/experiments.env.example`: stream `5001+100N`, page `8650+N` for
-slot N).
+An instance's file `/etc/geecs/experiments/<Instance>.env` carries
+`GEECS_INTERLOCKS_INSTANCE_CONFIG`, `_INSTANCE_STATUS_PORT` and
+`_INSTANCE_WEB_PORT` (`deploy/experiments.env.example`: stream `5001+100N`,
+page `8650+N` for slot N): names site.env never sets, so an instance file
+without them makes the instance unit exit 2 rather than run on the main
+experiment's configuration and stream port.
 
 ## First install (main experiment)
 
