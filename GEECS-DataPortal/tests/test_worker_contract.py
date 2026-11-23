@@ -13,6 +13,7 @@ start), and the reply fields asserted are the ones it reads.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import time
 from pathlib import Path
@@ -25,10 +26,14 @@ from geecs_data_utils.data.sfile import sfile_path_for_scan
 from geecs_portal.batch import WorkerLink
 from test_app import FakeCatalog, _client
 
-pytest.importorskip(
-    "geecs_analysis_worker",
-    reason="the contract group is not installed: poetry install --with dev,contract",
-)
+# Skip only when the peer is not installed at all: a peer that is installed
+# but fails to import (a missing dependency of its own) must error, naming
+# the module, not read as an absent group.
+if importlib.util.find_spec("geecs_analysis_worker") is None:
+    pytest.skip(
+        "the contract group is not installed: poetry install --with dev,contract",
+        allow_module_level=True,
+    )
 
 URL = "http://worker.test"
 EXPERIMENT = "Test"

@@ -11,6 +11,7 @@ group (skipped without it): ``geecs_portal`` never imports it (the
 
 from __future__ import annotations
 
+import importlib.util
 import base64
 from pathlib import Path
 
@@ -21,10 +22,14 @@ from geecs_portal import logbook_send
 from geecs_portal.app import create_app
 from test_app import TEST_DAY, FakeCatalog
 
-pytest.importorskip(
-    "geecs_logbook",
-    reason="the contract group is not installed: poetry install --with dev,contract",
-)
+# Skip only when the peer is not installed at all: a peer that is installed
+# but fails to import (a missing dependency of its own) must error, naming
+# the module, not read as an absent group.
+if importlib.util.find_spec("geecs_logbook") is None:
+    pytest.skip(
+        "the contract group is not installed: poetry install --with dev,contract",
+        allow_module_level=True,
+    )
 
 URL = "http://logbook.test"
 UID = "uid-002"  # TEST_DAY, Scan 002 in the fake catalog

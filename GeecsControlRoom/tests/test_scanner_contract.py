@@ -11,6 +11,7 @@ imports it (the ``control-room-edges`` contract).
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import httpx
@@ -21,10 +22,14 @@ from geecs_control_room.app import create_app
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
 
-pytest.importorskip(
-    "geecs_scanner",
-    reason="the contract group is not installed: poetry install --with dev,contract",
-)
+# Skip only when the peer is not installed at all: a peer that is installed
+# but fails to import (a missing dependency of its own) must error, naming
+# the module, not read as an absent group.
+if importlib.util.find_spec("geecs_scanner") is None:
+    pytest.skip(
+        "the contract group is not installed: poetry install --with dev,contract",
+        allow_module_level=True,
+    )
 
 FIRST_SCAN = 46
 SHOTS = 5
