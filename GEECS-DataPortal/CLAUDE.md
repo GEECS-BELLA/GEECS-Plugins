@@ -644,8 +644,9 @@ design rules"). The rules that are the portal's own:
   either view. Where the browser gives the page no clipboard (plain
   `http://` off localhost), copy — the plot's and the strip's Copy grid —
   downloads the PNG and opens `clipboard_help.js`' rung-3 `<dialog>`,
-  never a toast: it stays until read, names the page's address and the
-  Chrome/Edge flag that lets copy work there.
+  never a toast: it stays until read, names the page's address, the https
+  address as the fix and the Chrome/Edge flag as the fallback (on a secure
+  page, that the browser lacks picture copy).
 - **One figure code.** `plotter/figures.py` keeps only what is the
   page's own (GEECSplotter's axis ladder, its layout without a legend,
   the fits) and imports the rest from `figures.py`: the palettes,
