@@ -136,31 +136,6 @@ def test_from_geecs_experiment_attaches_numeric_alarm_limits(monkeypatch) -> Non
     assert cfg.devices[0].variables[0].alarm_limits == AlarmLimits(high=4.0)
 
 
-def test_include_filters_variables() -> None:
-    """``include`` restricts which variables are exposed."""
-    spec = DeviceSpec.from_db_metadata(
-        "U_S1H", "h", 1, U_S1H_META, include=["Current", "Voltage"]
-    )
-    assert {v.geecs_var for v in spec.variables} == {"Current", "Voltage"}
-
-
-def test_include_settable_exposes_control_surface() -> None:
-    """Settable variables survive the include filter with include_settable.
-
-    The include list is the monitoring subset (get='yes'); settable variables
-    are the control surface (camera save/localsavingpath, magnet setpoints)
-    and CA clients need their :SP PVs regardless of the get-list.
-    """
-    # Voltage-only get-list; Current is settable but not monitored.
-    spec = DeviceSpec.from_db_metadata(
-        "U_S1H", "h", 1, U_S1H_META, include=["Voltage"], include_settable=True
-    )
-    assert {v.geecs_var for v in spec.variables} == {"Voltage", "Current"}
-    # Without the flag, the include list is strict (existing behavior).
-    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, U_S1H_META, include=["Voltage"])
-    assert {v.geecs_var for v in spec.variables} == {"Voltage"}
-
-
 def test_dtypes_override() -> None:
     """Per-variable dtype overrides win over the float default."""
     spec = DeviceSpec.from_db_metadata(
@@ -180,9 +155,7 @@ def test_pvdb_built_from_db_spec_has_limits() -> None:
     span as enforced ``DBR_CTRL`` limits so out-of-range client puts fail at
     the CA layer.
     """
-    spec = DeviceSpec.from_db_metadata(
-        "U_S1H", "h", 1, U_S1H_META, include=["Current", "Voltage"]
-    )
+    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, U_S1H_META)
     # __init__ only builds the pvdb — no network until connect() is called.
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
