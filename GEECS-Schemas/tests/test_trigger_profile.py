@@ -61,56 +61,30 @@ class TestTriggerProfile:
     def test_devices_property_lists_distinct_devices(self):
         assert make_profile().devices == [DG, JET]
 
-    def test_v1_empty_variants_block_is_dropped_and_version_normalized(self):
-        # The corpus shape (`variants: {}` on a v1 file) loads as v2.
-        profile = TriggerProfile.model_validate(
-            {
-                "schema_version": 1,
-                "name": "x",
-                "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
-                "variants": {},
-            }
-        )
-        assert profile.schema_version == 2
-        assert "variants" not in profile.model_dump(mode="json")
-
-    def test_v1_populated_variant_is_refused_with_the_remedy(self):
-        with pytest.raises(ValidationError, match="own profile file"):
+    @pytest.mark.parametrize("version", [1, 3])
+    def test_a_schema_version_other_than_2_is_refused(self, version):
+        # v2 is the only format: an older or newer stamp is never lifted.
+        with pytest.raises(ValidationError, match="schema_version") as info:
             TriggerProfile.model_validate(
                 {
+                    "schema_version": version,
                     "name": "x",
                     "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
-                    "variants": {
-                        "laser_off": {
-                            "states": {
-                                "SCAN": [write(DG, "Trigger.Source", "Internal")]
-                            }
-                        }
-                    },
                 }
             )
+        assert "Input should be 2" in str(info.value)
 
-    def test_v1_variant_without_writes_is_a_dropped_no_op(self):
-        # What the retired editor's "Add variant" saved when never filled in.
-        profile = TriggerProfile.model_validate(
-            {
-                "name": "x",
-                "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
-                "variants": {"no_gas": {"states": {}, "description": ""}},
-            }
-        )
-        assert profile.schema_version == 2
-        assert "variants" not in profile.model_dump(mode="json")
-
-    def test_v1_variants_of_the_wrong_shape_is_a_validation_error(self):
-        with pytest.raises(ValidationError, match="must be a mapping"):
+    def test_a_v1_variants_block_is_refused_as_an_unknown_key(self):
+        with pytest.raises(ValidationError, match="variants") as info:
             TriggerProfile.model_validate(
                 {
+                    "schema_version": 2,
                     "name": "x",
                     "states": {"SCAN": [write(DG, "Trigger.Source", "External")]},
-                    "variants": ["laser_off"],
+                    "variants": {},
                 }
             )
+        assert "Extra inputs are not permitted" in str(info.value)
 
     def test_v2_document_round_trips_untouched(self):
         profile = make_profile()
