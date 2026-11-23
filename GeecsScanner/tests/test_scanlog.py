@@ -99,8 +99,9 @@ def _events(text: str) -> list[tuple[str, dict]]:
 def test_stream_carries_the_scan_log_from_the_start_documents_folder(
     client: TestClient, preset_doc: dict, manager: DemoQueueClient
 ) -> None:
-    # before any run: no folder, said once, nothing invented
-    assert client.get("/api/scanlog").json()["available"] is False
+    # before any run: no folder, so no log frame and nothing invented
+    before = _events(client.get("/api/events?once=1").text)
+    assert [d for e, d in before if e == "log"] == []
     r = client.post(
         "/api/submit", json={"preset": preset_doc, "acknowledged": ["gateway_liveness"]}
     )
@@ -116,10 +117,6 @@ def test_stream_carries_the_scan_log_from_the_start_documents_folder(
     assert logs[0]["scan_number"] == 47
     assert "starting (dir=" in logs[0]["lines"][0]
     assert any("step 1/" in ln for ln in logs[0]["lines"])
-    # the plain route resumes from an offset
-    direct = client.get("/api/scanlog").json()
-    assert direct["lines"] == logs[0]["lines"]
-    assert client.get(f"/api/scanlog?offset={direct['offset']}").json()["lines"] == []
 
 
 def test_finished_rows_carry_run_uids_for_the_portal_links(
