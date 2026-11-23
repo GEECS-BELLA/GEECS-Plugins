@@ -24,7 +24,9 @@ experiments.
 
 A document that belongs to another facility's services box is shown
 **read-only here**. You can browse it, but it is saved from the box that
-owns it or by a pull request.
+owns it or by a pull request. In the shared analysis tree, where each
+facility has its own folders, this box's folders are listed first; the list
+scrolls, and every other facility's documents follow.
 
 ![A recipe open in the configurator](assets/configurator_01_document.png)
 
