@@ -51,7 +51,7 @@ fields decides, a reordered list counting as changed.
 | Tier | The save | Kinds (today) |
 |---|---|---|
 | operator | a commit to the configs repo's main, the operator its author ("Name via configurator"), this box the committer | trigger profiles, presets, scan variables, experiment defaults, setups, shot offsets, optimizer configs, screens, the home layout, the analysis recipes, jobs and groups, the archive policy's sampling overrides |
-| maintainer | a pull request on the configs repo, the operator named in its body; the review is the approval and the merge the signature | operator policy, native devices, panel devices, derived channels, the archive policy's membership rules |
+| maintainer | a pull request on the configs repo, the operator named in its body; the review is the approval and the merge the signature | operator policy, native devices, panel devices, derived channels, the archive policy's membership rules, the interlock configurations |
 | code | read-only: a PR in GEECS-Plugins | family files (package data, shown from the package) |
 | parameter, sudo | not built: an IOC record's tuning field (a later arc), an experiment up or down handed to the maintainer as a command | — |
 

@@ -129,6 +129,7 @@ def test_the_maintainer_documents():
     )
     assert maintainer == [
         "derived_channels",
+        "interlocks",
         "native_devices",
         "operator_policy",
         "panel_devices",
