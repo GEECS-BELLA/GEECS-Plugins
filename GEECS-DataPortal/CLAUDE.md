@@ -156,7 +156,8 @@ its jobs (marked `· watch`). The portal never starts a worker:
   second terminal on a laptop) is what runs it. Tests: `tests/test_batch.py` (a fake worker over an
   httpx transport) and `tests/test_worker_contract.py` (the worker's own
   app in process behind `WorkerLink`: the bodies the day page sends, the
-  fields it reads; geecs-analysis-worker is a dev-only dependency).
+  fields it reads; geecs-analysis-worker is in the optional `contract`
+  group, `poetry install --with dev,contract`).
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
   imports `tiled` directly and never talks to the catalog server except
@@ -307,8 +308,8 @@ tests/
   test_logbook_link.py   # the run page's link to the logbook service; /log is not served here
   test_logbook_send.py   # the send: the conversation (fake logbook over an
                          #   httpx transport) and the route's gate ladder
-  test_logbook_contract.py  # the send against the logbook's own app (dev-only dep)
-  test_worker_contract.py   # the batch routes against the worker's own app (dev-only dep)
+  test_logbook_contract.py  # the send against the logbook's own app (contract group)
+  test_worker_contract.py   # the batch routes against the worker's own app (contract group)
   test_page.py       # on the kit: status words, the theme's glue
 ```
 

@@ -10,7 +10,7 @@ tooling. Each subdirectory is an independent Python package with its own
 |---|---|
 | `GEECS-Analysis/` | The pure analysis core: coordinate-aware steps and numpy-free specs; every consumer (ScanAnalysis, the portal, the optimizer) runs recipes through it |
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers, and the analysis worker's job runner (`scan_analysis.worker`: a job is one analysis group over a day's scans, run task by task through the task queue). No web code |
-| `GeecsAnalysisWorker/` | The analysis worker's HTTP service (`scan-analysis-worker`, port 8900): the API and the command over ScanAnalysis' job runner, and its unit template. The Data Portal's day page reaches it over HTTP alone and never starts it; nothing imports it. It starts idle: a watch for a day's new scans runs only once an operator starts one |
+| `GeecsAnalysisWorker/` | The analysis worker's HTTP service (`scan-analysis-worker`, port 8900): the API and the command over ScanAnalysis' job runner, and its unit template. The Data Portal's day page reaches it over HTTP alone and never starts it; nothing imports it at runtime; the portal's contract tests mount its app. It starts idle: a watch for a day's new scans runs only once an operator starts one |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, setups, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisRecipe` v3 document — the analysis core's native shape: input, ordered steps, a measure, the per-frame `figure`, the summary kinds — the `HimgJob` document for the `.himg` data-management jobs, `AnalysisGroup`, and `load_analysis_document` reading a top-level `kind` as a job, else a recipe; the v2 `AnalysisDiagnostic` was deleted in #1039) + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
 | `GeecsBluesky/` | Bluesky RunEngine backend, rebuilt as a native Bluesky application (#807): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the registered plans: `count`, `sweep`, `optimize`, `mv`, `apply_setup`, the shot-offset calibration), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
@@ -264,10 +264,12 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         alone (--logbook-url): the run page links to it,
                         and the Plot tab POSTs a rendered plot into the
                         scan's entry through its public API.
-                        GeecsAnalysisWorker and GeecsLogbook are DEV-ONLY
-                        path deps: the contract tests mount their FastAPI
-                        apps in process, so a route change there fails
-                        the portal's suite in the same PR
+                        GeecsAnalysisWorker and GeecsLogbook are path
+                        deps in the optional `contract` group (never
+                        installed on a service host): the contract tests
+                        mount their FastAPI apps in process, so a route
+                        change there fails the portal's suite in the
+                        same PR
 GeecsWebTheme        →  (no intra-repo deps — stylesheets, small
                         scripts (plot.js, the one Plotly template),
                         the vendored Plotly bundle and a path helper; fastapi + jinja2 only
@@ -305,9 +307,11 @@ GeecsControlRoom     →  GEECS-Schemas (the screen document, the family
                         GeecsBluesky, the scanner, the portal or the
                         logbook. GeecsCanopy is a DEV-ONLY
                         path dep: the contract test drives the module's
-                        own routes in process (geecs_canopy.testing);
-                        so is GeecsScanner, whose app the strip's
-                        contract test mounts in process
+                        own routes in process (geecs_canopy.testing).
+                        GeecsScanner is a path dep in the optional
+                        `contract` group (never installed on a service
+                        host): the strip's contract test mounts its app
+                        in process
 GeecsConfigurator    →  GEECS-Schemas (the registry, the models, the tiers,
                         the storage table), GEECS-Core (configs_repo for
                         the root; never GeecsDb), GeecsWebTheme (web extra:
@@ -323,7 +327,8 @@ GeecsAnalysisWorker  →  ScanAnalysis (the job runner, the group loader
                         HTTP API and the scan-analysis-worker command
                         over it, fastapi + uvicorn. Its clients (the
                         portal's day page) reach it over HTTP alone;
-                        nothing imports it
+                        nothing imports it at runtime; the portal's
+                        contract tests mount its app
 GEECS-MCP            →  (NO runtime intra-repo edge — the
                         `mcp-is-a-client` import contract: an httpx
                         client of GeecsScanner's, GEECS-DataPortal's and

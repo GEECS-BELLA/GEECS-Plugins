@@ -4,8 +4,9 @@ The logbook is built the way its own suite builds it (a temp share, a temp
 SQLite store) and reached through the portal's ``logbook_client`` (a
 ``TestClient``), so a change to the routes, bodies or reply fields of the four
 calls (:mod:`geecs_portal.logbook_send`: create, upload, read, patch) fails
-this suite in the same PR. geecs-logbook is a dev-only dependency:
-``geecs_portal`` never imports it (the ``portal-edges`` contract).
+this suite in the same PR. geecs-logbook is in the optional ``contract``
+group (skipped without it): ``geecs_portal`` never imports it (the
+``portal-edges`` contract).
 """
 
 from __future__ import annotations
@@ -15,11 +16,15 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from geecs_logbook.app import create_app as create_logbook
 
 from geecs_portal import logbook_send
 from geecs_portal.app import create_app
 from test_app import TEST_DAY, FakeCatalog
+
+pytest.importorskip(
+    "geecs_logbook",
+    reason="the contract group is not installed: poetry install --with dev,contract",
+)
 
 URL = "http://logbook.test"
 UID = "uid-002"  # TEST_DAY, Scan 002 in the fake catalog
@@ -33,6 +38,8 @@ SETTINGS = {"x": "mono", "y": ["cam-MaxCounts"]}
 
 @pytest.fixture
 def logbook(tmp_path: Path) -> TestClient:
+    from geecs_logbook.app import create_app as create_logbook
+
     app = create_logbook(
         "Undulator", base_directory=tmp_path, notes_db=tmp_path / "notes.sqlite"
     )

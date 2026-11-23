@@ -38,11 +38,18 @@ analysis = ["scananalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
+
 # The contract tests mount the peers' own FastAPI apps in process (the
 # analysis worker's for the day page's batch routes, the logbook's for the
 # plot send), so a route or model change there fails this suite in the
-# same PR. Dev-only: geecs_portal never imports them (the portal-edges
+# same PR. An optional group, so a service host's plain `poetry install`
+# never installs them; CI and scripts/check.sh install it (`--with
+# dev,contract`). geecs_portal never imports them (the portal-edges
 # contract); both stay services reached over HTTP.
+[tool.poetry.group.contract]
+optional = true
+
+[tool.poetry.group.contract.dependencies]
 geecs-analysis-worker = { path = "../GeecsAnalysisWorker", develop = true }
 geecs-logbook = { path = "../GeecsLogbook", develop = true }
 

@@ -810,4 +810,6 @@ dev-only dependency; `geecs_control_room` never imports it.
 demo manager (stepped by hand) behind the scanner client, driven through
 `/api/home/strip`. It pins what the strip reads of `/api/status`
 (`connected`, `re_state`) and `/api/progress` (`scan_number`, `shots_done`,
-`planned_total`, `state`). geecs-scanner is a dev-only dependency too.
+`planned_total`, `state`). geecs-scanner is in the optional `contract`
+group (`poetry install --with dev,contract`): without it the test skips, and
+CI and `scripts/check.sh` fail on that skip.

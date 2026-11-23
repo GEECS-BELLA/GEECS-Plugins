@@ -4,9 +4,9 @@ The scanner is built the way its own suite builds it (``DemoQueueClient`` with
 ``period=0``, a manager in memory that moves only when the test calls
 ``step()``) and mounted on an ``httpx.ASGITransport`` that the Control Room's
 scanner client is pointed at. A route or field change in ``/api/status`` or
-``/api/progress`` fails this suite in the same PR. geecs-scanner is a dev-only
-dependency: ``geecs_control_room`` never imports it (the
-``control-room-edges`` contract).
+``/api/progress`` fails this suite in the same PR. geecs-scanner is in the
+optional ``contract`` group (skipped without it): ``geecs_control_room`` never
+imports it (the ``control-room-edges`` contract).
 """
 
 from __future__ import annotations
@@ -20,6 +20,11 @@ from fastapi.testclient import TestClient
 from geecs_control_room.app import create_app
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
+
+pytest.importorskip(
+    "geecs_scanner",
+    reason="the contract group is not installed: poetry install --with dev,contract",
+)
 
 FIRST_SCAN = 46
 SHOTS = 5

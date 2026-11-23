@@ -4,8 +4,8 @@ The worker is built the way its own suite builds it (a real ``Worker`` over a
 temp day, a fake analyzer through the real task queue) and its FastAPI app is
 reached through ``WorkerLink`` on a ``TestClient``, so a route, body or reply
 field change in GeecsAnalysisWorker fails this suite in the same PR.
-geecs-analysis-worker is a dev-only dependency: ``geecs_portal`` never imports
-it (the ``portal-edges`` contract).
+geecs-analysis-worker is in the optional ``contract`` group (skipped without
+it): ``geecs_portal`` never imports it (the ``portal-edges`` contract).
 
 The bodies are the ones ``day.html`` sends (``batchBody()`` and the watch's
 start), and the reply fields asserted are the ones it reads.
@@ -21,11 +21,14 @@ import pytest
 from fastapi.testclient import TestClient
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_data_utils.data.sfile import sfile_path_for_scan
-from scan_analysis.worker import Worker
 
-from geecs_analysis_worker.app import create_worker_app
 from geecs_portal.batch import WorkerLink
 from test_app import FakeCatalog, _client
+
+pytest.importorskip(
+    "geecs_analysis_worker",
+    reason="the contract group is not installed: poetry install --with dev,contract",
+)
 
 URL = "http://worker.test"
 EXPERIMENT = "Test"
@@ -77,6 +80,9 @@ def _scan(base: Path, number: int, *, closed: bool) -> None:
 @pytest.fixture
 def portal(tmp_path: Path):
     """The portal's test client, its WorkerLink dialling the worker's real app."""
+    from geecs_analysis_worker.app import create_worker_app
+    from scan_analysis.worker import Worker
+
     for number, closed in ((1, True), (2, True), (3, False)):
         _scan(tmp_path, number, closed=closed)
     groups = tmp_path / "configs" / "groups" / "PW"
