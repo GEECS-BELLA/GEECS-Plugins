@@ -402,6 +402,76 @@ class AverageSummary(_SummaryBase):
     )
 
 
+class BandSummary(_SummaryBase):
+    """A centre line with the shot-to-shot spread as a band, per bin or per scan.
+
+    Every shot's trace is kept; per sample, ``mean`` draws ± ``sigma``
+    standard deviations (ddof 1) and ``median`` the band between
+    ``percentiles``, each over the shots whose sample is not NaN. On a
+    parameter scan each bin gets its own line and band (``layout``); on a
+    noscan, one line and band over every shot. A run that averages frames
+    before analysis has no shots, so draws none.
+    """
+
+    frame_ndim: ClassVar[frozenset[int]] = frozenset({1})
+
+    kind: Literal["band"] = Field(
+        "band",
+        description="A centre line with the shot-to-shot spread as a band.",
+    )
+    statistic: Literal["mean", "median"] = Field(
+        "mean",
+        description=(
+            "'mean' draws mean ± sigma standard deviations; 'median' draws "
+            "the median between the percentiles."
+        ),
+    )
+    sigma: float = Field(
+        1.0,
+        gt=0,
+        description="Band half-width in standard deviations (statistic: mean).",
+    )
+    percentiles: Tuple[float, float] = Field(
+        (0.25, 0.75),
+        description=(
+            "Band (low, high) as fractions in [0, 1] (statistic: median); "
+            "the default is the quartiles."
+        ),
+    )
+    layout: Literal["overlay", "panels"] = Field(
+        "overlay",
+        description=(
+            "On a parameter scan: 'overlay' draws every bin on one axes, a "
+            "colour per bin; 'panels' one panel per bin with a shared y axis."
+        ),
+    )
+    columns: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Panels per row (layout: panels); unset squares the grid.",
+    )
+    band_color: Optional[str] = Field(
+        None,
+        description=(
+            "Band colour (any matplotlib colour); unset is gray, except "
+            "overlay bands, which take their line's colour."
+        ),
+    )
+    band_alpha: float = Field(0.3, gt=0, le=1, description="Band opacity, 0 to 1.")
+    min_shots: int = Field(
+        2,
+        ge=1,
+        description="Draw a bin only when at least this many shots reached it.",
+    )
+
+    @model_validator(mode="after")
+    def _ordered_percentiles(self) -> "BandSummary":
+        low, high = self.percentiles
+        if not 0 <= low < high <= 1:
+            raise ValueError("percentiles must satisfy 0 <= low < high <= 1")
+        return self
+
+
 class ScalarFitSummary(_SummaryBase):
     """A straight-line fit of measured scalars against the scan position.
 
@@ -434,7 +504,13 @@ class ScalarFitSummary(_SummaryBase):
 
 
 Summary = Annotated[
-    Union[ImageGridSummary, WaterfallSummary, AverageSummary, ScalarFitSummary],
+    Union[
+        ImageGridSummary,
+        WaterfallSummary,
+        AverageSummary,
+        BandSummary,
+        ScalarFitSummary,
+    ],
     Field(discriminator="kind"),
 ]
 
@@ -443,6 +519,7 @@ SUMMARY_KINDS: Dict[str, type[_SummaryBase]] = {
     "image_grid": ImageGridSummary,
     "waterfall": WaterfallSummary,
     "average": AverageSummary,
+    "band": BandSummary,
     "scalar_fit": ScalarFitSummary,
 }
 

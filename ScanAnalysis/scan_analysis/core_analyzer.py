@@ -13,6 +13,7 @@ from geecs_analysis.registry import (
     MeasureDefinition,
     SiblingOutput,
     measure_definition,
+    summary_definition,
 )
 from geecs_data_utils.shot_files import StackMappingUnavailable
 from geecs_schemas.analysis import WaterfallSummary
@@ -161,6 +162,9 @@ class CoreScanAnalyzer(ScanAnalyzer):
             average_before_analysis=prepared.average_before_analysis,
             noscan=self.noscan,
             sort_requested=bool(sort_key),
+            keep_shots=any(
+                summary_definition(s).consumes == "shots" for s in self.spec.summaries
+            ),
         )
         self._execute(prepared, collector)
         plan = collector.plan(
@@ -170,7 +174,11 @@ class CoreScanAnalyzer(ScanAnalyzer):
             sort_bounds=stack.sort_bounds if stack is not None else None,
             sort_sigma=stack.sort_sigma if stack is not None else 3.0,
         )
-        if (plan.singles or plan.summary) and not self.noscan and not sort_key:
+        if (
+            (plan.singles or plan.summary or plan.shots)
+            and not self.noscan
+            and not sort_key
+        ):
             # Figures name the scan by the cleaned ScanInfo string, not the
             # s-file column, exactly as the legacy renderers did (bin singles
             # included, so a one-bin scan is labelled the same way).

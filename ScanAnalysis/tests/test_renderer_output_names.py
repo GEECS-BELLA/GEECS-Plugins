@@ -19,6 +19,7 @@ from scan_analysis.core_sink import parse_output_filename
         ("UC_TestCam_averaged_image_grid.png", ("summary", None)),
         ("UC_Line_summary_waterfall.png", ("summary", None)),
         ("UC_Wire_summary_scalar_fit.png", ("summary", None)),
+        ("UC_Scope_summary_band.png", ("summary", None)),
         # the scalar_fit JSON sidecar classifies with its figure (never a bin)
         ("UC_Wire_summary_scalar_fit.json", ("summary", None)),
         ("noscan.gif", ("summary", None)),

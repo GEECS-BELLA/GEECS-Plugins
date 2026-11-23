@@ -400,3 +400,182 @@ def test_an_odd_length_unit_the_sort_drops_does_not_skip_the_waterfall():
     )
     assert [p.identifier for p in plan.summary] == [1, 2, 3, 4]
     assert "Skipped waterfall: traces of different lengths" not in plan.notes
+
+
+# ------------------------------------------------------------- band shots
+
+
+def band_outcome(key, value):
+    frame = Frame.from_trace([[1, value], [2, value * 2], [3, value * 3]])
+    return UnitResult(ShotGroup(key, (key,)), (key,), Measurement({"s": value}, frame))
+
+
+def test_band_shots_are_kept_only_when_a_kind_consumes_them():
+    outcomes = [band_outcome(n, n) for n in range(1, 7)]
+    for noscan in (False, True):
+        plan = plan_products(
+            recipe(True),
+            outcomes,
+            rows(),
+            average_before_analysis=False,
+            noscan=noscan,
+            parameter_column="motor",
+        )
+        assert plan.shots == ()
+
+
+def test_scanned_band_shots_carry_their_bins_position():
+    outcomes = [band_outcome(n, n) for n in (6, 1, 4, 2, 3)]  # shot 5 failed/missing
+    plan = plan_products(
+        recipe(True),
+        outcomes,
+        rows(),
+        average_before_analysis=False,
+        noscan=False,
+        parameter_column="motor",
+        keep_shots=True,
+    )
+    assert [(p.identifier, p.position) for p in plan.shots] == [
+        (1, 11.0),
+        (2, 11.0),
+        (3, 21.0),
+        (4, 21.0),
+        (6, 31.0),
+    ]
+    by_key = {o.group.key: o.measurement for o in outcomes}
+    assert all(p.measurement is by_key[p.identifier] for p in plan.shots)
+    # the bin panels are unchanged by keeping shots
+    assert [p.position for p in plan.summary] == [11, 21, 31]
+
+
+def test_noscan_band_shots_are_one_group():
+    outcomes = [band_outcome(n, n) for n in (3, 1, 2)]
+    plan = plan_products(
+        recipe(True),
+        outcomes,
+        rows(),
+        average_before_analysis=False,
+        noscan=True,
+        keep_shots=True,
+    )
+    assert [(p.identifier, p.position) for p in plan.shots] == [
+        (1, None),
+        (2, None),
+        (3, None),
+    ]
+
+
+def test_band_shots_are_display_traces_and_refused_for_unequal_long_recordings():
+    from geecs_analysis.summaries.waterfall import MAX_COLUMNS
+
+    outcomes = [long_outcome(n, MAX_COLUMNS * 2) for n in (1, 2, 3)]
+    plan = plan_products(
+        recipe(True),
+        outcomes,
+        rows(),
+        average_before_analysis=False,
+        noscan=False,
+        parameter_column="motor",
+        keep_shots=True,
+    )
+    assert [p.measurement.frame.data.shape for p in plan.shots] == [(MAX_COLUMNS,)] * 3
+    # shots 1 and 2 share bin 1 but not a recorded length; bin 2 stands
+    outcomes = [
+        long_outcome(1, MAX_COLUMNS + 900),
+        long_outcome(2, MAX_COLUMNS + 1900),
+        long_outcome(3, MAX_COLUMNS + 1900),
+        long_outcome(4, MAX_COLUMNS + 1900),
+    ]
+    plan = plan_products(
+        recipe(True),
+        outcomes,
+        rows(),
+        average_before_analysis=False,
+        noscan=False,
+        parameter_column="motor",
+        keep_shots=True,
+    )
+    assert [(p.identifier, p.position) for p in plan.shots] == [(3, 21.0), (4, 21.0)]
+    assert (
+        "summary_band: motor = 11: traces of different lengths; not drawn" in plan.notes
+    )
+
+
+def test_camera_and_raw_bin_runs_keep_no_band_shots():
+    camera = plan_products(
+        recipe(),
+        [outcome(n, n) for n in range(1, 7)],
+        rows(),
+        average_before_analysis=False,
+        noscan=False,
+        parameter_column="motor",
+        keep_shots=True,
+    )
+    raw = plan_products(
+        recipe(True),
+        [outcome(n, n, line=True, members=(2 * n - 1, 2 * n)) for n in (1, 2, 3)],
+        rows(),
+        average_before_analysis=True,
+        noscan=False,
+        parameter_column="motor",
+        keep_shots=True,
+    )
+    assert camera.shots == () and raw.shots == ()
+
+
+def test_a_sorted_waterfall_on_a_scan_keeps_the_band_per_bin():
+    """The sort makes the run unbinned for the waterfall; the band stays per bin."""
+    frame = rows().assign(charge=[6.0, 5.0, 4.0, 3.0, 2.0, 1.0])
+    plan = plan_products(
+        recipe(True),
+        [band_outcome(n, n) for n in range(1, 7)],
+        frame,
+        average_before_analysis=False,
+        noscan=False,
+        parameter_column="motor",
+        sort_requested=True,
+        sort_column="charge",
+        keep_shots=True,
+    )
+    assert [p.position for p in plan.summary] == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    assert [(p.identifier, p.position) for p in plan.shots] == [
+        (1, 11.0),
+        (2, 11.0),
+        (3, 21.0),
+        (4, 21.0),
+        (5, 31.0),
+        (6, 31.0),
+    ]
+
+
+def test_a_scan_without_a_parameter_column_keeps_no_band_shots():
+    plan = plan_products(
+        recipe(True),
+        [band_outcome(n, n) for n in range(1, 7)],
+        rows(),
+        average_before_analysis=False,
+        noscan=False,
+        parameter_column=None,
+        sort_requested=True,
+        sort_column=None,
+        keep_shots=True,
+    )
+    assert plan.shots == ()
+    assert "summary_band: missing bin or parameter column; not drawn" in plan.notes
+
+
+def test_a_sorted_waterfall_without_a_band_never_reads_the_bins():
+    """Only a band asks a sorted run for its bins (a fractional Bin # refuses)."""
+    frame = rows().assign(**{"Bin #": [1, 1.5, 2, 2, 3, 3], "charge": range(6)})
+    kwargs = dict(
+        average_before_analysis=False,
+        noscan=False,
+        parameter_column="motor",
+        sort_requested=True,
+        sort_column="charge",
+    )
+    outcomes = [band_outcome(n, n) for n in range(1, 7)]
+    plan = plan_products(recipe(True), outcomes, frame, **kwargs)
+    assert len(plan.summary) == 6 and plan.shots == ()
+    with pytest.raises(ValueError, match="integers"):
+        plan_products(recipe(True), outcomes, frame, keep_shots=True, **kwargs)
