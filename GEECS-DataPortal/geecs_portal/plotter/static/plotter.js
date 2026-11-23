@@ -277,9 +277,51 @@
     return () => { picker.open(); if (listed.day !== dayBox.value) load(); };
   }
 
-  // Switching settings sets opens the other set; nothing is saved.
-  for (const choice of document.querySelectorAll("[data-switch-set]")) {
-    choice.addEventListener("change", () => choice.form.submit());
+  // Switching settings sets opens the other set; nothing is saved. The
+  // list can be long (every shared set of the experiment), so its search
+  // keeps the sets holding every word typed, in any order, and rebuilds
+  // the list by group (Safari ignores `hidden` on <option>). A click or
+  // Enter opens the set; arrowing through the list opens nothing.
+  const setList = document.querySelector("[data-set-list]");
+  const setFilter = document.querySelector("[data-set-filter]");
+  if (setList && setFilter) {
+    const groups = Array.from(setList.children, (node) => ({
+      label: node.tagName === "OPTGROUP" ? node.label : null,
+      options: Array.from(node.tagName === "OPTGROUP" ? node.children : [node], (o) => o.value),
+    }));
+    const open = setList.value;
+    const none = document.querySelector("[data-set-none]");
+    const matching = () => {
+      const words = setFilter.value.toLowerCase().split(/\s+/).filter(Boolean);
+      return (name) => words.every((w) => name.includes(w));
+    };
+    setFilter.addEventListener("input", () => {
+      const keep = matching();
+      let shown = 0;
+      setList.replaceChildren(...groups.flatMap(({ label, options }) => {
+        const kept = options.filter(keep).map((v) => new Option(v, v, false, v === open));
+        shown += kept.length;
+        if (!kept.length) return [];
+        if (label === null) return kept;
+        const group = document.createElement("optgroup");
+        group.label = label;
+        group.append(...kept);
+        return [group];
+      }));
+      if (none) none.hidden = shown > 0;
+    });
+    const go = () => { if (setList.value && setList.value !== open) setList.form.submit(); };
+    setList.addEventListener("click", (event) => { if (event.target.closest("option")) go(); });
+    setList.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); go(); }
+    });
+    setFilter.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") { event.preventDefault(); setList.focus(); return; }
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const left = Array.from(setList.querySelectorAll("option"), (o) => o.value);
+      if (left.length === 1) { setList.value = left[0]; go(); }
+    });
   }
   // Enter in the Save-as name saves as, rather than taking the form's
   // first button (Open).
@@ -297,11 +339,12 @@
     const saved = new Set(Array.from(document.querySelectorAll("#saved-sets option"), (o) => o.value));
     const replace = document.getElementById("replace-set");
     saveGo.addEventListener("click", (event) => {
-      const name = folded(saveAs.value);
+      // A shared set's stem, as the server names it (shared_stem).
+      const name = folded(saveAs.value).replace(/^shared\//, "").trim().replace(/ /g, "-");
       if (!name) { event.preventDefault(); saveAs.focus(); return; }
       if (saved.has(name) && replace && window.GeecsKit) {
         event.preventDefault();
-        replace.querySelector("h4").textContent = `Replace the saved set “${name}”?`;
+        replace.querySelector("h4").textContent = `Replace the shared set “${name}”?`;
         window.GeecsKit.confirm(replace).open();
       }
     });

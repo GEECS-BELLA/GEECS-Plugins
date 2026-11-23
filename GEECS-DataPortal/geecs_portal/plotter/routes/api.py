@@ -27,11 +27,9 @@ from geecs_portal import analysis
 from geecs_portal import figures as portal_figures
 from geecs_portal.plotter import figures, maps, multi, scans
 from geecs_portal.plotter.routes import Context, read_form
+from geecs_schemas.plot_settings import MAX_FIT_ORDER, MAX_Y_LISTS, PlotterSettings
 from geecs_portal.plotter.settings import (
-    MAX_FIT_ORDER,
     MAX_OVERLAY_SCANS,
-    MAX_Y_LISTS,
-    PlotterSettings,
     SettingsError,
     merged,
     scan_refs,
@@ -68,10 +66,12 @@ class DayResponse(BaseModel):
 
 
 class SetsResponse(BaseModel):
-    """The settings folder and the sets saved in it."""
+    """The settings folder of this host, its sets, and the shared sets."""
 
     folder: str
     sets: list[str]
+    #: The shared sets (``shared/<stem>``), from the configs repo.
+    shared: list[str] = []
 
 
 class FitTerm(BaseModel):
@@ -678,15 +678,19 @@ def _register_settings(router: APIRouter, ctx: Context) -> None:
     def api_sets() -> JSONResponse:
         """Where sets are saved, and their names."""
         store = ctx.store
-        body = SetsResponse(folder=str(store.folder), sets=store.names())
+        body = SetsResponse(
+            folder=str(store.folder),
+            sets=store.local_names(),
+            shared=store.shared_names(),
+        )
         return _json(body)
 
-    @router.get("/api/settings/{name}", response_model=PlotterSettings)
+    @router.get("/api/settings/{name:path}", response_model=PlotterSettings)
     def api_set(name: str) -> JSONResponse:
-        """One set; a name never saved is the defaults."""
+        """One set (``shared/<stem>`` a shared one); a name never saved is the defaults."""
         return _json(_settings(lambda: ctx.store.load(name)))
 
-    @router.post("/api/settings/{name}", response_model=PlotterSettings)
+    @router.post("/api/settings/{name:path}", response_model=PlotterSettings)
     async def api_save(name: str, request: Request) -> JSONResponse:
         """Merge the page's form fields into the set and save it.
 
@@ -694,6 +698,7 @@ def _register_settings(router: APIRouter, ctx: Context) -> None:
         ``copy_from`` names the set the page shows when it is not *name*
         (someone else's): its controls are the base the fields merge into,
         so the viewer's own set takes the whole view, not one field of it.
+        A shared set's name is a 422: it changes only by Save as.
         """
         form = await read_form(request)
         source = form.pop("copy_from", "") or name

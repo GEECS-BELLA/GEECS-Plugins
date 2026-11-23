@@ -1054,6 +1054,126 @@ A device-page entry: a picker over the roster's devices of these families.
 | `title` | `str` | yes | — | What the entry reads, e.g. 'Cameras'. |
 | `families` | `list[str]` | yes | — | Family file names whose devices the picker lists. |
 
+## `plot_settings`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/plot_settings/<name>.yaml`
+
+### PlotterSettings
+
+Every control of the Plot and Images pages, each with its default.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `x` | `str (optional)` | no | None | The X column; empty: the scan variable; '' the shot number. |
+| `y` | `str (optional)` | no | None | Y1's column; empty: the first measurement. |
+| `y2` | `str (optional)` | no | None | Y2's column, on its own axis; empty: not picked. |
+| `y3` | `str (optional)` | no | None | Y3's column, on its own axis; empty: not picked. |
+| `y_count` | `int` | no | 1 | How many of Y1, Y2, Y3 are shown; the others keep their picks. |
+| `x_filter` | `str` | no | '' | The X list's filter text. |
+| `y_filter` | `str` | no | '' | Y1's list filter text. |
+| `y2_filter` | `str` | no | '' | Y2's list filter text. |
+| `y3_filter` | `str` | no | '' | Y3's list filter text. |
+| `x_alias` | `bool` | no | True | Show X's columns by their aliases. |
+| `y_alias` | `bool` | no | True | Show Y1's columns by their aliases. |
+| `y2_alias` | `bool` | no | True | Show Y2's columns by their aliases. |
+| `y3_alias` | `bool` | no | True | Show Y3's columns by their aliases. |
+| `x_auto` | `bool` | no | True | X follows the open scan's variable (GEECSplotter's autofill par1). |
+| `y_fit` | `str` | no | 'none' | Y1's fit ('none': no fit). |
+| `y2_fit` | `str` | no | 'none' | Y2's fit ('none': no fit). |
+| `y3_fit` | `str` | no | 'none' | Y3's fit ('none': no fit). |
+| `y_fit_order` | `int` | no | 2 | Y1's polynomial fit order. |
+| `y2_fit_order` | `int` | no | 2 | Y2's polynomial fit order. |
+| `y3_fit_order` | `int` | no | 2 | Y3's polynomial fit order. |
+| `day` | `date (optional)` | no | None | The day of the scan last opened. |
+| `scan` | `int (optional)` | no | None | The number of the scan last opened. |
+| `extra_scans` | `list[ScanRef]` | no | empty | Scans plotted beside the main one, from any day. |
+| `scan_view` | `str` | no | 'overlay' | Several scans: one trace each ('overlay') or pooled ('merged'). |
+| `overlay_y` | `int` | no | 1 | Which Y list the overlay draws (1-3). |
+| `tab` | `str` | no | 'xy' | The Plot page's view: the XY plot or the 2-D map. |
+| `image_device` | `str (optional)` | no | None | The first camera; empty: the scan's first. |
+| `image_device_filter` | `str` | no | '' | The camera picker's filter text. |
+| `image_strip` | `str` | no | 'bins' | One tile per bin, per shot, or one picked shot per bin. |
+| `image_pick` | `str` | no | 'first' | The picked shot of a bin: its first, or highest Y1. |
+| `image_hits` | `str` | no | 'none' | The X-ray-hit filter applied to each shot. |
+| `image_centre` | `float (optional)` | no | None | Centre each shot on its peak above this threshold (1 or more: counts; below 1: a fraction of the peak); empty: not centred. |
+| `image_layout` | `str` | no | 'grid' | The strip as a grid or one row. |
+| `image_columns` | `int` | no | 5 | Tiles across. |
+| `image_cmap` | `str` | no | 'white_blue_yellow' | The colour map's name. |
+| `image_zscale` | `str` | no | 'shared' | The z scale: per tile, shared by the row, or fixed. |
+| `image_zmin` | `float (optional)` | no | None | The fixed z scale's black. |
+| `image_zmax` | `float (optional)` | no | None | The fixed z scale's white. |
+| `image_cbar` | `bool` | no | True | Draw colour bars. |
+| `image_bg` | `ScanRef (optional)` | no | None | The background scan, whose average comes off each shot; empty: none. |
+| `image_bgsub` | `bool` | no | True | The first camera subtracts the background. |
+| `image_channel` | `int` | no | 0 | The first row's scope channel (from 0), for traces. |
+| `image_xmin` | `float (optional)` | no | None | The first trace row's x window, low side; empty: no limit. |
+| `image_xmax` | `float (optional)` | no | None | The first trace row's x window, high side; empty: no limit. |
+| `image_rois` | `dict[str, list[int]]` | no | empty | Each camera's region of interest, [x0, y0, x1, y1] in pixels. |
+| `image_more` | `list[ImageCamera]` | no | empty | The cameras stacked under the first, one row each. |
+| `image_scalars` | `list[str]` | no | empty | The scan scalars summarized on the Images page, in order. |
+| `image_tile_max` | `int (optional)` | no | None | The widest a tile is drawn, in CSS pixels; empty: no limit. |
+| `image_scalar_stat` | `str` | no | 'mean_std' | The statistic the scan scalars share. |
+| `image_scalar_filter` | `str` | no | '' | The scalar picker's filter text. |
+| `merge_tolerance` | `float (optional)` | no | None | Merged scans: bins this close in X are one bin; empty: half the smallest step of any one scan. |
+| `xy_view` | `str` | no | 'shot' | The XY plot per shot or binned. |
+| `shot_filters` | `str` | no | '' | The shot filters, as JSON; empty: none. |
+| `bin_config` | `str` | no | '' | The bin settings, as JSON; empty: defaults. |
+| `display` | `str` | no | '' | The plot cosmetics, as JSON; empty: defaults. |
+| `map_value` | `str (optional)` | no | None | The 2-D map's scalar; empty: Y1. |
+| `map_x` | `str (optional)` | no | None | The 2-D map's X; empty: the scan's first variable. |
+| `map_y` | `str (optional)` | no | None | The 2-D map's Y; empty: the scan's second variable. |
+| `map_filter` | `str` | no | '' | The map scalar picker's filter text. |
+| `map_config` | `str` | no | '' | The 2-D map's statistics, as JSON; empty: defaults. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/plot_settings/<name>.yaml: a set of the portal's Plot and Images pages.
+# Every field has a default; a field this portal does not know is kept, not refused.
+day: 2026-11-23                  # the scan the set reopens
+scan: 12
+x_auto: true                     # X is the open scan's variable
+y: U_BCaveICT Python Results.ChA Beam Charge (pC)
+y_fit: gaussian
+xy_view: bin
+extra_scans:
+  - {day: 2026-11-22, scan: 4}
+image_device: UC_TopView
+image_zscale: shared
+image_rois: {UC_TopView: [100, 80, 500, 400]}   # x0, y0, x1, y1 in pixels
+```
+
+### ScanRef
+
+One scan named by its day and its scan number.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `day` | `date` | yes | — | The scan's day. |
+| `scan` | `int` | yes | — | The scan's number on that day. |
+
+### ImageCamera
+
+A camera stacked under the first on the Images page, and how its row looks.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str (optional)` | no | None | The camera's device folder. |
+| `device_filter` | `str` | no | '' | The camera picker's filter text. |
+| `cmap` | `str` | no | 'white_blue_yellow' | The colour map's name. |
+| `zscale` | `str` | no | 'shared' | The z scale: per tile, shared by the row, or fixed. |
+| `zmin` | `float (optional)` | no | None | The fixed z scale's black. |
+| `zmax` | `float (optional)` | no | None | The fixed z scale's white. |
+| `hits` | `str` | no | 'none' | The X-ray-hit filter applied to each shot. |
+| `centre` | `float (optional)` | no | None | Centre each shot on its peak above this threshold (1 or more: counts; below 1: a fraction of the peak); empty: not centred. |
+| `cbar` | `bool` | no | True | Draw colour bars. |
+| `bgsub` | `bool` | no | True | Subtract the set's background scan. |
+| `channel` | `int` | no | 0 | The scope channel (from 0), for a device recording traces. |
+| `xmin` | `float (optional)` | no | None | A trace row's x window, low side; empty: no limit. |
+| `xmax` | `float (optional)` | no | None | A trace row's x window, high side; empty: no limit. |
+
 ## `analysis_recipe`
 
 Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`

@@ -8,13 +8,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from geecs_portal.plotter.settings import (
-    MAX_CAMERAS,
-    PlotterSettings,
-    SettingsError,
-    camera_field,
-    merged,
-)
+from geecs_schemas.plot_settings import MAX_CAMERAS, PlotterSettings
+from geecs_portal.plotter.settings import SettingsError, camera_field, merged
 from tests.plotter.conftest import CAM, post
 
 CAM2 = "UC_Cam2"

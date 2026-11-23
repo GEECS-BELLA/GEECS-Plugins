@@ -16,6 +16,12 @@ into the viewer's own set and switches to it, so a shared link never
 lets one person rewrite another's plots. The owner's set changes only
 by "Save as" onto its name, which asks before replacing.
 
+"Save as" **shares** the set: a commit to the configs repo under the
+viewer's name, through the configurator, opened from then on as
+``shared/<name>`` on every portal that reads the repo
+(:mod:`geecs_portal.plotter.shared_sets`). The viewer's own set stays this
+host's, saved on every pick and never committed.
+
 With ``x_auto`` on (the default) X is the open scan's variable; a hand
 pick on X saves ``x_auto`` off. The page renders the pick lists
 server-side; its script fetches the figure from ``/api/figure`` and
@@ -51,19 +57,21 @@ from geecs_portal.plotter.routes.images import (
     strip_tiles,
     trace_code,
 )
-from geecs_portal.plotter.settings import (
-    CHOICES,
-    DEFAULT_SET,
+from geecs_schemas.plot_settings import (
+    ImageCamera,
     MAX_CAMERAS,
     MAX_FIT_ORDER,
     MAX_IMAGE_COLUMNS,
-    MAX_OVERLAY_SCANS,
     MAX_SCALARS,
-    TILE_MAX_RANGE,
     MAX_Y_LISTS,
-    NameRefused,
-    ImageCamera,
     PlotterSettings,
+    TILE_MAX_RANGE,
+)
+from geecs_portal.plotter.settings import (
+    CHOICES,
+    DEFAULT_SET,
+    MAX_OVERLAY_SCANS,
+    NameRefused,
     SettingsError,
     camera_field,
     form_value,
@@ -157,6 +165,7 @@ def _entry(
                 "ask_name": True,
                 "set": "",
                 "sets": [],
+                "shared_sets": [],
             },
         )
     if day is None and scan is None:
@@ -202,7 +211,8 @@ def _render(
     page.update(
         {
             "set": name,
-            "sets": ctx.store.names(),
+            "sets": ctx.store.local_names(),
+            "shared_sets": ctx.store.shared_names(),
             "settings_folder": str(ctx.store.folder),
             "settings_error": problem,
             "save_as": save_as,
@@ -271,14 +281,16 @@ def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
             )
         target = set_name(owner)
     if as_new:
-        try:
-            target = set_name(form.get("save_as", ""))
-        except SettingsError as bad:
-            raise NameRefused(str(bad)) from None
-        # Replacing a saved set is a choice the page asks about first (its
-        # dialog posts overwrite=true); without it a taken name is refused.
-        if ctx.store.exists(target) and form.get("overwrite") != "true":
-            raise NameRefused(f"a set named {target!r} is already saved")
+        # Save as shares the set: a commit to the configs repo under the
+        # viewer's name, through the configurator (shared_sets). Replacing a
+        # shared set is a choice the page asks about first (its dialog posts
+        # overwrite=true); without it a taken name is refused.
+        return ctx.store.save_as(
+            form.get("save_as", ""),
+            merged(ctx.store.load(source), form),
+            operator=form.get("owner", ""),
+            overwrite=form.get("overwrite") == "true",
+        )
     ctx.store.save(target, merged(ctx.store.load(source), form))
     return target
 

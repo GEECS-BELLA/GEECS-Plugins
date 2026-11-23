@@ -617,7 +617,30 @@ design rules"). The rules that are the portal's own:
   carries `set=`, which opens that set as
   it is now (ruling 3 of the brief: the portal's old URL-carried plot
   state is retired for this page).
-- **The settings folder** is chosen once at start
+- **Shared sets** (`plotter/shared_sets.py`, the author, 2026-11-23): Save
+  as **shares** a set, never writes one here: a `PUT` to the configurator
+  (`--configurator-url`, server to server, `ConfiguratorSets`, the scanner's
+  preset-saver shape: list, read the etag, the whole document with the
+  viewer as operator) commits `plot_settings/<stem>.yaml` to the configs
+  repo's main (GEECS-Schemas' `plot_settings` kind, operator tier), and
+  every portal reads the experiment's folder from `--configs-root` (the unit:
+  `${GEECS_CONFIGS_ROOT}`). On the page and in a link a shared set is
+  `shared/<stem>` (`settings.SHARED_PREFIX`; the stem is the Save-as name
+  folded, spaces to `-`, `shared_stem`), so a name means one store, never
+  both; `SetBook` routes every load, and this host's store refuses a shared
+  name. Only Save as commits: a pick under a shared set copies it into the
+  viewer's own set (the rule below), `/plot/api/settings/shared/…` refuses a
+  live save (422), and replacing one asks first (`overwrite=true`; a 409 from
+  the configurator is "changed while it was saved"). A set just saved is
+  answered from memory until the configs root shows the same document or
+  `PENDING_S` passes (the share fast-forwards on a thread after the commit).
+  No configurator or no configs root: Save as is refused, naming the flag;
+  the working copies still save. The portal never writes the configs tree.
+  The drawer's set picker is a `.combo` whose search keeps the sets holding
+  every word typed (`plotter.js`), the two groups (this host's, shared)
+  kept. Contract-tested against the configurator's app in
+  `GeecsConfigurator/tests/test_contract_portal.py`.
+- **The settings folder** (each viewer's working copy) is chosen once at start
   (`plotter.settings.resolve_store`): `--settings-dir`, which the unit
   sets to its systemd `StateDirectory`
   (`%S/geecs-data-portal/settings`), else the user's own state folder
@@ -715,9 +738,14 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   the server merges them into the set's file (`settings.merged`: a field
   the page does not send keeps its saved value), saves it, and redirects
   back (303) to the page the form came from (`page`). A list filter saves
-  as it is typed through `POST /plot/api/settings/{name}`. A new control
-  is a new `PlotterSettings` field with a default, so older files still
-  load; a change of meaning bumps `schema_version`. With `x_auto` on, X is
+  as it is typed through `POST /plot/api/settings/{name}`. The model is
+  GEECS-Schemas' `plot_settings` kind (`geecs_schemas.plot_settings`:
+  `PlotterSettings`, `ScanRef`, `ImageCamera` and the bounds its fields
+  use), so a new control is a new `PlotterSettings` field with a default
+  and a `description` there, in its own GEECS-Schemas change, so older
+  files still load; a change of meaning bumps `schema_version`. The page's
+  form rules over it (`CHOICES`, `merged`, the camera fields, the store)
+  stay in `plotter/settings.py`. With `x_auto` on, X is
   the open scan's variable ("autofill par1"); a hand pick saves it off,
   and then X `""` is the shot number.
 - **Set names** are lower-cased letters, digits, spaces, `-`, `_` and
@@ -847,13 +875,19 @@ they left open is here, for Sam at the promotion PR to `master`.
   `filters=` … open the scan but no longer reproduce the plot, including
   links stored in logbook entries; a new entry links the live set and
   carries the settings as sent, above).
-- Whether `PlotterSettings` stays in the portal or moves to GEECS-Schemas.
+- `PlotterSettings` moved to GEECS-Schemas as the `plot_settings` kind
+  (operator tier, `<experiment>/plot_settings/<name>.yaml`; the author,
+  2026-11-23), so a named set can be a configs-repo file saved through the
+  configurator; for the maintainer to confirm. The portal still keeps every
+  set in its settings folder until it reads and saves the repo's.
 - **A run's status word has three tables**: the scanner (`EXIT_WORDS`:
   abort → failed), the logbook (`KIT_STATE`: aborted → degraded) and the
   portal (`app.run_state`: abort → degraded, no stop document → unknown);
   one table in GEECS-Data-Utils needs a ruling on abort first.
-- Settings sets are one host's files with no revisions: two people editing
-  one set overwrite each other, as with LabVIEW's settings files.
+- Working copies are one host's files with no revisions (each viewer's own,
+  so nobody else writes them); shared sets have git's revisions, and a
+  Save as onto one replaces it whole (the etag guards only the save's own
+  read-then-write, as the scanner's preset save does).
 - **For the author:** the LabVIEW settings file format — sets could be
   imported from it if it is readable.
 - **Still to build** (the author's lists): clicking a plot point to open

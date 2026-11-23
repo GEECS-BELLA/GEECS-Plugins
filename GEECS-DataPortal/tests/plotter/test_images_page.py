@@ -102,7 +102,8 @@ def test_shot_tiles_carry_their_bin(share: Path, camera: Path) -> None:
 def test_a_max_tile_width_caps_the_columns(client: TestClient, camera: Path) -> None:
     import pytest
 
-    from geecs_portal.plotter.settings import PlotterSettings, SettingsError, merged
+    from geecs_schemas.plot_settings import PlotterSettings
+    from geecs_portal.plotter.settings import SettingsError, merged
 
     page = post(client, scan=1, page="images", device=CAM)
     assert 'id="tilemax"' in page and 'placeholder="none"' in page

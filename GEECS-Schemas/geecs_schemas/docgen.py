@@ -315,6 +315,22 @@ device_pages:
     families: [ad_camera_chain]             # the picker lists the roster's devices of these
 links: [scanner, portal, logbook, config_editor]
 """,
+    "plot_settings": """\
+schema_version: 1
+# <experiment>/plot_settings/<name>.yaml: a set of the portal's Plot and Images pages.
+# Every field has a default; a field this portal does not know is kept, not refused.
+day: 2026-11-23                  # the scan the set reopens
+scan: 12
+x_auto: true                     # X is the open scan's variable
+y: U_BCaveICT Python Results.ChA Beam Charge (pC)
+y_fit: gaussian
+xy_view: bin
+extra_scans:
+  - {day: 2026-11-22, scan: 4}
+image_device: UC_TopView
+image_zscale: shared
+image_rois: {UC_TopView: [100, 80, 500, 400]}   # x0, y0, x1, y1 in pixels
+""",
     "analysis_recipe": """\
 schema_version: 3
 device: UC_TopView               # the device folder under scans/ScanNNN/; stems the products

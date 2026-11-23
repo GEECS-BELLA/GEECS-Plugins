@@ -192,6 +192,18 @@ config_editor). A link is a word; its URL is a deployment setting, never in
 the file. Whether a screen file exists or a family is installed is the
 page's check (a disabled entry with the reason), not the model's.
 
+## Plot settings
+
+`plot_settings.py`: `PlotterSettings`, a named settings set of the Data
+Portal's Plot and Images pages (`<experiment>/plot_settings/<name>.yaml`,
+operator tier): every control, each with its default, with `ScanRef` and
+`ImageCamera` nested. All three **keep unknown fields** (`extra="allow"`,
+as `StepRef` / `MeasureRef` keep extra keys) instead of refusing them: a portal must load and
+re-save, without dropping, a set a newer portal wrote (a rollback, two hosts
+on different versions against one configs repo). Choice fields are plain
+strings for the same reason; the portal checks the choices where its page
+posts them (`geecs_portal.plotter.settings.CHOICES`), never here.
+
 ## Sweep payload
 
 `sweep.py` owns the validated JSON payload, not numerical trajectory

@@ -28,6 +28,21 @@ _FIXTURES = Path(__file__).resolve().parents[2] / "GEECS-Schemas/tests/fixtures"
 _FIXTURE_KINDS = {"optimizer_configs": "optimizer_config", "setups": "setup", "groups": "analysis_group"}  # fmt: skip
 
 SYNTHETIC = {
+    "plot_settings": {
+        "day": "2026-11-23",
+        "scan": 12,
+        "y": "charge",
+        "y_count": 2,
+        "y_fit": "gaussian",
+        "extra_scans": [{"day": "2026-11-22", "scan": 4}],
+        "image_device": "UC_TopView",
+        "image_bg": {"day": "2026-11-20", "scan": 1},
+        "image_rois": {"UC_TopView": [100, 80, 500, 400]},
+        "image_more": [
+            {"device": "UC_Side", "zscale": "fixed", "zmin": 0.0, "zmax": 900.0}
+        ],
+        "image_scalars": ["charge"],
+    },
     "setup": {
         "name": "high_power",
         "description": "Pumps up, attenuator out.",
