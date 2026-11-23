@@ -496,3 +496,11 @@ def test_the_listing_puts_this_boxs_own_folders_first(box: TestClient, other: Pa
     # the API keeps the store's order: the listing's order is the page's alone
     ids = [d["id"] for d in box.get("/api/documents/analysis_recipe").json()]
     assert ids.index("Aa/first.yaml") < ids.index("Ns/recipe.yaml")
+
+
+def test_a_kind_kept_in_code_lists_and_opens_on_a_committing_box(box: TestClient) -> None:  # fmt: skip
+    """The family files have no folder: neither ordering nor ownership may look for one."""
+    page = box.get("/?kind=family_file")
+    assert page.status_code == 200
+    name = box.get("/api/documents/family_file").json()[0]["id"]
+    assert box.get(f"/?kind=family_file&id={name}").status_code == 200
