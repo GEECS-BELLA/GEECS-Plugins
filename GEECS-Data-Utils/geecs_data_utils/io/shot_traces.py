@@ -28,7 +28,9 @@ neighbour's trace**, as for images.
 
 A bin's traces average sample by sample (:func:`average_traces`) only when
 they share one x axis (the same length and the same x values); otherwise
-the bin has no average and says so. Nothing is resampled: a scope's time
+the bin has no average and says so. The one exception is an analysis
+output's tables, whose axis may follow each shot's calibration (magspec):
+shots of one length average index-wise, x too, as the analysis core does. Nothing is resampled: a scope's time
 base is fixed within a scan, and a bin whose axes differ is something to
 see, not to paper over.
 """
@@ -441,27 +443,56 @@ def _read_native(path: Path, ext: str, channel: int) -> ShotTrace:
     return ShotTrace(kind="native", result=result, content="waveform", path=path)
 
 
-def average_traces(traces: Sequence[Data1DResult]) -> Optional[Data1DResult]:
+def shared_axis(traces: Sequence[Data1DResult]) -> bool:
+    """Whether the traces share one x axis: the same length and the same x values.
+
+    The same values to float rounding of the first axis' span (``_SAME_AXIS_RTOL``).
+    """
+    if not traces:
+        return True
+    first = traces[0]
+    x = first.data[:, 0]
+    span = float(np.nanmax(x) - np.nanmin(x)) if x.size else 0.0
+    tolerance = _SAME_AXIS_RTOL * max(span, np.finfo(float).tiny)
+    return all(
+        other.data.shape == first.data.shape
+        and np.allclose(other.data[:, 0], x, rtol=0.0, atol=tolerance)
+        for other in traces[1:]
+    )
+
+
+def average_traces(
+    traces: Sequence[Data1DResult], per_shot_axes: bool = False
+) -> Optional[Data1DResult]:
     """The traces' sample-by-sample mean, or ``None`` when their x axes differ.
 
-    One trace is itself. Several must have the same length and the same x
-    values (to float rounding of the axis' span); the mean of the y
-    values is ``nanmean``, so a NaN sample in one shot does not blank the
-    average. The first trace's labels and units are the average's.
+    One trace is itself. Several must share one x axis (:func:`shared_axis`);
+    the mean of the y values is ``nanmean``, so a NaN sample in one shot
+    does not blank the average. The first trace's labels and units are the
+    average's.
+
+    With *per_shot_axes* (a series whose calibration moves from shot to
+    shot: a magspec spectrum's momentum axis follows the shot's field),
+    traces of the same length whose x values differ are averaged index-wise
+    instead, x and y alike: sample *k* of the mean is the mean of every
+    shot's sample *k*. That is the analysis core's own average for such a
+    measure (``per_shot_axes=True`` in GEECS-Analysis), so a bin tile
+    agrees with the run's saved bin average. Nothing is interpolated;
+    traces of different lengths are still refused.
     """
     if not traces:
         return None
     first = traces[0]
     if len(traces) == 1:
         return first
-    x = first.data[:, 0]
-    span = float(np.nanmax(x) - np.nanmin(x)) if x.size else 0.0
-    tolerance = _SAME_AXIS_RTOL * max(span, np.finfo(float).tiny)
-    for other in traces[1:]:
-        if other.data.shape != first.data.shape:
-            return None
-        if not np.allclose(other.data[:, 0], x, rtol=0.0, atol=tolerance):
-            return None
+    if any(t.data.shape != first.data.shape for t in traces[1:]):
+        return None
+    if shared_axis(traces):
+        x = first.data[:, 0]
+    elif per_shot_axes:
+        x = np.mean(np.stack([t.data[:, 0] for t in traces]), axis=0)
+    else:
+        return None
     ys = np.stack([t.data[:, 1] for t in traces])
     with warnings.catch_warnings():
         # A sample NaN in every shot stays NaN, without numpy's warning.
@@ -474,6 +505,13 @@ def average_traces(traces: Sequence[Data1DResult]) -> Optional[Data1DResult]:
         x_label=first.x_label,
         y_label=first.y_label,
     )
+
+
+#: What a bin's mean says when its shots' axes were averaged index-wise.
+AXES_AVERAGED_NOTE = (
+    "the shots' x axes differ (each shot's own calibration): "
+    "averaged sample by sample, x too, as the analysis core averages them"
+)
 
 
 def crop_trace(
@@ -543,7 +581,11 @@ def average_trace_scan_rows(
 
     :func:`average_trace_rows` across scans (a pooled bin's rows, per
     scan): each shot is read from its own scan's folder, and the mean is
-    still sample by sample on one shared x axis, or refused.
+    still sample by sample on one shared x axis, or refused — except for
+    an analysis output's text tables (``TraceDevice.table`` in every
+    part), whose shots of one length average index-wise when their axes
+    differ (:func:`average_traces`' *per_shot_axes*), the result's
+    ``note`` saying so.
 
     Parameters
     ----------
@@ -562,10 +604,12 @@ def average_trace_scan_rows(
     """
     found: list[ShotTrace] = []
     last = ShotTrace(kind="missing", reason="no shots")
+    per_shot_axes = True
     for i, part in enumerate(parts):
         probe = (
             probes[i] if probes is not None else trace_device(part.scan_folder, device)
         )
+        per_shot_axes = per_shot_axes and probe.table
         for row in part.rows:
             one = load_row_trace(
                 part.scan_folder, part.frame, device, row, channel, probe
@@ -576,10 +620,14 @@ def average_trace_scan_rows(
             found.append(one)
     if not found:
         return ShotTrace(kind="missing", path=last.path, reason=last.reason)
-    mean = average_traces([t.result for t in found if t.result is not None])
+    results = [t.result for t in found if t.result is not None]
+    mean = average_traces(results, per_shot_axes=per_shot_axes)
     if mean is None:
         return ShotTrace(
             kind="missing",
             reason="the shots' x axes differ, so they are not averaged",
         )
-    return ShotTrace(kind=found[0].kind, result=mean, content=found[0].content)
+    note = "" if shared_axis(results) else AXES_AVERAGED_NOTE
+    return ShotTrace(
+        kind=found[0].kind, result=mean, content=found[0].content, note=note
+    )

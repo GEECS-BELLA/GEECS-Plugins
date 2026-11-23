@@ -655,6 +655,8 @@ def _size(value: object) -> int:
         return value.nbytes
     if isinstance(value, Data1DResult):
         return value.data.nbytes
+    if isinstance(value, shot_traces.ShotTrace) and value.result is not None:
+        return value.result.data.nbytes
     return 0
 
 
@@ -780,11 +782,34 @@ def trace_tile(
 ) -> Data1DResult:
     """The tile's trace: one shot's, or its shots' sample-by-sample mean.
 
+    The trace of :func:`trace_tile_found`.
+
+    Raises
+    ------
+    NoImage
+        No shot of the tile has a trace, or the axes differ; the reason.
+    """
+    found = trace_tile_found(folder, frame, device, rows, channel)
+    assert found.result is not None
+    return found.result
+
+
+def trace_tile_found(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    channel: int = 0,
+) -> shot_traces.ShotTrace:
+    """The tile's trace with its ``note`` (how a bin's mean was made).
+
     ``geecs_data_utils.io.shot_traces.average_trace_scan_rows``: shots the
     device missed, or whose file is missing or unreadable, are left out;
-    a bin whose shots' x axes differ has no mean (nothing is resampled).
-    Remembered as :func:`kept_tile_array` is, until the folder changes.
-    *folder* is one scan's, or a :class:`ScanSet`.
+    a bin whose shots' x axes differ has no mean (nothing is resampled),
+    except an analysis output's, whose shots of one length average
+    index-wise (the note says so). Remembered as :func:`kept_tile_array`
+    is, until the folder changes. *folder* is one scan's, or a
+    :class:`ScanSet`.
 
     Raises
     ------
@@ -794,19 +819,19 @@ def trace_tile(
     parts = _parts(folder, frame, rows)
     probes = [trace_device(p.scan_folder, device) for p in parts]
 
-    def compute() -> Data1DResult:
+    def compute() -> shot_traces.ShotTrace:
         found = shot_traces.average_trace_scan_rows(parts, device, channel, probes)
         if found.result is None:
             raise NoImage(found.reason or found.kind)
         found.result.data.flags.writeable = False  # shared between requests
-        return found.result
+        return found
 
     stamp = _source_stamp(folder, device)
     if stamp is None:
         return compute()
     key = ("trace", _source_key(folder), device, rows, len(frame), stamp, channel)
     found = _remembered(key, compute)
-    assert isinstance(found, Data1DResult)
+    assert isinstance(found, shot_traces.ShotTrace)
     return found
 
 

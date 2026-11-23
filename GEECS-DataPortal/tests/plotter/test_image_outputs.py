@@ -176,3 +176,20 @@ def test_listing_and_reading_create_nothing(
     post(client, scan=2, page="images", device=IMAGE)
     after = sorted(p for p in share.rglob("*") if "plotter-settings" not in str(p))
     assert after == [p for p in before if "plotter-settings" not in str(p)]
+
+
+def test_a_bin_of_moving_axes_averages_index_wise_and_says_so(
+    client: TestClient, outputs: Path
+) -> None:
+    # Bin 1 is shots 1 and 2; shot 2's axis is moved by 0.1 (its own field).
+    rows = "\n".join(f"{x + 0.1}\t{2 * x}\t20" for x in (1.0, 2.0, 3.0))
+    (outputs / "py-spec" / "Scan001_py-spec_002.txt").write_text(
+        "Momentum_GeV/c\tCharge_fC\tChargeDen_pC/GeV/c\n" + rows + "\n"
+    )
+    body = _get(client, "trace", device=TABLE, strip="bins", index=0, channel=1).json()
+    assert body["shots"] == 2 and "averaged sample by sample" in body["note"]
+    x = body["figure"]["data"][0]["x"]
+    assert x == pytest.approx([1.05, 2.05, 3.05])
+    assert _png(_get(client, "tile.png", device=TABLE, strip="bins", index=0))
+    one = _get(client, "trace", device=TABLE, strip="shots", index=1).json()
+    assert one["note"] == ""

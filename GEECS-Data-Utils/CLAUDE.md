@@ -140,8 +140,19 @@ geecs_data_utils/
                                #   missed row is refused, never a
                                #   neighbour's), average_traces (sample by
                                #   sample on ONE shared x axis, else None —
-                               #   never resampled); native_shot_file in
-                               #   shot_images is the file lookup both share
+                               #   never resampled; an analysis output's
+                               #   tables, per_shot_axes, average shots of
+                               #   one length index-wise, x too, as the
+                               #   core averages magspec); native_shot_file
+                               #   in shot_images is the file lookup both share
+                               #   + analysis_outputs.py: a scan's per-shot
+                               #   analysis products, {day}/analysis/ScanNNN/
+                               #   <folder>/ScanNNN_<stem>_SSS.<ext>, as a
+                               #   source named analysis:<folder>[/<series>]
+                               #   (one series per stem; checked against both
+                               #   listings, read-only); the image and trace
+                               #   ladders take the name, a text table of 2+
+                               #   columns is x then a channel per y column
                                #   + display_png.py: frame → 8-bit PNG
                                #   through a percentile window, optional
                                #   matplotlib colour map (lazy import; no

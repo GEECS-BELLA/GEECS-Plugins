@@ -843,6 +843,9 @@ class ShotTrace:
     content: str = ""
     path: Optional[Path] = None
     reason: str = ""
+    #: What a reader of the trace should know about how it was made (a
+    #: bin's mean over shots whose axes differ, ``io.shot_traces``).
+    note: str = ""
 
 
 #: The one reader config for array capture stacks: the stack

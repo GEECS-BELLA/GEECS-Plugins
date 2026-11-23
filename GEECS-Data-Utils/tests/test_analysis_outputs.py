@@ -213,3 +213,58 @@ def test_the_label_marks_an_output():
         "analysis · py-ebeam › py-ebeamX"
     )
     assert analysis_outputs.output_label("CAM-X") == "CAM-X"
+
+
+def _result(x, y):
+    from geecs_data_utils.io.array1d import Data1DResult
+
+    return Data1DResult(data=np.column_stack((x, y)))
+
+
+def test_per_shot_axes_average_index_wise_x_too():
+    a = _result([1.0, 2.0, 3.0], [10.0, 20.0, 30.0])
+    b = _result([1.2, 2.2, 3.2], [30.0, 40.0, np.nan])
+    assert shot_traces.average_traces([a, b]) is None  # the strict rule
+    mean = shot_traces.average_traces([a, b], per_shot_axes=True)
+    assert mean.data[:, 0] == pytest.approx([1.1, 2.1, 3.1])
+    assert mean.data[:, 1].tolist() == [20.0, 30.0, 30.0]
+
+
+def test_per_shot_axes_still_refuse_another_length():
+    a = _result([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])
+    b = _result([1.0, 2.0], [1.0, 2.0])
+    assert shot_traces.average_traces([a, b], per_shot_axes=True) is None
+
+
+def test_a_shared_axis_keeps_the_first_traces_x():
+    a = _result([1.0, 2.0], [1.0, 3.0])
+    mean = shot_traces.average_traces([a, _result([1.0, 2.0], [3.0, 5.0])], True)
+    assert mean.data.tolist() == [[1.0, 2.0], [2.0, 4.0]]
+
+
+def test_an_outputs_bin_averages_moving_axes_and_says_so(scan_folder):
+    spec = scan_folder.parent.parent / "analysis" / "Scan075" / "py-magspec-interpSpec"
+    for shot, shift in ((1, 0.0), (2, 0.1)):
+        rows = "\n".join(f"{x + shift}\t{shot}\t{shot}" for x in (1.0, 2.0, 3.0))
+        (spec / f"Scan075_py-magspec-interpSpec_{shot:03d}.txt").write_text(
+            "Momentum_GeV/c\tCharge_fC\tChargeDen\n" + rows + "\n"
+        )
+    mean = shot_traces.average_trace_rows(
+        scan_folder, None, "analysis:py-magspec-interpSpec", [1, 2]
+    )
+    assert mean.result.data[:, 0] == pytest.approx([1.05, 2.05, 3.05])
+    assert mean.result.data[:, 1].tolist() == [1.5, 1.5, 1.5]
+    assert mean.note == shot_traces.AXES_AVERAGED_NOTE
+
+
+def test_a_raw_text_device_keeps_the_strict_rule(tmp_path):
+    day = tmp_path / "Expt" / "Y2026" / "11-Nov" / "26_1103"
+    scan = day / "scans" / "Scan001"
+    device = scan / "SPEC-X"
+    device.mkdir(parents=True)
+    for shot, shift in ((1, 0.0), (2, 0.1)):
+        rows = "\n".join(f"{x + shift}\t{shot}" for x in (1.0, 2.0, 3.0))
+        (device / f"Scan001_SPEC-X_{shot:03d}.txt").write_text(rows + "\n")
+    mean = shot_traces.average_trace_rows(scan, None, "SPEC-X", [1, 2])
+    assert mean.result is None
+    assert "differ" in mean.reason
