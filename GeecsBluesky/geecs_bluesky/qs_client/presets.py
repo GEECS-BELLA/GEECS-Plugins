@@ -14,9 +14,8 @@ worker's plans (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`) take:
   its own under its catalog name;
 - ``trigger_profile``, ``native_image_save`` and ``background_telemetry``
   ride as keywords only when set (unset = the experiment default; a copy
-  in ``plan.kwargs`` is refused, :data:`RUN_LEVEL_FIELDS`); the
-  description, the preset name and the submission record ride in the run
-  metadata.
+  in ``plan.kwargs`` is refused, :data:`RUN_LEVEL_FIELDS`); the description,
+  the preset name and the submission record ride in the run metadata.
 
 The manager passes an unknown device name through to the plan, so the
 expansion records every reference (:attr:`QueueItem.references`) for the

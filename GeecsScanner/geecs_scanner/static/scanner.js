@@ -643,11 +643,12 @@
     $("shots-hint").textContent = count ? "num — the shots of the count" : "shots_per_step";
     // the lower half is named for what it holds, so "this changes with the mode"
     // is legible without switching modes to find out
-    $("plan-eyebrow").textContent = count ? "Count · options"
+    $("plan-eyebrow").textContent = count ? "Count"
       : mode === "sweep" ? "Sweep · trajectory"
       : mode === "optimize" ? "Optimize · optimizer"
       : "This plan";
     $("plan-empty").hidden = !!mode;   // at boot no mode is pressed: say so, don't show a bare rule
+    $("count-note").hidden = !count;
     if (!silent) recalc();
   }
   function setAcq(acq) {

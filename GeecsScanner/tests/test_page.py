@@ -607,6 +607,39 @@ console.log(JSON.stringify(cases));
     )
 
 
+@pytest.mark.parametrize(
+    ("mode", "eyebrow", "note_hidden"),
+    [("count", "Count", False), ("sweep", "Sweep · trajectory", True)],
+)
+def test_count_mode_names_itself_and_says_it_moves_nothing(
+    client: TestClient, mode, eyebrow, note_hidden
+):
+    """Count mode has no options of its own: a true heading and a note, no empty group."""
+    html = client.get("/").text
+    assert (
+        '<span class="dim note" id="count-note" hidden>A count moves nothing: '
+        "the shots above are the whole plan.</span>"
+    ) in html
+    assert "count's own options" not in html and 'id="count-options"' not in html
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    harness = (
+        "var els={};\n"
+        "function $(id){return els[id]||(els[id]={hidden:false,textContent:'',"
+        "querySelectorAll:function(){return [];}});}\n"
+        "var S={};function setAcq(){}function lockOptimizerDevices(){}function recalc(){}\n"
+        "function setMode(mode, silent){\n"
+        + _script_function(source, "setMode")
+        + "\n}\nsetMode(MODE, true);\n".replace("MODE", json.dumps(mode))
+        + "console.log(JSON.stringify({eyebrow:$('plan-eyebrow').textContent,"
+        "note:$('count-note').hidden}));"
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    assert json.loads(result.stdout) == {"eyebrow": eyebrow, "note": note_hidden}
+
+
 def test_add_device_is_the_kit_drawer_picker() -> None:
     """The device drawer's selection (toggle, shift-range, one Add) is GeecsKit.picker's.
 
