@@ -365,3 +365,24 @@ def test_only_the_named_sender_can_clear(source, signals):
     )
     signals.send(5050, "safe", sender="10.0.0.9")
     assert states(monitor.step()) == {"stage": "waiting"}  # nothing from 10.0.0.5 yet
+
+
+def test_the_sender_reaches_the_real_listener(source):
+    """End to end on ExternalSignals and UdpListener, not the test double."""
+    from geecs_interlocks.external import ExternalSignals, UdpListener
+
+    signals = ExternalSignals("127.0.0.1")
+    listener = UdpListener(5050, "127.0.0.1")
+    signals._listeners[5050] = listener  # no socket needed: receive() is fed directly
+    monitor = Monitor(
+        interlock_set(group({**EXT, "sender": "10.0.0.5"}, name="stage")),
+        source,
+        signals=signals,
+        clock=lambda: listener.reading().received or 0.0,
+    )
+    listener.receive(b"safe", "10.0.0.5")
+    assert states(monitor.step()) == {"stage": "ok"}
+    listener.receive(b"warning", "10.0.0.9")  # a stray host
+    assert states(monitor.step()) == {"stage": "ok"}
+    listener.receive(b"warning", "10.0.0.5")
+    assert states(monitor.step()) == {"stage": "tripped"}

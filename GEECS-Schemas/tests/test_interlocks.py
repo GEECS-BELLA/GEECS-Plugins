@@ -201,12 +201,17 @@ class TestRefusals:
             InterlockSet.model_validate({"stale_after_s": 0})
 
 
-@pytest.mark.parametrize("sender", ["10.0.0.5", "::1", ""])
-def test_an_external_sender_is_an_address(sender):
-    assert ExternalCondition(kind="external", port=5050, sender=sender).sender == sender
+@pytest.mark.parametrize("sender", ["10.0.0.5", " 10.0.0.5 ", ""])
+def test_an_external_sender_is_an_ipv4_address(sender):
+    assert (
+        ExternalCondition(kind="external", port=5050, sender=sender).sender
+        == sender.strip()
+    )
 
 
-@pytest.mark.parametrize("sender", ["motion-pc", "10.0.0", "10.0.0.5:5050"])
-def test_a_host_name_sender_is_refused(sender):
-    with pytest.raises(ValidationError, match="IP address"):
+@pytest.mark.parametrize(
+    "sender", ["motion-pc", "10.0.0", "10.0.0.5:5050", "::1", "::ffff:10.0.0.5"]
+)
+def test_a_sender_a_packet_could_never_carry_is_refused(sender):
+    with pytest.raises(ValidationError, match="IPv4 address"):
         ExternalCondition(kind="external", port=5050, sender=sender)

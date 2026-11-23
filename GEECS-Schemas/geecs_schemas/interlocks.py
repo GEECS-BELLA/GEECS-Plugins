@@ -184,7 +184,7 @@ class ExternalCondition(SchemaModel):
     sender: str = Field(
         "",
         description=(
-            "The sending computer's IP address. When set, a packet from any "
+            "The sending computer's IPv4 address. When set, a packet from any "
             "other address is unrecognised (unsafe): no other host can clear "
             "the signal. Leave empty to accept any sender."
         ),
@@ -201,15 +201,19 @@ class ExternalCondition(SchemaModel):
     @field_validator("sender")
     @classmethod
     def _sender_is_an_address(cls, sender: str) -> str:
-        """Refuse a host name: packets carry an address, and a name would never match."""
-        if sender:
-            try:
-                ipaddress.ip_address(sender)
-            except ValueError:
-                raise ValueError(
-                    f"sender must be an IP address (packets carry one), not {sender!r}"
-                ) from None
-        return sender
+        """Refuse what a packet's address could never equal; store the canonical form.
+
+        The listener receives over IPv4, so a host name, an IPv6 address or a
+        non-canonical spelling would never match a packet's address.
+        """
+        if not sender:
+            return sender
+        try:
+            return str(ipaddress.IPv4Address(sender.strip()))
+        except ValueError:
+            raise ValueError(
+                f"sender must be an IPv4 address (packets carry one), not {sender!r}"
+            ) from None
 
 
 class ConfigChangeCondition(SchemaModel):
