@@ -165,9 +165,10 @@ keeps one `RunningAverage` per bin, folded in row order — the order the old
 `group_shots`/`average_results` pair reduced in, so the numbers are
 identical; a raw-bin run keeps each bin's measurement. A line recipe with a
 kind that consumes `shots` (the `band`) also keeps every shot's display
-trace with its bin (`ProductPlan.shots`, the bin's position or `None` on an
-unbinned run; unequal recordings with any one reduced skip them with a
-note) — a raw-bin run has no shots and keeps none. A camera frame is
+trace with its bin (`ProductPlan.shots`, the bin's position, or `None` on
+a noscan; a sorted waterfall's unbinned scan still groups them by bin; a
+bin whose recordings differ in length with any one reduced is left out
+with a note) — a raw-bin run has no shots and keeps none. A camera frame is
 folded and dropped, so a camera scan holds one running frame per product
 however long it is (memory target: bins × one frame or trace + the
 waterfall's display rows + the in-flight window; `test_core_streaming.py`

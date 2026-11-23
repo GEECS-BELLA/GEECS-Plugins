@@ -97,8 +97,12 @@ def group_by_position(
     frames: Sequence[Frame], positions: Sequence[float | None]
 ) -> list[tuple[float | None, list[Frame]]]:
     """Group the shots' frames by equal position, in order of first appearance."""
+    import math
+
     groups: dict[float | None, list[Frame]] = {}
     for frame, position in zip(frames, positions):
+        if position is not None and math.isnan(position):
+            position = math.nan  # one key for every NaN (NaN != NaN)
         groups.setdefault(position, []).append(frame)
     return list(groups.items())
 
@@ -165,7 +169,8 @@ def band(  # noqa: C901, PLR0912, PLR0915
     """Draw each group's centre line and spread band; ``label`` names the parameter.
 
     Shots group by position (:func:`group_by_position`); a group with fewer
-    than ``min_shots`` shots is left out, with a note. One group draws one
+    than ``min_shots`` shots, traces of different lengths or a nonfinite
+    position is left out, with a note (none left raises ``RenderError``). One group draws one
     axes; several draw ``options.layout``. From ``figure`` this layout
     takes ``fig`` (dpi, and figsize except in the panels layout),
     ``plot`` (the centre line's keywords; an overlay keeps its colours)
@@ -192,20 +197,20 @@ def band(  # noqa: C901, PLR0912, PLR0915
     grouped = group_by_position(frames, positions)
     notes, groups = [], []
     for position, members in grouped:
-        if len({f.data.shape for f in members}) > 1:
-            raise RenderError("Band requires equal-length traces within a bin")
-        if len(members) < options.min_shots:
-            where = "the scan" if position is None else f"{label} = {position:.4g}"
+        where = "the scan" if position is None else f"{label} = {position:.4g}"
+        if position is not None and not math.isfinite(position):
+            notes.append(f"{where}: the position is not finite; not drawn")
+        elif len({f.data.shape for f in members}) > 1:
+            notes.append(f"{where}: traces of different lengths; not drawn")
+        elif len(members) < options.min_shots:
             notes.append(
                 f"{where}: {len(members)} shot(s), fewer than min_shots "
                 f"{options.min_shots}; not drawn"
             )
-            continue
-        groups.append((position, members))
+        else:
+            groups.append((position, members))
     if not groups:
-        raise RenderError(
-            f"No bin has at least min_shots ({options.min_shots}) shots to draw"
-        )
+        raise RenderError("No bin to draw: " + "; ".join(notes))
     groups.sort(key=lambda g: (g[0] is None, g[0] if g[0] is not None else 0.0))
     gray = options.band_color or DEFAULT_BAND_COLOR
     line = {"color": "C0", **figure.plot}

@@ -176,13 +176,27 @@ def test_bins_below_min_shots_are_left_out_with_a_note():
     out = draw(results, [1.0, 1.0, 1.0, 2.0], min_shots=2)
     assert len(out.figure.axes[0].lines) == 1
     assert out.notes == ("motor = 2: 1 shot(s), fewer than min_shots 2; not drawn",)
-    with pytest.raises(RenderError, match="min_shots"):
+    with pytest.raises(RenderError, match="No bin to draw.*min_shots"):
         draw(results, [1.0, 1.0, 1.0, 2.0], min_shots=4)
 
 
-def test_unequal_traces_in_a_bin_and_mismatched_units_are_refused():
-    with pytest.raises(RenderError, match="equal-length"):
-        draw([shot([1, 2]), shot([1, 2, 3])], [1.0, 1.0])
+def test_a_bin_of_unequal_traces_is_left_out_and_the_others_drawn():
+    results = [shot([1, 2]), shot([1, 2, 3]), shot([5, 6]), shot([7, 8])]
+    out = draw(results, [1.0, 1.0, 2.0, 2.0])
+    (line,) = out.figure.axes[0].lines
+    np.testing.assert_allclose(line.get_ydata(), [6, 7])
+    assert out.notes == ("motor = 1: traces of different lengths; not drawn",)
+
+
+def test_nan_positions_form_one_group_that_is_left_out():
+    results = [shot([1]), shot([2]), shot([5]), shot([7])]
+    out = draw(results, [float("nan"), float("nan"), 2.0, 2.0])
+    assert len(out.figure.axes[0].lines) == 1
+    assert out.notes == ("motor = nan: the position is not finite; not drawn",)
+    assert len(group_by_position([r.frame for r in results], [float("nan")] * 4)) == 1
+
+
+def test_mismatched_units_and_positions_are_refused():
     other = Measurement(
         {}, Frame.from_trace(np.column_stack([[0.0, 1.0], [1.0, 2.0]]), x_unit="us")
     )
@@ -190,6 +204,8 @@ def test_unequal_traces_in_a_bin_and_mismatched_units_are_refused():
         draw([shot([1, 2]), other], [1.0, 1.0])
     with pytest.raises(RenderError):
         draw([shot([1])], [1.0, 2.0])
+    with pytest.raises(RenderError, match="No bin to draw"):
+        draw([shot([1, 2]), shot([1, 2, 3])], [1.0, 1.0])
 
 
 def test_a_long_trace_is_drawn_from_display_block_means():

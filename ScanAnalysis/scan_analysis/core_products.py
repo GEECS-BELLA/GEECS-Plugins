@@ -10,7 +10,7 @@ planning over a sequence of outcomes already in hand, built on it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -25,6 +25,9 @@ from scan_analysis.core_scan import group_shots
 #: The position label a noscan's per-shot panels carry (the waterfall's y axis
 #: and title); a preview over a few shots uses the same name.
 NOSCAN_POSITION_LABEL = "Shot Number"
+
+#: How the planner's band notes name the figure: the sink's file marker.
+BAND = "summary_band"
 
 #: The legacy figure gate: more than this many successful execution units.
 MIN_SUCCESSFUL_UNITS = 2
@@ -56,6 +59,17 @@ class ProductPlan:
     position_label: str = ""
     notes: tuple[str, ...] = ()
     shots: tuple[Product, ...] = ()
+
+
+def _by_bin(
+    shots: dict[int, Measurement], bin_of: dict[int, int]
+) -> dict[int, list[int]]:
+    """The kept shots' keys by bin, bins in key order; a shot with no bin is in none."""
+    groups: dict[int, list[int]] = {}
+    for key in sorted(shots):
+        if key in bin_of:
+            groups.setdefault(bin_of[key], []).append(key)
+    return dict(sorted(groups.items()))
 
 
 def bin_of_shot(rows: pd.DataFrame) -> dict[int, int]:
@@ -127,7 +141,8 @@ class ProductCollector:
         self._shots: dict[int, Measurement] = {}
         if self.unbinned:
             self._whole = RunningAverage(recipe, mode="noscan")
-        elif not average_before_analysis:
+        if not average_before_analysis and not noscan:
+            # A sorted waterfall's run is unbinned, but its band is still per bin.
             self._bin_of = bin_of_shot(rows)
 
     @property
@@ -173,17 +188,44 @@ class ProductCollector:
         return measurement if shown is frame else Measurement({}, shown)
 
     def _shot_products(
-        self, position: Callable[[int], float | None], label: str
+        self, rows: pd.DataFrame, parameter_column: str | None
     ) -> tuple[tuple[Product, ...], list[str]]:
-        """The kept shots at their positions, refused when recordings differ in length."""
-        shots = tuple(
-            Product(key, self._shots[key], position(key)) for key in sorted(self._shots)
-        )
-        lengths = {self._lengths[p.identifier] for p in shots}
-        if len(lengths) > 1 and max(lengths) > MAX_COLUMNS:
-            # Block means of unequal recordings can share a length.
-            return (), [f"Skipped {label}: traces of different lengths"]
-        return shots, []
+        """The kept shots at their bin's position (``None`` on a noscan).
+
+        A bin whose recordings differ in length with any one reduced is
+        left out with a note (block means of unequal recordings can share
+        a length); the other bins stand. On a scan without a bin or
+        parameter column the shots cannot be grouped, so none are kept.
+        """
+        if not self._shots:
+            return (), []
+        if self.noscan:
+            groups = {None: sorted(self._shots)}
+        elif (
+            "Bin #" not in rows
+            or parameter_column is None
+            or parameter_column not in rows
+        ):
+            return (), [f"{BAND}: missing bin or parameter column; not drawn"]
+        else:
+            groups: dict[float | None, list[int]] = {}
+            for bin_key, keys in _by_bin(self._shots, self._bin_of).items():
+                values = rows.loc[rows["Bin #"] == bin_key, parameter_column]
+                groups.setdefault(float(values.mean()), []).extend(keys)
+        shots, notes = [], []
+        for position, keys in groups.items():
+            lengths = {self._lengths[key] for key in keys}
+            if len(lengths) > 1 and max(lengths) > MAX_COLUMNS:
+                where = (
+                    "the scan"
+                    if position is None
+                    else f"{parameter_column} = {position:.4g}"
+                )
+                notes.append(f"{BAND}: {where}: traces of different lengths; not drawn")
+                continue
+            shots.extend(Product(key, self._shots[key], position) for key in keys)
+        shots.sort(key=lambda p: p.identifier)
+        return tuple(shots), notes
 
     def plan(
         self,
@@ -210,7 +252,9 @@ class ProductCollector:
                 notes=("Legacy summaries require more than two successful units",)
             )
         if self.unbinned:
-            return self._plan_unbinned(rows, sort_column, sort_bounds, sort_sigma)
+            return self._plan_unbinned(
+                rows, sort_column, sort_bounds, sort_sigma, parameter_column
+            )
         return self._plan_binned(rows, parameter_column)
 
     def _plan_unbinned(
@@ -219,6 +263,7 @@ class ProductCollector:
         sort_column: str | None,
         sort_bounds: tuple[float, float] | None,
         sort_sigma: float | None,
+        parameter_column: str | None,
     ) -> ProductPlan:
         average = self._whole.result()
         singles = (Product("average", average),) if average is not None else ()
@@ -229,7 +274,7 @@ class ProductCollector:
         )
         if not self.line:
             return ProductPlan(singles=singles, notes=tuple(notes))
-        shots, skipped = self._shot_products(lambda key: None, "band")
+        shots, skipped = self._shot_products(rows, parameter_column)
         notes.extend(skipped)
         panels = []
         for key in sorted(self._units):
@@ -293,23 +338,13 @@ class ProductCollector:
             }
         panels = []
         notes = []
-        positions: dict[int, float] = {}
-
-        def bin_position(key: int) -> float:
-            # Every scalar row in the bin, not only the loaded shots.
-            if key not in positions:
-                values = rows.loc[rows["Bin #"] == key, parameter_column]
-                positions[key] = float(values.mean())
-            return positions[key]
-
         for key, measurement in sorted(measurements.items()):
             if measurement is None:
                 notes.append(f"Skipped bin {key}: incompatible result shapes")
                 continue
-            panels.append(Product(key, measurement, bin_position(key)))
-        shots, skipped = self._shot_products(
-            lambda shot: bin_position(self._bin_of[shot]), "band"
-        )
+            position = float(rows.loc[rows["Bin #"] == key, parameter_column].mean())
+            panels.append(Product(key, measurement, position))
+        shots, skipped = self._shot_products(rows, parameter_column)
         notes.extend(skipped)
         return ProductPlan(
             tuple(panels),
