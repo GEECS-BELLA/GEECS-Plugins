@@ -366,9 +366,9 @@ console.log(JSON.stringify(result));
 
 def test_physical_best_targets_stay_visible_after_move_is_queued():
     _need_node()
-    body = _script_function(
-        (_PKG / "static/scanner.js").read_text(), "renderOptimization"
-    )
+    script = (_PKG / "static/scanner.js").read_text()
+    body = _script_function(script, "renderOptimization")
+    idle = _script_function(script, "idle")
     harness = (
         """
 var els = {};
@@ -377,12 +377,13 @@ function el() { return {children: [], appendChild(child) {this.children.push(chi
 function $(id) { return els[id] || (els[id] = el()); }
 function td(value) { return {text: value}; }
 var document = {createElement: el};
-var S = {status: {connected: true, re_state: "idle", items_in_queue: 0}, optimization: {
+var S = {status: {connected: true, re_state: "idle", items_in_queue: 0, idle_blocker: null}, optimization: {
  run_uid: "run", config: "test", iteration: 1, max_iterations: 1, exit_status: "success", finished: true,
  measured: {bump: 0}, outputs: {}, best: {bump: 999}, valid_shots: {},
  best_moves: {"Motor1:Current": 0.123456789, "Motor2:Current": -0.5}
 }};
 """
+        + f"function idle() {{\n{idle}\n}}\n"
         + f"function renderOptimization() {{\n{body}\n}}"
         + """
 renderOptimization();
@@ -802,34 +803,18 @@ def test_start_queue_sits_beside_clear_and_confirms_what_runs(
     handler = handler[: handler.index("  });")]
     assert 'verb("/api/queue/start", { operator: operator() }, refreshQueue)' in handler
     assert '"dlg-start-queue-first").textContent = q.waiting.length ? q.waiting[0].summary' in script  # fmt: skip
-    _need_node()
-    blocker = _script_function(script, "startQueueBlocker")
-    ready = {"connected": True, "readiness": "ready", "re_state": "idle", "manager_state": "idle", "items_in_queue": 2, "reopening": False}  # fmt: skip
-    cases = {
-        "stopped": {},
-        "empty": {"items_in_queue": 0},
-        "running": {"re_state": "running"},
-        "paused": {"re_state": "paused"},
-        "started": {"manager_state": "executing_queue"},
-        "reopening": {"reopening": True},
-        "closed": {"readiness": "environment_closed"},
-        "down": {"connected": False},
-    }
-    harness = "\n".join(
-        [
-            f"function startQueueBlocker(st) {{\n{blocker}\n}}",
-            f"var base = {json.dumps(ready)}, cases = {json.dumps(cases)}, out = {{}};",
-            "Object.keys(cases).forEach(function (k) {",
-            "  out[k] = startQueueBlocker(Object.assign({}, base, cases[k]));",
-            "});",
-            "out.none = startQueueBlocker(null);",
-            "console.log(JSON.stringify(out));",
-        ]
-    )
-    out = subprocess.run(
-        ["node", "-"], input=harness, capture_output=True, text=True, check=True
-    )
-    got = json.loads(out.stdout)
-    assert got.pop("stopped") == "", "a stopped, ready queue with items waiting starts"
-    assert all(got.values()), got  # every other state disables it, with a reason
-    assert "nothing waits" in got["empty"] and "reopening" in got["reopening"]
+    # The enablement is the server's verdict (test_service's start-queue cases), relayed.
+    assert "var startable = st.start_queue_blocker;" in script
+    assert "function startQueueBlocker" not in script
+
+
+def test_the_page_relays_the_servers_verdicts_and_derives_none() -> None:
+    """B1: the now chip, the idle-only gates and Set to best read the status's verdicts."""
+    script = (_PKG / "static" / "scanner.js").read_text()
+    assert 'setChip($("now-chip"), st.run_kit, st.run_word);' in script
+    assert "return !!S.status && !S.status.idle_blocker;" in script
+    best = script[script.index('$("btn-set-best").disabled =') :]
+    assert best.startswith('$("btn-set-best").disabled = !idle()')
+    # no copy of the idle or start rule is left on the page
+    assert 'st.connected && st.re_state === "idle"' not in script
+    assert 'st.re_state !== "idle"' not in script

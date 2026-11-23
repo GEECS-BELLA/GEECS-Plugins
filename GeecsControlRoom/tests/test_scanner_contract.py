@@ -73,10 +73,18 @@ def _strip(settings: Settings, module: ModuleClient, scanner_app) -> dict:
     return reply.json()
 
 
-def test_an_idle_manager_is_the_ok_run_word(settings: Settings, module: ModuleClient, scanner) -> None:  # fmt: skip
+def _scanner_status(scanner_app) -> dict:
+    with TestClient(scanner_app) as c:
+        return c.get("/api/status").json()
+
+
+def test_an_idle_manager_is_the_scanners_idle_word(settings: Settings, module: ModuleClient, scanner) -> None:  # fmt: skip
+    """The strip relays the scanner's run word and kit state (idle is grey on both)."""
     _, app = scanner
     s = _strip(settings, module, app)
-    assert (s["scanner"], s["run"], s["kit"]) == ("ok", "idle", "ok")
+    status = _scanner_status(app)
+    assert (status["run_word"], status["run_kit"]) == ("idle", "unknown")
+    assert (s["scanner"], s["run"], s["kit"]) == ("ok", status["run_word"], status["run_kit"])  # fmt: skip
     assert s["shots_done"] == 0
 
 
@@ -87,5 +95,7 @@ def test_a_running_scan_fills_the_strip(settings: Settings, module: ModuleClient
     manager.step()
     s = _strip(settings, module, app)
     assert (s["scanner"], s["run"], s["kit"]) == ("ok", "running", "running")
+    status = _scanner_status(app)
+    assert (status["run_word"], status["run_kit"]) == ("running", "running")
     assert s["scan_number"] == FIRST_SCAN + 1
     assert (s["shots_done"], s["planned_total"], s["state"]) == (2, SHOTS, "running")

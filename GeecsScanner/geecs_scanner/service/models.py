@@ -83,6 +83,26 @@ class StatusOut(BaseModel):
         default=False,
         description="The worker environment is being reopened (POST /api/environment/reopen)",
     )
+    run_word: str = Field(
+        default="unknown",
+        description="What the manager is doing, in one word (idle, running, paused, reopening, unreachable, or the readiness word)",
+    )
+    run_kit: str = Field(
+        default="unknown",
+        description="The run word's kit status state (ok, running, paused, degraded, failed, unknown)",
+    )
+    start_queue_blocker: Optional[str] = Field(
+        default=None,
+        description="Why POST /api/queue/start is refused now, as the verb words it; null when allowed",
+    )
+    idle_blocker: Optional[str] = Field(
+        default=None,
+        description="Why an idle-only item (a move, a setup, a calibration, Set to best) is refused now; null when allowed",
+    )
+    reopen_blocker: Optional[str] = Field(
+        default=None,
+        description="Why POST /api/environment/reopen is refused now, as the verb words it; null when allowed",
+    )
 
 
 class ReopenIn(BaseModel):
