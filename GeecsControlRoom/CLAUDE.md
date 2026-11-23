@@ -805,3 +805,9 @@ at the PVs the module names; the put envelope's `outcome`, `code`, `journalId`, 
 journal row's fields) and the home's lists, `unread` and the directory's `words` (a camera, a
 bench scope behind an IOC heartbeat, a bench spectrometer). geecs-canopy is a
 dev-only dependency; `geecs_control_room` never imports it.
+
+`test_scanner_contract.py` is the strip's: GeecsScanner's own app over its
+demo manager (stepped by hand) behind the scanner client, driven through
+`/api/home/strip`. It pins what the strip reads of `/api/status`
+(`connected`, `re_state`) and `/api/progress` (`scan_number`, `shots_done`,
+`planned_total`, `state`). geecs-scanner is a dev-only dependency too.

@@ -37,6 +37,11 @@ geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testin
 # fails this suite in the same PR. Dev-only: geecs_control_room never imports
 # it (the control-room-edges contract); Canopy itself is not installed.
 geecs-canopy = { path = "../GeecsCanopy", develop = true }
+# The scanner contract test mounts GeecsScanner's own app over its demo
+# manager in process, so a change to the /api/status or /api/progress fields
+# the home's strip reads fails this suite in the same PR. Dev-only:
+# geecs_control_room never imports it (the control-room-edges contract).
+geecs-scanner = { path = "../GeecsScanner", develop = true }
 
 [tool.poetry.scripts]
 geecs-control-room = "geecs_control_room.__main__:main"

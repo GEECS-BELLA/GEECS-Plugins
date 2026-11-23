@@ -251,7 +251,8 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         background step; and the core that processes
                         and previews recipes), GEECS-Schemas (the
                         analysis documents' schema and validate the
-                        configurator asks over HTTP)
+                        configurator asks over HTTP; the logbook's
+                        EntryCreate body the plot send builds)
                         (+ ScanAnalysis, optional via the `analysis`
                         extra — the recipe preview and the Analysis
                         tab's direct ScanAnalyzer runs),
@@ -262,7 +263,11 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         — the logbook is a peer service reached over HTTP
                         alone (--logbook-url): the run page links to it,
                         and the Plot tab POSTs a rendered plot into the
-                        scan's entry through its public API
+                        scan's entry through its public API.
+                        GeecsAnalysisWorker and GeecsLogbook are DEV-ONLY
+                        path deps: the contract tests mount their FastAPI
+                        apps in process, so a route change there fails
+                        the portal's suite in the same PR
 GeecsWebTheme        →  (no intra-repo deps — stylesheets, small
                         scripts (plot.js, the one Plotly template),
                         the vendored Plotly bundle and a path helper; fastapi + jinja2 only
@@ -279,7 +284,8 @@ GeecsWebTheme        →  (no intra-repo deps — stylesheets, small
                         fourth set)
 GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         folders and nothing else), GEECS-Schemas (the
-                        LogEntry document and its payload union),
+                        LogEntry document and its payload union, the
+                        EntryCreate body its create route validates),
                         GeecsWebTheme (web extra — the theme it mounts at
                         /theme itself and the shared FastAPI glue:
                         forwarded-prefix middleware, the `root` templates
@@ -299,7 +305,9 @@ GeecsControlRoom     →  GEECS-Schemas (the screen document, the family
                         GeecsBluesky, the scanner, the portal or the
                         logbook. GeecsCanopy is a DEV-ONLY
                         path dep: the contract test drives the module's
-                        own routes in process (geecs_canopy.testing)
+                        own routes in process (geecs_canopy.testing);
+                        so is GeecsScanner, whose app the strip's
+                        contract test mounts in process
 GeecsConfigurator    →  GEECS-Schemas (the registry, the models, the tiers,
                         the storage table), GEECS-Core (configs_repo for
                         the root; never GeecsDb), GeecsWebTheme (web extra:
