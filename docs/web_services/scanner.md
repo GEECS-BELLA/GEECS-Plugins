@@ -190,11 +190,13 @@ opens this page.
    reads while the subscription stays silent for a few seconds refuses
    the scan. A scan then would read stale
    values, or time out after claiming a scan number, so no acknowledgement
-   passes it: restart the gateway service (`geecs-ca-gateway`, on its host;
-   capture a `py-spy dump` of it first, as
-   `GeecsCAGateway/DEPLOYMENT.md` says under "Gets answer, no monitors")
-   and press Start again. A gateway that does not answer at all is
-   not refused here. Warnings come
+   passes it. The gateway restarts itself once its monitor delivery has
+   stood still for 30 s (relaunched 10 s later): wait a minute and press
+   Start again. A refusal that persists is a slow client pacing delivery,
+   which the gateway does not restart for: find that client, stop it, and
+   restart the gateway service (`geecs-ca-gateway`, on its host), as
+   `GeecsCAGateway/DEPLOYMENT.md` says under "Gets answer, no monitors".
+   A gateway that does not answer at all is not refused here. Warnings come
    back as *questions* — stale cameras, a trigger that looks off — in a
    dialog; nothing is queued until every question is acknowledged and you
    press **Submit to queue**. The acknowledgements are stamped into the

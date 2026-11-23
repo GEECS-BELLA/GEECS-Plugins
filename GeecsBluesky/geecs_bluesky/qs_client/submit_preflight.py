@@ -54,10 +54,13 @@ _MONITOR_GRACE_S = 1.0
 GATEWAY_MONITORS_REFUSAL = (
     "The CA gateway answers gets but delivers no monitors: its heartbeat "
     "gave no value on subscribe within {wait:g} s. A scan now would read "
-    "stale values, or time out after claiming a scan number. Restart "
+    "stale values, or time out after claiming a scan number. The gateway "
+    "restarts itself once delivery has stood still for 30 s (relaunched "
+    "10 s later), so wait a minute and start the scan again. Refused again "
+    "after that, a slow client is pacing delivery, which the gateway does "
+    "not restart for: find that client, stop it, then restart "
     "geecs-ca-gateway on its host (GeecsCAGateway/DEPLOYMENT.md § "
-    'Troubleshooting, "Gets answer, no monitors"); the cause is not known '
-    "yet, so first capture `py-spy dump` of the gateway process if you can."
+    'Troubleshooting, "Gets answer, no monitors").'
 )
 
 

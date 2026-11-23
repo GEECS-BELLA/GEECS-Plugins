@@ -508,9 +508,10 @@ class TestGatewayMonitors:
         report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is not None
         assert "answers gets but delivers no monitors" in report.refusal
-        assert "Restart geecs-ca-gateway" in report.refusal
+        assert "restarts itself" in report.refusal
+        assert "restart geecs-ca-gateway on its host" in report.refusal
         assert "Gets answer, no monitors" in report.refusal
-        assert "py-spy dump" in report.refusal
+        assert "py-spy" not in report.refusal
         assert aioca["gets"] == [self.PV, self.PV]
         assert aioca["subscribed"] == [self.PV] and aioca["closed"] == 1
 
