@@ -109,34 +109,13 @@ class ShotControlWrites(BaseModel):
         return list(self.states.get(self._state_name(state), []))
 
 
-def _state_write_triples(
-    profile: TriggerProfile, state: TriggerState
-) -> list[tuple[str | None, str, str]]:
-    """Normalize one state's writes to ``(device, variable, value)`` triples.
-
-    Handles both TriggerProfile generations (single-device dict shape and
-    multi-device ordered write lists); order is preserved exactly
-    (schema-documented: writes apply top to bottom).
-    """
-    writes = profile.writes_for(state)
-    if isinstance(writes, dict):
-        device = getattr(profile, "device", None)
-        return [(device, variable, value) for variable, value in writes.items()]
-    triples: list[tuple[str | None, str, str]] = []
-    for write in writes:
-        if isinstance(write, dict):
-            triples.append((write["device"], write["variable"], write["value"]))
-        else:
-            triples.append((write.device, write.variable, write.value))
-    return triples
-
-
 def trigger_writes_from_profile(profile: TriggerProfile) -> ShotControlWrites:
     """Adapt a TriggerProfile into the controller's ``ShotControlWrites``.
 
     Each state becomes the profile's **ordered** write list (possibly
-    spanning several devices); the controller replays them sequentially,
-    each write completing before the next.
+    spanning several devices) as ``(device, variable, value)`` triples; the
+    controller replays them sequentially, each write completing before the
+    next.
 
     Raises
     ------
@@ -145,33 +124,22 @@ def trigger_writes_from_profile(profile: TriggerProfile) -> ShotControlWrites:
         ``use_scan_mode``, the box-less case (the shot message is the only
         trigger; see the module docstring).
     """
-    use_scan_mode = bool(getattr(profile, "use_scan_mode", False))
     states: dict[str, list[tuple[str, str, str]]] = {}
-    any_device = False
     for state in TriggerState:
-        triples: list[tuple[str, str, str]] = []
-        for device, variable, value in _state_write_triples(profile, state):
-            if device is None:
-                raise GeecsConfigurationError(
-                    f"trigger profile {profile.name!r} has a write to "
-                    f"{variable!r} with no device — it cannot be sent"
-                )
-            triples.append((device, variable, value))
-            any_device = True
-        if triples:
-            states[state.value] = triples
-    if not any_device and not use_scan_mode:
+        writes = profile.writes_for(state)
+        if writes:
+            states[state.value] = [(w.device, w.variable, w.value) for w in writes]
+    if not states and not profile.use_scan_mode:
         raise GeecsConfigurationError(
             f"trigger profile {profile.name!r} names no trigger device — "
             "it cannot drive a scan's trigger (a box-less profile needs "
             "use_scan_mode: the shot message is then the trigger)"
         )
-    name = getattr(profile, "name", "") or ""
     return ShotControlWrites(
-        name=name,
+        name=profile.name,
         states=states,
-        use_scan_mode=use_scan_mode,
-        shot_gate=getattr(profile, "shot_gate", None),
+        use_scan_mode=profile.use_scan_mode,
+        shot_gate=profile.shot_gate,
     )
 
 

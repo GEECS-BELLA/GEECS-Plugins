@@ -42,7 +42,6 @@ from geecs_scanner.service.models import (
     SetupOut,
     ScanLogListIn,
     ScanLogListOut,
-    ScanLogOut,
     ScanVariableOut,
     SettablesOut,
     ShotGateOut,
@@ -129,12 +128,6 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
         """The latest-run picture from the streams (also carried by /api/events)."""
         response.headers.update(_NO_CACHE)
         return service.progress()
-
-    @router.get("/api/scanlog", response_model=ScanLogOut)
-    def scanlog(response: Response, offset: int = 0) -> ScanLogOut:
-        """The latest run's scan.log from *offset* (also carried by /api/events as `log`)."""
-        response.headers.update(_NO_CACHE)
-        return service.scan_log(offset)
 
     @router.get("/api/configs/{kind}", response_model=ConfigListOut)
     def configs(kind: str, response: Response) -> ConfigListOut:

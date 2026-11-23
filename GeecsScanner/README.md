@@ -68,7 +68,6 @@ without a worker.
 | `POST /api/configs/presets/{name}` | `{preset, overwrite, operator}` → `presets/<name>.yaml` committed to the configs repo's main by the configurator (`--configurator-url`) as the operator's; 409 `exists` without `overwrite`, 409 `conflict` when it changed meanwhile; refused with no configurator |
 | `POST /api/preflight/trigger-profile` | `{document, preset?}` → the worker's checks of an **unsaved** trigger profile (the configurator's dry run): the schema, the trigger-box adapter, its devices' liveness; with a preset, that preset's full preflight under the draft. Queues nothing |
 | `POST /api/environment/reopen` | `{operator, reason}` → close and reopen the worker environment so it re-reads trigger profiles, the scan-variable catalogue, the native-device registry and the shot offsets (the configurator's apply). Idle **and** empty only (409 otherwise, and while the environment is closed); held under the service lock; every verb that queues is refused with `reopening` meanwhile, and so is one begun before it that reaches the lock after; the queue is started after if items wait. `/api/status` says `reopening` meanwhile |
-| `GET /api/scanlog?offset=` | the latest run's `scan.log` from the folder the start document names (read-only) |
 | `GET /api/events?since=&once=` | the SSE stream: `status`, `progress`, `log`, `console` |
 
 Errors are `{"error": {"kind", "message", ...}}` with the kind mapped to a

@@ -175,7 +175,9 @@ def test_submit_then_run_pause_resume_stop(
     q = client.get("/api/queue").json()
     assert q["running"] is None
     done = q["finished"][0]
-    assert done["state"] == "failed" and done["word"] == "stopped"
+    assert (
+        done["state"] == "degraded" and done["word"] == "stopped"
+    )  # amber: red is for failures
     assert done["scan_numbers"] == [47] and done["detail"] == "stopped by operator"
     # RunEngine.stop() marks the run successful; the history row is what says stopped
     assert client.get("/api/progress").json()["state"] == "done"

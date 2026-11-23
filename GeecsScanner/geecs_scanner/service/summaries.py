@@ -23,14 +23,18 @@ from typing import Any, Optional
 _NOT_SCANS = ("mv", "apply_setup")
 
 #: Manager ``exit_status`` → (the word a chip shows, the kit state it wears).
+#: Red is for failures. A run ended early is amber: ``stopped`` (``RE.stop()``,
+#: the scanner's Stop, whose documents say success) and ``aborted``
+#: (``RE.abort()``) keep the run engine's two words, as the portal and the
+#: logbook show an aborted run.
 EXIT_WORDS: dict[str, tuple[str, str]] = {
     "completed": ("ok", "ok"),
     "success": ("ok", "ok"),
     "failed": ("failed", "failed"),
     "fail": ("failed", "failed"),
-    "stopped": ("stopped", "failed"),
-    "aborted": ("stopped", "failed"),
-    "abort": ("stopped", "failed"),
+    "stopped": ("stopped", "degraded"),
+    "aborted": ("aborted", "degraded"),
+    "abort": ("aborted", "degraded"),
     "halted": ("halted", "failed"),
     "unknown": ("unknown", "unknown"),
 }

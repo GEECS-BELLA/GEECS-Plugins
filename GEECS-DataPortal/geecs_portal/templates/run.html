@@ -10,7 +10,7 @@
       <div class="scanline">{{ summary.experiment or experiment }} · {{ run_day or day or "?" }} ·
         <span class="num">Scan {{ summary.scan_number if summary.scan_number is not none else "?" }}</span></div>
       <div class="row">
-        <span class="chip" data-state="{{ summary.exit_status | run_state }}">{{ summary.exit_status or "unknown" }}</span>
+        <span class="chip" data-state="{{ summary.exit_status | run_state }}">{{ summary.exit_status | run_word }}</span>
         <span class="dim mono">{{ summary.mode }}{% if total_shots %} · {{ total_shots }} shots{% endif %}{% if start_time_of_day %} · {{ start_time_of_day }}{% endif %}</span>
       </div>
       <div class="row">
@@ -28,7 +28,7 @@
         {% if day_runs %}
         <select class="btn sm" aria-label="Scan on this day" onchange="if(this.value) location = ROOT + '/run/' + this.value + location.search" title="jump to a scan on this day">
           {% for run in day_runs %}
-          <option value="{{ run.uid }}" {{ "selected" if run.uid == uid }}>Scan {{ "%03d" | format(run.scan_number) if run.scan_number is not none else "?" }} · {{ run.mode }} · {{ run.exit_status or "unknown" }}</option>
+          <option value="{{ run.uid }}" {{ "selected" if run.uid == uid }}>Scan {{ "%03d" | format(run.scan_number) if run.scan_number is not none else "?" }} · {{ run.mode }} · {{ run.exit_status | run_word }}</option>
           {% endfor %}
         </select>
         {% endif %}

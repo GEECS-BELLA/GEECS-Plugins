@@ -110,8 +110,9 @@ def test_non_scan_items_and_unknown_shapes_never_raise() -> None:
     [
         ("completed", ("ok", "ok")),
         ("failed", ("failed", "failed")),
-        ("stopped", ("stopped", "failed")),
-        ("aborted", ("stopped", "failed")),
+        ("stopped", ("stopped", "degraded")),
+        ("aborted", ("aborted", "degraded")),
+        ("abort", ("aborted", "degraded")),
         ("halted", ("halted", "failed")),
         (None, ("unknown", "unknown")),
     ],

@@ -127,6 +127,20 @@ def test_the_strip_takes_the_run_word_from_the_manager(settings: Settings, modul
     assert (s["run"], s["kit"], s["scan_number"], s["shots_done"]) == (run, kit, 12, 7)
 
 
+def test_the_strip_relays_the_scanners_run_word_when_it_sends_one(settings: Settings, module: ModuleClient) -> None:  # fmt: skip
+    """The scanner's word and colour win over the manager's word (idle is grey there, not green)."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/status":
+            return httpx.Response(200, json={"connected": True, "re_state": "idle", "run_word": "idle", "run_kit": "unknown"})  # fmt: skip
+        return httpx.Response(200, json={"scan_number": 12, "shots_done": 0})
+
+    scanner = httpx.AsyncClient(base_url="http://scanner.test", transport=httpx.MockTransport(answer))  # fmt: skip
+    with TestClient(create_app(settings, module, scanner)) as c:
+        s = c.get("/api/home/strip").json()
+    assert (s["scanner"], s["run"], s["kit"]) == ("ok", "idle", "unknown")
+
+
 _HOME = """schema_version: 1
 areas:
   - title: Bench

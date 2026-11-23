@@ -69,11 +69,19 @@ _STATIC_DIR = Path(__file__).parent / "static"
 #: crash must not pulse on the day list (the logbook's rule: status is
 #: reported, not inferred).
 _RUN_STATES = {"success": "ok", "abort": "degraded", "fail": "failed"}
+#: The chip's text where it is not the stored ``exit_status`` itself: an
+#: aborted run reads "aborted" on every surface (the scanner, the logbook).
+_RUN_WORDS = {"abort": "aborted"}
 
 
 def run_state(exit_status: Optional[str]) -> str:
     """The kit status word (``data-state``) for a run's ``exit_status``."""
     return _RUN_STATES.get(exit_status or "", "unknown")
+
+
+def run_word(exit_status: Optional[str]) -> str:
+    """The word a run's chip shows for its ``exit_status`` (display only; the value is unchanged)."""
+    return _RUN_WORDS.get(exit_status or "", exit_status or "unknown")
 
 
 def create_app(
@@ -182,7 +190,9 @@ def create_app(
     # ASGI root_path, and every template gets `root`, the prefix each
     # root-absolute href/action/src/fetch must carry (empty at root).
     app.add_middleware(ForwardedPrefixMiddleware)
-    templates = make_templates(_TEMPLATES_DIR, filters={"run_state": run_state})
+    templates = make_templates(
+        _TEMPLATES_DIR, filters={"run_state": run_state, "run_word": run_word}
+    )
     # The portal's own stylesheet.
     app.mount(
         "/static", RevalidatingStaticFiles(directory=str(_STATIC_DIR)), name="static"

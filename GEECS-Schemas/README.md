@@ -66,14 +66,17 @@ independently:
   storage row publishes it; another contract is one line in the registry.
   Either way, regenerate.
 - **The marker is an integer, not a semver.** Nothing branches on a minor
-  schema version: a document is either liftable or already current. The
-  finer-grained story lives in the changelog. Do not introduce `1.1`-style
-  markers.
-- **Each document kind versions on its own.** ScanRequest is at v3 and
-  TriggerProfile at v2 (each bumped by its own removed field); Preset and
-  the rest stay at v1 until their own layout changes.  The staleness test
-  is one helper, `stale_schema_version` in `_base.py`, shared by every
-  kind's lifting validator.
+  schema version. The finer-grained story lives in the changelog. Do not
+  introduce `1.1`-style markers.
+- **Each document kind versions on its own, in one of two ways.** A kind
+  whose old documents must keep loading (ScanRequest, at v4: archived run
+  metadata carries every version) lifts them in a before-validator; the
+  staleness test is one helper, `stale_schema_version` in `_base.py`. A
+  kind with a single format pins `schema_version: Literal[n]` and refuses
+  any other version: TriggerProfile (v2, its v1 layout retired once no
+  document carried it), the screens, the home layout and the EPICS
+  documents (v1). Preset and the rest stay at v1 until their own layout
+  changes.
 
 ## Model inventory
 
