@@ -87,7 +87,7 @@ GEECS device  <--UDP set---------  setpoint PV   (caput)
 - **Writes**: a `:SP` setpoint PV whose `ChannelData.write` override forwards the
   value to GEECS over UDP before storing it. A failed set raises, so CA put
   failure semantics are correct.
-- **Config is DB-driven**: `DeviceSpec.from_geecs_db(name)` pulls host/port +
+- **Config is DB-driven**: `GatewayConfig.from_geecs_experiment` pulls host/port +
   per-variable units → EGU, min/max → CA control limits, and the settable flag
   straight from `GeecsDb`. No manual per-variable binding (the SVE tool's tax).
 
@@ -99,8 +99,8 @@ GEECS device  <--UDP set---------  setpoint PV   (caput)
   design; per-shot bundling is what Bluesky's `trigger`→`read` is for, and
   archiving does not need it.
 - **Non-float types**: the GEECS DB carries no scalar type, so variables default
-  to `float`; enums/addresses must be named via `dtypes=` or excluded via
-  `include=`.
+  to `float`; enums/addresses must be named via `dtypes=` or kept out of the
+  served set.
 
 ## Fitness for our regime (~1 Hz, ~100 devices)
 
@@ -123,7 +123,7 @@ are narrow and livable.
 
 Against real device `U_S1H` (steering-magnet PS, beam off):
 
-1. `GeecsDb` → host/port + variable metadata; `from_geecs_db` builds the spec.
+1. `GeecsDb` → host/port + variable metadata; `DeviceSpec.from_db_metadata` builds the spec.
 2. Read path: live readback of `Current`/`Voltage` from the 5 Hz stream.
 3. Write path: `caput Current:SP 1.0` → readback tracked to 0.9999 A, `Voltage`
    rose 0.0034→0.634 V (coil energized — real physics), then clean restore.

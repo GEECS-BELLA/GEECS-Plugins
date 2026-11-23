@@ -82,8 +82,9 @@ geecs_bluesky/
                             #   EPICS_CA/PVA_ADDR_LIST from config.ini before libca's context exists
   namespace.py              # GeecsNamespace: every DB device as a long-lived noun;
                             #   capture_streams (the file-plugin rule), add_pseudos, telemetry()
-  db_runtime.py             # the DB providers (served set, device types); the scalar
-                            #   policy lives in geecs_core.db.scalar_policy
+  db_runtime.py             # the DB device-types provider; the scalar policy lives
+                            #   in geecs_core.db.scalar_policy, the served set in
+                            #   geecs_core.db.served_set
   devices/detector.py       # GeecsDetector — the acquirer as a stock StandardDetector
   devices/shot_control.py   # ShotControl — the trigger box: Movable over the profile's
                             #   states, Pausable; CaPutSetter + the writes

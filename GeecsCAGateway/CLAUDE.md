@@ -49,7 +49,7 @@ geecs_ca_gateway/
                      #   cast/unwrap helpers
   config.py          # Pydantic models: GatewayConfig / DeviceSpec / VariableSpec;
                      #   DB→dtype mapping incl. choice-descriptor quirks;
-                     #   from_db_metadata (pure) / from_geecs_db / from_geecs_experiment
+                     #   from_db_metadata (pure) / from_geecs_experiment
   audit.py           # read-only DB-hygiene audit (#496): reports every get='yes'
                      #   variable the gateway won't serve + FK-orphans. Pure
                      #   classifier audit_subscribed_variables() (no DB) + CLI
