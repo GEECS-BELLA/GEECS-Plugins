@@ -13,12 +13,8 @@ One operating condition, one profile
 ------------------------------------
 Operating conditions (the classic laser-on / laser-off pair, no-gas, …) are
 separate profile files, each complete on its own, and a scan names the one
-it wants.  Format v1 also allowed named *variants* inside a profile (an
-overlay of a few writes); nobody adopted them — every experiment kept
-separate files — so format v2 removed them.  A v1 file with an empty
-``variants`` block still loads (the block is dropped); one that actually
-defines a variant is refused with the remedy: split it into its own
-profile.
+it wants.  Format v2 is the only format: a profile has no ``variants``
+block, and a document declaring any other ``schema_version`` is refused.
 
 Scan mode
 ---------
@@ -76,18 +72,13 @@ with settable variables can take part in a transition.
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from enum import Enum
 
 from pydantic import model_validator, Field, field_validator
 
-from geecs_schemas._base import (
-    SchemaModel,
-    Tier,
-    VersionedSchemaModel,
-    stale_schema_version,
-)
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
 #: Where an experiment's trigger profiles live: ``shot_control_configurations/<name>.yaml``.
 TRIGGER_PROFILES_FOLDER = "shot_control_configurations"
@@ -300,14 +291,14 @@ class TriggerProfile(VersionedSchemaModel):
     they implement the "state with no writes is not defined" rule.
     :attr:`devices` lists every device the profile touches.
 
-    Format v2 removed the v1 ``variants`` overlay (see the module
-    docstring); a before-validator drops an empty v1 block, refuses a
-    populated one, and normalizes ``schema_version`` ≤ 1 to 2.
+    Format v2 is the only format accepted: ``schema_version`` must be 2 (or
+    absent), and an unknown key such as the removed ``variants`` overlay
+    is refused like any other.
     """
 
     tier: ClassVar[Tier] = "operator"
 
-    schema_version: int = Field(
+    schema_version: Literal[2] = Field(
         default=2,
         description=(
             "Format version of this config file. Leave at 2 — tools update "
@@ -373,59 +364,6 @@ class TriggerProfile(VersionedSchemaModel):
                 "the scan-mode announce)."
             )
         return self
-
-    @model_validator(mode="before")
-    @classmethod
-    def _lift_v1_layout(cls, data: object) -> object:
-        """Drop the removed v1 ``variants`` block; normalize the version.
-
-        Parameters
-        ----------
-        data : object
-            The raw input; non-mapping input passes through untouched.
-
-        Returns
-        -------
-        object
-            The (copied) mapping in v2 layout, or *data* unchanged.
-
-        Raises
-        ------
-        ValueError
-            If the document defines a variant *with writes* — format v2 has
-            no overlay; the remedy is a separate profile per operating
-            condition.  A variant with no writes (what the retired editor's
-            "Add variant" saved when never filled in) is a no-op and is
-            dropped like an empty block.
-        """
-        if not isinstance(data, dict):
-            return data
-        stale = stale_schema_version(data, 2)
-        if "variants" not in data and not stale:
-            return data
-        lifted = dict(data)
-        variants = lifted.pop("variants", None) or {}
-        if not isinstance(variants, dict):
-            raise ValueError(
-                f"trigger profile {lifted.get('name', '?')!r}: 'variants' must be a "
-                "mapping (and profile variants were removed in format v2 — drop "
-                "the block)."
-            )
-        populated = sorted(
-            name
-            for name, variant in variants.items()
-            if isinstance(variant, dict) and any(variant.get("states", {}).values())
-        )
-        if populated:
-            raise ValueError(
-                f"trigger profile {lifted.get('name', '?')!r} defines variant(s) "
-                f"{populated} — profile variants were removed in format v2; "
-                "save each operating condition as its own profile file and "
-                "name that profile in the scan request."
-            )
-        if stale:
-            lifted["schema_version"] = 2
-        return lifted
 
     @property
     def devices(self) -> list[str]:

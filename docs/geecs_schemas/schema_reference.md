@@ -309,7 +309,7 @@ The device writes that drive the machine through its trigger states.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `schema_version` | `int` | no | 2 | Format version of this config file. Leave at 2 — tools update this automatically when the file format changes. |
+| `schema_version` | `2` | no | 2 | Format version of this config file. Leave at 2 — tools update this automatically when the file format changes. |
 | `name` | `str` | yes | — | The name scans use to refer to this trigger profile. |
 | `states` | `dict[TriggerState, list[TriggerWrite]]` | no | empty | For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched. |
 | `description` | `str` | no | '' | Optional note about what setup this profile is for. |
