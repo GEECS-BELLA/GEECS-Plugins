@@ -12,11 +12,22 @@ from typing import Any, Optional
 
 from geecs_scanner.service.errors import ScannerError
 
-#: The idle-only items, as the status's blocker names them (a verb names itself).
-IDLE_ONLY_ITEMS = "a move, a setup or a calibration"
+#: The idle-only items, as the status's shared blocker names them (a verb's own
+#: refusal names that verb alone).
+IDLE_ONLY_ITEMS = "a move, a setup, a calibration or Set to best"
 
-#: The manager's busy words as kit states (any other busy word is ``running``).
-_BUSY_KIT = {"paused": "paused", "pausing": "paused"}
+#: The run engine's busy words as kit states (any other busy word is ``running``):
+#: a halt and a panic are red, as a halted run is; an abort or a stop on its way
+#: is amber, as the run it ends will be; a pause or a suspension is ``paused``.
+_BUSY_KIT = {
+    "paused": "paused",
+    "pausing": "paused",
+    "suspending": "paused",
+    "stopping": "degraded",
+    "aborting": "degraded",
+    "halting": "failed",
+    "panicked": "failed",
+}
 
 
 def _unreachable(snap: Any) -> ScannerError:
@@ -36,12 +47,21 @@ def reopening_refusal() -> ScannerError:
 def idle_refusal(snap: Any, what: str) -> Optional[ScannerError]:
     """Why *what* (an item that runs as soon as it is added) is refused, or ``None``.
 
-    Allowed when the manager answers, nothing runs (a ``None`` run-engine
-    state is idle) and nothing waits.
+    Allowed when the manager answers, the worker environment is open (the
+    manager reports no run-engine state while it is closed or opening, and
+    then knows no plans), nothing runs and nothing waits.
     """
     if not snap.connected:
         return _unreachable(snap)
-    if snap.re_state not in (None, "idle"):
+    if not snap.worker_exists or snap.re_state is None:
+        state = snap.worker_environment_state if snap.worker_exists else None
+        return ScannerError(
+            "policy_refusal",
+            f"{what} needs the worker environment open; it is {state or 'closed'}"
+            " — the readiness unit opens a closed one",
+            worker_environment_state=snap.worker_environment_state,
+        )
+    if snap.re_state != "idle":
         return ScannerError(
             "policy_refusal",
             f"{what} is idle-only: a plan is {snap.re_state} — wait for it or stop it first",
@@ -125,8 +145,8 @@ def run_word(snap: Any, verdict: Any, reopening: bool) -> tuple[str, str]:
 
     A reopen first, then an unreachable manager, then a busy run engine's
     own word (it outranks a readiness complaint), then an environment that
-    is not ready; otherwise ``idle``, grey (a ``None`` run-engine state is
-    idle, as the verbs read it).
+    is not ready (a closed environment, whose run-engine state is ``None``,
+    says so here); otherwise ``idle``, grey.
     """
     if reopening:
         return "reopening", "running"

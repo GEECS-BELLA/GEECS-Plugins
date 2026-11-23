@@ -85,7 +85,7 @@ class StatusOut(BaseModel):
     )
     run_word: str = Field(
         default="unknown",
-        description="What the manager is doing, in one word (idle, running, paused, reopening, unreachable, or the readiness word)",
+        description="What the manager is doing, in one word (idle, the run engine's word, reopening, unreachable, or the readiness word)",
     )
     run_kit: str = Field(
         default="unknown",
@@ -97,11 +97,7 @@ class StatusOut(BaseModel):
     )
     idle_blocker: Optional[str] = Field(
         default=None,
-        description="Why an idle-only item (a move, a setup, a calibration, Set to best) is refused now; null when allowed",
-    )
-    reopen_blocker: Optional[str] = Field(
-        default=None,
-        description="Why POST /api/environment/reopen is refused now, as the verb words it; null when allowed",
+        description="Why an idle-only item (a move, a setup, a calibration, Set to best) is refused now, in one shared sentence (each verb's refusal names that verb); null when allowed",
     )
 
 

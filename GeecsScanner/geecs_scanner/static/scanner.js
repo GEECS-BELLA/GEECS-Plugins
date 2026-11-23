@@ -159,7 +159,9 @@
       setChip($("chip-manager"), K.ok, "manager", "RE Manager answers; " + st.readiness_detail);
     }
     // The run word and its state are the server's (the Control Room's strip relays the same pair).
-    setChip($("now-chip"), st.run_kit, st.run_word);
+    // A scanner that sends neither (older than this page) shows unknown, never a guess.
+    var runKit = st.run_kit || K.unknown, runWord = st.run_word || "unknown";
+    setChip($("now-chip"), runKit, runWord);
     renderWriterChip(st.tiled_writer);
     $("btn-pause").disabled = st.re_state !== "running";
     $("btn-pause").hidden = st.re_state === "paused";
@@ -167,7 +169,7 @@
     $("btn-stop").disabled = !running;
     $("btn-clear").disabled = !(st.items_in_queue > 0);
     // Why the verb would refuse now, worded by the verb itself; null when it would run.
-    var startable = st.start_queue_blocker;
+    var startable = verdict(st, "start_queue_blocker");
     $("btn-start-queue").disabled = !!startable;
     $("btn-start-queue").title = startable || "run the waiting items, front first";
     renderIdleGates();
@@ -822,7 +824,7 @@
     });
     var moves = Object.values(o.best_moves);
     $("btn-set-best").disabled = !idle() || !o.finished || o.exit_status !== "success" || o.expired || !!o.invalidated_reason || !moves.length || moves.some(function (v) { return v == null; });
-    $("btn-set-best").title = st.idle_blocker || (moves.length ? Object.keys(o.best_moves).map(function (n) { return n + " = " + o.best_moves[n]; }).join(", ") : "No feasible best point");
+    $("btn-set-best").title = idleTitle() || (moves.length ? Object.keys(o.best_moves).map(function (n) { return n + " = " + o.best_moves[n]; }).join(", ") : "No feasible best point");
   }
   $("btn-set-best").addEventListener("click", function () {
     if (!S.optimization) return;
@@ -977,10 +979,17 @@
   // as soon as it is added: allowed only while nothing runs or waits. The
   // server judges it (the status's idle_blocker, the verbs' own refusal).
   function idle() {
-    return !!S.status && !S.status.idle_blocker;
+    return !verdict(S.status, "idle_blocker");
   }
   function idleTitle() {
-    return !S.status ? "waiting for the manager" : S.status.idle_blocker || "";
+    return verdict(S.status, "idle_blocker");
+  }
+  // One verdict field of the status: its blocker sentence, "" when allowed. A
+  // field the status lacks (a scanner older than this page) blocks, never passes.
+  function verdict(st, field) {
+    return !st ? "waiting for the manager"
+      : !(field in st) ? "this scanner sends no verdict for this control; reload the page"
+      : st[field] || "";
   }
   function renderIdleGates() {
     var ok = idle(), why = idleTitle();
@@ -988,7 +997,7 @@
     var mvKnown = !!settableMatch(mvName);
     $("btn-move").disabled = !ok || !mvKnown;
     $("btn-move").title = mvName && !mvKnown ? "no settable named " + mvName : why;
-    var mvWord = ok ? "idle" : "held";
+    var mvWord = ok ? "idle" : (why || "held");
     setChip($("mv-chip"), ok ? K.ok : K.unknown, mvWord, why);
     $("setup-arm").disabled = !ok || !S.setupName || !!(currentSetup() && currentSetup().problem);
     $("setup-apply").disabled = !ok || !S.armed;

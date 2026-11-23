@@ -215,8 +215,10 @@ deploy/           the unit template + DEPLOYMENT.md
   calibration or Set to best may run, and the run word and its colour, are
   `service/verdicts.py`'s, computed once per status poll and raised by the
   verbs themselves (`StatusOut.start_queue_blocker`, `idle_blocker`,
-  `reopen_blocker`, `run_word`, `run_kit`). The page relays them; a copy
-  of the rule in `scanner.js` drifts (it did: a null `re_state`, a reopen).
+  `run_word`, `run_kit`). The page relays them, and a field it does not
+  find blocks its control (never a pass); a copy of the rule in
+  `scanner.js` drifts (it did: a reopen ignored). A closed worker
+  environment (no run-engine state, no plans) blocks the idle-only items.
   The Control Room's strip relays the same run word.
 - **Portal links are URL only.** `--portal-url` (a site value) prefixes
   `/run/<uid>` and `/day/<iso>` links in the rail, and each carries this

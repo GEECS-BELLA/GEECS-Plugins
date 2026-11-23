@@ -368,7 +368,10 @@ def test_physical_best_targets_stay_visible_after_move_is_queued():
     _need_node()
     script = (_PKG / "static/scanner.js").read_text()
     body = _script_function(script, "renderOptimization")
-    idle = _script_function(script, "idle")
+    gates = "\n".join(
+        f"function {name}({args}) {{\n{_script_function(script, name)}\n}}"
+        for name, args in (("idle", ""), ("idleTitle", ""), ("verdict", "st, field"))
+    )
     harness = (
         """
 var els = {};
@@ -383,7 +386,8 @@ var S = {status: {connected: true, re_state: "idle", items_in_queue: 0, idle_blo
  best_moves: {"Motor1:Current": 0.123456789, "Motor2:Current": -0.5}
 }};
 """
-        + f"function idle() {{\n{idle}\n}}\n"
+        + gates
+        + "\n"
         + f"function renderOptimization() {{\n{body}\n}}"
         + """
 renderOptimization();
@@ -804,17 +808,43 @@ def test_start_queue_sits_beside_clear_and_confirms_what_runs(
     assert 'verb("/api/queue/start", { operator: operator() }, refreshQueue)' in handler
     assert '"dlg-start-queue-first").textContent = q.waiting.length ? q.waiting[0].summary' in script  # fmt: skip
     # The enablement is the server's verdict (test_service's start-queue cases), relayed.
-    assert "var startable = st.start_queue_blocker;" in script
+    assert 'var startable = verdict(st, "start_queue_blocker");' in script
     assert "function startQueueBlocker" not in script
 
 
 def test_the_page_relays_the_servers_verdicts_and_derives_none() -> None:
     """B1: the now chip, the idle-only gates and Set to best read the status's verdicts."""
     script = (_PKG / "static" / "scanner.js").read_text()
-    assert 'setChip($("now-chip"), st.run_kit, st.run_word);' in script
-    assert "return !!S.status && !S.status.idle_blocker;" in script
+    assert "var runKit = st.run_kit || K.unknown, runWord = st.run_word || \"unknown\";" in script  # fmt: skip
+    assert 'setChip($("now-chip"), runKit, runWord);' in script
+    assert 'return !verdict(S.status, "idle_blocker");' in script
     best = script[script.index('$("btn-set-best").disabled =') :]
     assert best.startswith('$("btn-set-best").disabled = !idle()')
     # no copy of the idle or start rule is left on the page
     assert 'st.connected && st.re_state === "idle"' not in script
     assert 'st.re_state !== "idle"' not in script
+
+
+def test_a_verdict_the_status_does_not_carry_blocks_the_control() -> None:
+    """An absent field (a scanner older than the page) blocks with a reload hint; null allows."""
+    _need_node()
+    script = (_PKG / "static" / "scanner.js").read_text()
+    body = _script_function(script, "verdict")
+    harness = "\n".join(
+        [
+            f"function verdict(st, field) {{\n{body}\n}}",
+            "var f = 'idle_blocker';",
+            "console.log(JSON.stringify({",
+            "  absent: verdict({connected: true, re_state: 'idle'}, f),",
+            "  allowed: verdict({idle_blocker: null}, f),",
+            "  blocked: verdict({idle_blocker: 'a plan is running'}, f),",
+            "  none: verdict(null, f),",
+            "}));",
+        ]
+    )
+    out = subprocess.run(["node", "-"], input=harness, capture_output=True, text=True, check=True)  # fmt: skip
+    got = json.loads(out.stdout)
+    assert "reload" in got["absent"]
+    assert got["allowed"] == ""
+    assert got["blocked"] == "a plan is running"
+    assert got["none"] == "waiting for the manager"

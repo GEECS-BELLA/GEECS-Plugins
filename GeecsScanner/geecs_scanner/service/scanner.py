@@ -348,7 +348,6 @@ class ScannerService:
             idle_blocker=verdicts.message(
                 guard or verdicts.idle_refusal(snap, verdicts.IDLE_ONLY_ITEMS)
             ),  # fmt: skip
-            reopen_blocker=verdicts.message(verdicts.reopen_refusal(snap)),
         )
 
     def trajectory(

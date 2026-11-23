@@ -59,10 +59,12 @@ order the page does:
 4. `GET /api/status` and `GET /api/progress` to follow it; `POST /api/stop`
    and `POST /api/pause` to halt. The status carries the verbs' own
    verdicts: `run_word` and `run_kit` (what the manager is doing, and its
-   kit state), and `start_queue_blocker`, `idle_blocker` (a move, a setup,
-   a calibration, Set to best) and `reopen_blocker` — each the sentence
-   that verb would refuse with right now, or `null` when it would go
-   through. The page enables its buttons from these and nothing else.
+   kit state); `start_queue_blocker`, the sentence `POST /api/queue/start`
+   would refuse with right now; and `idle_blocker`, one shared sentence
+   for the idle-only items (a move, a setup, a calibration, Set to best),
+   each of which names itself in its own refusal. Either is `null` when
+   the verb would go through. Start queue and the idle-only controls take
+   their enablement from these two fields.
 5. `POST /api/queue/start` with the `operator` runs what waits in a
    stopped queue (a failed or stopped scan stops it; a failed one returns
    to its front);
@@ -164,9 +166,10 @@ opens this page.
   of the device, the variable or its alias to narrow the list. Pick one and
   the page shows its live **readback** (the gateway's readback PV, never the
   setpoint) with the reading's age; enter a value and **Move** queues a
-  single move. Moves run only while the queue is idle and the environment
-  is not reopening — the panel's chip says `idle`, or `held` with the
-  reason on hover.
+  single move. Moves run only while the worker environment is open and
+  not reopening and the queue is idle — the panel's chip says `idle`, or
+  why a move is held (a plan running, items waiting, the environment
+  closed or reopening).
 - **Setups** — the experiment's setups (named device states): pick one,
   preview every step (nested setups inlined, hazard steps marked), **Arm**,
   then **Apply**. The scanner then asks you to confirm the setup's writes
