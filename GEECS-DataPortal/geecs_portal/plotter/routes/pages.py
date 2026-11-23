@@ -910,6 +910,11 @@ def _camera_row(
                 roi="",
                 cbar=False,
             )
+            if len(probe.channels) <= 1:
+                # One channel (a spectrometer's file, a stack): read it,
+                # whatever this row saved for a scope it showed before.
+                # The saved value stays, for when it shows that scope again.
+                row["channel"] = 0
         else:
             row["problem"] = (
                 f"{device} has no pictures (a vendor format or a file the page cannot draw)"
