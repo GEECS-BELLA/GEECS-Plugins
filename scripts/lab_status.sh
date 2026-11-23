@@ -206,7 +206,7 @@ if verdict == "unreachable":
     print(f"role=CA gateway\tstate=down\tversion={version}\tnote=PVs unreadable mid-probe ({fault})")
     raise SystemExit(1)
 if verdict == "withheld":
-    fault = f"no heartbeat event when due, within {tick_wait:g} s, while gets answer"
+    fault = "no heartbeat event when due while gets answer"
     print(f"  [DOWN] gateway answers gets but its monitors are not flowing ({fault})")
     print("         every monitor client (archiver, displays, the scan worker) is")
     print("         reading stale or no values; the gateway service needs a restart")
