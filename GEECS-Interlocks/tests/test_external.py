@@ -233,3 +233,13 @@ def test_the_listener_records_the_sender():
         assert wait_for(lambda: listener.reading().sender == LOCAL)
     finally:
         listener.stop()
+
+
+def test_each_sender_keeps_its_own_reading():
+    listener = UdpListener(0, LOCAL)
+    listener.receive(b"safe", "10.0.0.5")
+    listener.receive(b"warning", "10.0.0.9")
+    assert listener.reading("10.0.0.5").state is False
+    assert listener.reading("10.0.0.9").state is True
+    assert listener.reading().state is True  # any sender: the latest packet
+    assert listener.reading("10.0.0.1").received is None

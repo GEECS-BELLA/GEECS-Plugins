@@ -18,9 +18,7 @@ from dataclasses import dataclass
 from geecs_interlocks.monitor import Snapshot
 from geecs_interlocks.present import stall_age
 from geecs_interlocks.wire import (
-    DEFAULT_WIRE_FORMAT,
     SEND_INTERVAL_S,
-    WireFormat,
     frame,
     render_stalled,
     render_status,
@@ -55,8 +53,6 @@ class StatusServer:
         Where to listen; port ``0`` picks a free one (tests).
     interval :
         Seconds between frames to one client.
-    wire_format :
-        The message format (``summary``: one keyword per frame, as Master Control needs).
     """
 
     def __init__(
@@ -66,9 +62,7 @@ class StatusServer:
         port: int,
         *,
         interval: float = SEND_INTERVAL_S,
-        wire_format: WireFormat = DEFAULT_WIRE_FORMAT,
     ) -> None:
-        self.wire_format = wire_format
         self._snapshot = snapshot
         self._host, self._port = host, port
         self._interval = interval
@@ -136,11 +130,11 @@ class StatusServer:
         stalled = stall_age(snapshot)
         if stalled is not None:
             # The loop has stopped replacing the snapshot: never re-send its verdict.
-            return frame(render_stalled(stalled, self.wire_format))
+            return frame(render_stalled(stalled))
         with self._lock:
             rendered_for, data = self._rendered
             if rendered_for is not snapshot:
-                data = frame(render_status(snapshot, self.wire_format))
+                data = frame(render_status(snapshot))
                 self._rendered = (snapshot, data)
             return data
 

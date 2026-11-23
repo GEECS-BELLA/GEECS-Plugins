@@ -46,17 +46,10 @@ server runs until SIGTERM or Ctrl-C and logs to stderr.
 
 ## The stream
 
-Two message formats, chosen with `config.ini [interlocks] wire_format` or
-`--wire-format` (details in `geecs_interlocks/wire.py`):
-
-- `summary` (default): the verdict first: `SAFE | OK: <name>` or
-  `WARNING! TRIPPED | TRIPPED: <name> - <reason>`.
-- `legacy`: the original server's format:
-  `SAFE: <name> | WARNING! <name> - <reason>`.
-
-Master Control reads a frame only when it holds a single `SAFE` or
-`WARNING`. `summary` always does; `legacy` repeats the keyword per
-interlock. `listen` reads either.
+The verdict first, then one part per interlock: `SAFE | OK: <name>` or
+`WARNING! TRIPPED | TRIPPED: <name> - <reason>` (details in
+`geecs_interlocks/wire.py`). Master Control fires a shot on a new frame
+holding `SAFE`, so each frame holds exactly one keyword, its leading word.
 
 Ports and bind addresses (the stream, the web page, the external signals)
 come from `config.ini [interlocks]`; see `geecs_interlocks/config.py`. With

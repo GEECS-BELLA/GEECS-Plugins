@@ -4,7 +4,7 @@
 
     geecs-interlocks serve --config main           # the experiment's interlocks/main.yaml, real devices
     geecs-interlocks serve --fake-devices --interlocks examples/demo_interlocks.yaml
-    geecs-interlocks listen 127.0.0.1:5001         # print what Master Control receives (either format)
+    geecs-interlocks listen 127.0.0.1:5001         # print what Master Control receives
 
 ``--fake-devices`` starts fake GEECS devices on localhost, reads them through
 geecs_core (the same path the lab uses) and sends the external signals' UDP
@@ -34,7 +34,7 @@ from geecs_interlocks.config import (
 )
 from geecs_interlocks.engine import Engine, SourceFactory, geecs_sources
 from geecs_interlocks.monitor import NothingToArm
-from geecs_interlocks.wire import WIRE_FORMATS, parse_status, read_frame
+from geecs_interlocks.wire import parse_status, read_frame
 
 if TYPE_CHECKING:
     from geecs_interlocks.demo import FakeDevices
@@ -76,11 +76,6 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--status-host", help="Master Control stream's bind address")
     serve.add_argument("--status-port", type=int, help="Master Control stream's port")
     serve.add_argument(
-        "--wire-format",
-        choices=WIRE_FORMATS,
-        help="the stream's message format (default: config.ini, else summary)",
-    )
-    serve.add_argument(
         "--external-host", help="where external (UDP) signals are received"
     )
     serve.add_argument("--web-host", help="the web client's bind address")
@@ -112,7 +107,6 @@ def _settings(args: argparse.Namespace) -> Settings:
         for key in (
             "status_host",
             "status_port",
-            "wire_format",
             "external_host",
             "web_host",
             "web_port",

@@ -24,7 +24,6 @@ def server():
         "127.0.0.1",
         0,
         interval=0.02,
-        wire_format="summary",
     )
     srv.start()
     srv.current = current
@@ -84,7 +83,7 @@ def test_a_taken_port_raises(server):
         other.start()
 
 
-def test_the_default_stream_is_summary():
+def test_the_stream_sends_the_summary_frame():
     srv = StatusServer(
         lambda: fresh(Snapshot((InterlockStatus("a", "", "", "tripped", "P=5"),))),
         "127.0.0.1",
@@ -99,8 +98,7 @@ def test_the_default_stream_is_summary():
         srv.stop()
 
 
-@pytest.mark.parametrize("wire_format", ["summary", "legacy"])
-def test_a_stalled_evaluation_trips_the_stream(wire_format):
+def test_a_stalled_evaluation_trips_the_stream():
     """A last verdict of SAFE must not be re-sent once the loop stops replacing it."""
     safe = Snapshot(
         (InterlockStatus("a", "", "", "ok"),),
@@ -108,9 +106,7 @@ def test_a_stalled_evaluation_trips_the_stream(wire_format):
         mono=time.monotonic() - 5,
     )
     assert safe.safe
-    srv = StatusServer(
-        lambda: safe, "127.0.0.1", 0, interval=0.02, wire_format=wire_format
-    )
+    srv = StatusServer(lambda: safe, "127.0.0.1", 0, interval=0.02)
     srv.start()
     try:
         with connect(srv) as sock:

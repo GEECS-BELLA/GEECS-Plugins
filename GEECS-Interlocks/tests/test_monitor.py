@@ -338,3 +338,30 @@ def test_a_group_keeps_one_trend_per_check(source):
     sat, drift = monitor.trend("cam")
     assert [v for _, v in sat.points] == [100, 200] and sat.limit == 4000
     assert [v for _, v in drift.points] == [3, 3] and drift.limit == 5
+
+
+def test_a_stray_host_cannot_overwrite_the_named_senders_state(source, signals):
+    """With a sender named, another host's packet neither clears nor trips the signal."""
+    monitor = Monitor(
+        interlock_set(group({**EXT, "sender": "10.0.0.5"}, name="stage")),
+        source,
+        signals=signals,
+        clock=source.clock,
+    )
+    signals.send(5050, "safe", sender="10.0.0.5")
+    assert states(monitor.step()) == {"stage": "ok"}
+    signals.send(5050, "warning", sender="10.0.0.9")  # someone else's alarm
+    assert states(monitor.step()) == {"stage": "ok"}
+    signals.send(5050, "warning", sender="10.0.0.5")
+    assert states(monitor.step()) == {"stage": "tripped"}
+
+
+def test_only_the_named_sender_can_clear(source, signals):
+    monitor = Monitor(
+        interlock_set(group({**EXT, "sender": "10.0.0.5"}, name="stage")),
+        source,
+        signals=signals,
+        clock=source.clock,
+    )
+    signals.send(5050, "safe", sender="10.0.0.9")
+    assert states(monitor.step()) == {"stage": "waiting"}  # nothing from 10.0.0.5 yet

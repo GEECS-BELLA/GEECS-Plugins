@@ -525,7 +525,9 @@ class Monitor:
     ) -> Inputs:
         if isinstance(condition, ExternalCondition):
             signal = (
-                None if self._signals is None else self._signals.signal(condition.port)
+                None
+                if self._signals is None
+                else self._signals.signal(condition.port, condition.sender)
             )
             age = (
                 None

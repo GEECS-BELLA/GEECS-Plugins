@@ -96,7 +96,6 @@ class Engine:
             self.snapshot,
             settings.status_host,
             settings.status_port,
-            wire_format=settings.wire_format,
         )
 
     def _build(self, interlocks: InterlockSet, origin: str) -> Monitor:

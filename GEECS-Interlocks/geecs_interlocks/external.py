@@ -72,8 +72,8 @@ NO_SIGNAL = SignalReading()
 class SignalSource(Protocol):
     """What the monitor reads: the latest reading per UDP port, from any thread."""
 
-    def signal(self, port: int) -> SignalReading:
-        """The latest reading on *port* (:data:`NO_SIGNAL` if none yet)."""
+    def signal(self, port: int, sender: str = "") -> SignalReading:
+        """The latest reading on *port* (from *sender* only, when given; :data:`NO_SIGNAL` if none yet)."""
 
 
 def decode(payload: bytes) -> bool | None:
@@ -111,6 +111,7 @@ class UdpListener:
         self._requested = (host, port)
         self._lock = threading.Lock()
         self._reading = NO_SIGNAL
+        self._by_sender: dict[str, SignalReading] = {}
         self._socket: socket.socket | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -123,9 +124,15 @@ class UdpListener:
             return host, port
         return self._requested
 
-    def reading(self) -> SignalReading:
-        """The latest state (any thread)."""
+    def reading(self, sender: str = "") -> SignalReading:
+        """The latest state (any thread): from any address, or from *sender* only.
+
+        Each sender keeps its own reading, so a packet from another host never
+        overwrites the named sender's last state.
+        """
         with self._lock:
+            if sender:
+                return self._by_sender.get(sender, NO_SIGNAL)
             return self._reading
 
     def start(self) -> None:
@@ -187,6 +194,7 @@ class UdpListener:
             old = self._reading
             # An unrecognised packet stores state None: unknown, so unsafe.
             self._reading = SignalReading(state, time.monotonic(), raw, sender)
+            self._by_sender[sender] = self._reading
         port = self.address[1]
         if state is None:
             logger.warning("UDP %d: unrecognised packet %r from %s", port, raw, sender)
@@ -219,10 +227,10 @@ class ExternalSignals:
         with self._lock:
             return self._listeners.get(port)
 
-    def signal(self, port: int) -> SignalReading:
-        """The latest reading on *port* (:data:`NO_SIGNAL` if not listened on)."""
+    def signal(self, port: int, sender: str = "") -> SignalReading:
+        """The latest reading on *port*, from *sender* only when given (:data:`NO_SIGNAL` if none)."""
         listener = self.listener(port)
-        return NO_SIGNAL if listener is None else listener.reading()
+        return NO_SIGNAL if listener is None else listener.reading(sender)
 
     def open(self, ports: Iterable[int]) -> None:
         """Listen on every port in *ports* not listened on yet.

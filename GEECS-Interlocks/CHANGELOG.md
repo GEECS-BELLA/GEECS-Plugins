@@ -23,9 +23,9 @@ design (both on unmerged branches, never on `master`).
 - External signals: engine-owned UDP listeners kept across reloads; a
   packet reads safe only when it plainly says so.
 - Settings-held checks, armed with `serve --arm-at-start`.
-- Master Control's stream in two formats: `summary` (default, one keyword
-  per frame) and `legacy` (the original server's); a stalled evaluation
-  sends a trip.
+- Master Control's stream: one keyword per frame, its leading word (the
+  original server's per-interlock `SAFE:` form is not carried); a stalled
+  evaluation sends a trip.
 - The read-only web page on the kit, with a fail-safe stale display.
 - `--fake-devices` for running with no lab network; `listen` to read a
   stream.

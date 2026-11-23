@@ -45,16 +45,17 @@ class FakeSignals:
 
     def __init__(self, source: FakeSource) -> None:
         self._source = source
-        self._readings: dict[int, SignalReading] = {}
+        self._readings: dict[tuple[int, str], SignalReading] = {}
 
-    def send(self, port: int, text: str) -> None:
+    def send(self, port: int, text: str, sender: str = "") -> None:
         from geecs_interlocks.external import decode
 
         state = decode(text.encode())
-        self._readings[port] = SignalReading(state, self._source.now, text)
+        reading = SignalReading(state, self._source.now, text, sender)
+        self._readings[(port, "")] = self._readings[(port, sender)] = reading
 
-    def signal(self, port: int) -> SignalReading:
-        return self._readings.get(port, NO_SIGNAL)
+    def signal(self, port: int, sender: str = "") -> SignalReading:
+        return self._readings.get((port, sender), NO_SIGNAL)
 
 
 def threshold(name: str = "vac", **overrides: Any) -> dict[str, Any]:

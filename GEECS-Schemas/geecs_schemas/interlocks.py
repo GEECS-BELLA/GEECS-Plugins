@@ -31,9 +31,10 @@ not carried over: code does not belong in a config file. The reader is
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Annotated, ClassVar, Literal, Union
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
@@ -196,6 +197,19 @@ class ExternalCondition(SchemaModel):
             "empty when the sender transmits only on a change (silence is normal)."
         ),
     )
+
+    @field_validator("sender")
+    @classmethod
+    def _sender_is_an_address(cls, sender: str) -> str:
+        """Refuse a host name: packets carry an address, and a name would never match."""
+        if sender:
+            try:
+                ipaddress.ip_address(sender)
+            except ValueError:
+                raise ValueError(
+                    f"sender must be an IP address (packets carry one), not {sender!r}"
+                ) from None
+        return sender
 
 
 class ConfigChangeCondition(SchemaModel):

@@ -15,8 +15,6 @@ client half of the site profile)::
     web_port = 8600
     ; where external (UDP) signals are received
     external_host = 0.0.0.0
-    ; summary (one keyword per frame) or legacy (geecs_interlocks.wire)
-    wire_format = summary
 
 A comment goes on its own line: ``configparser`` keeps one written after a
 value as part of the value.
@@ -43,7 +41,6 @@ from geecs_core.configs_repo import (
 from geecs_schemas import INTERLOCKS_FOLDER, InterlockSet
 from pydantic import BaseModel, ConfigDict, Field
 
-from geecs_interlocks.wire import DEFAULT_WIRE_FORMAT, WireFormat
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +63,6 @@ class Settings(BaseModel):
     web_host: str = LOCAL_HOST
     web_port: int = Field(DEFAULT_WEB_PORT, ge=0, le=65535)
     external_host: str = LOCAL_HOST
-    wire_format: WireFormat = DEFAULT_WIRE_FORMAT
 
     @classmethod
     def from_config_ini(cls, config_path: Path | None = None) -> Settings:
@@ -83,7 +79,6 @@ class Settings(BaseModel):
                 "web_host",
                 "web_port",
                 "external_host",
-                "wire_format",
             )
             if (value := entry(key)) is not None
         }

@@ -144,11 +144,13 @@ evaluation), every frame becomes a trip, `TRIPPED: interlock server -
 evaluation stopped N s ago`, until it recovers. Master Control is never
 sent an old verdict.
 
+Master Control fires a shot on a **new** frame holding `SAFE`, and treats a
+missing stream as unsafe. So `SAFE` appears only at the front of an
+all-clear frame, never beside a tripped interlock; the original server's
+`SAFE: <name>` per interlock is gone for that reason. Master Control finds
+the server through the GEECS database, which holds its address and port.
+
 `poetry run geecs-interlocks listen <server>:5001` prints what it receives.
-The original server's format (`SAFE: <name> | WARNING! <name> - <reason>`)
-is available as `wire_format = legacy`, but it repeats the keyword once per
-interlock, so Master Control reads it correctly only while a single
-interlock is armed.
 
 ## Try it on any computer
 

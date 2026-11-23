@@ -37,14 +37,19 @@ the code.
 - **One snapshot, many readers.** The stream and the page draw the
   monitor's snapshot and compute no verdict of their own, so they never
   disagree. A new reader reads `Engine.snapshot()`.
-- **Master Control's frame holds one keyword.** It reads a frame only when
-  it holds a single `SAFE` or `WARNING`. `summary` (the default) keeps
-  that: its one keyword is the leading word, and "safe" / "warn" inside a
-  name, reason or packet is broken up by `wire.clean`. The server's own
+- **Master Control's frame holds one keyword.** Master Control fires a shot
+  on a new frame holding `SAFE` (and treats no frame as unsafe), so every
+  frame holds exactly one keyword, its leading word: `SAFE` for an
+  all-clear, `WARNING! TRIPPED` otherwise. "safe" / "warn" inside a name,
+  reason or packet is broken up by `wire.clean`, and the server's own
   reasons are worded so they never need cleaning (`clear again`, `alarm`).
-  `legacy` repeats the keyword per interlock and goes once the hardware
-  test settles which format Master Control reads. Pinned over every mix of
-  states in `tests/test_wire.py`.
+  The original server's per-interlock `SAFE: <name>` form is gone: it put
+  `SAFE` in a frame while another interlock was tripped. Pinned over every
+  mix of states in `tests/test_wire.py`.
+- **This is not ShotGate's server.** GeecsBluesky's `ShotGate` (a trigger
+  profile's `shot_gate`) reads a JSON v1 frame with per-interlock
+  `data_stamp`s; this server's frame is text, so it cannot be a ShotGate
+  gate. Serving ShotGate's frame is its own slice.
 - **UDP listeners outlive a reload.** Senders transmit only on a change, so
   a rebuilt listener would forget the last state and read unsafe until the
   next one. A reload that names a port it cannot bind is refused whole, and
@@ -70,11 +75,12 @@ the code.
   holds the settings seen when it is armed. `--arm-at-start` arms the first
   values that arrive and must never run in an automatic restart (a unit's
   `ExecStart`): it would arm a setting someone had just changed.
-- **An external signal can name its sender.** `ExternalCondition.sender`
-  set, a packet from any other address is unsafe, so a stray host (or a
-  forgotten `--fake-devices` run) cannot clear it.
-- **Facility values have one home:** ports, bind hosts and the wire format
-  come from `config.ini [interlocks]`; without them every server listens
+- **An external signal can name its sender.** With `ExternalCondition.sender`
+  set (an IP address; a host name is refused), the condition reads only that
+  address's packets: each sender keeps its own reading on the listener, so
+  a stray host (or a forgotten `--fake-devices` run) can neither clear the
+  signal nor overwrite its last state.
+- **Facility values have one home:** ports and bind hosts come from `config.ini [interlocks]`; without them every server listens
   on `127.0.0.1` only.
 
 ## Running and testing without the lab
@@ -88,5 +94,8 @@ and no network.
 
 - Whether a real device's subscription delivers frames between changes, so
   `stale_after_s` times receipt rather than activity (`acq_timestamp`).
-- Master Control reading the `summary` frame with several interlocks armed,
-  and what it does when the stream is absent (asked on #1403).
+- Master Control firing on this server's frames with several interlocks
+  armed. Its maintainer has said (on #1403) that it needs a new `SAFE`
+  frame for each shot, treats a missing stream as unsafe, reconnects, and
+  finds the server's address and port in the GEECS database; the lab test
+  confirms it against this server.

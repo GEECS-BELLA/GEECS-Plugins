@@ -199,3 +199,14 @@ class TestRefusals:
     def test_bad_staleness(self):
         with pytest.raises(ValidationError):
             InterlockSet.model_validate({"stale_after_s": 0})
+
+
+@pytest.mark.parametrize("sender", ["10.0.0.5", "::1", ""])
+def test_an_external_sender_is_an_address(sender):
+    assert ExternalCondition(kind="external", port=5050, sender=sender).sender == sender
+
+
+@pytest.mark.parametrize("sender", ["motion-pc", "10.0.0", "10.0.0.5:5050"])
+def test_a_host_name_sender_is_refused(sender):
+    with pytest.raises(ValidationError, match="IP address"):
+        ExternalCondition(kind="external", port=5050, sender=sender)
