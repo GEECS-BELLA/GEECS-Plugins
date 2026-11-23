@@ -36,6 +36,7 @@ root_packages =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
     geecs_configurator
     geecs_analysis_worker
@@ -54,7 +55,7 @@ exclude_type_checking_imports = True
 name = Package layers: edges point down the dependency graph; packages on one layer never import each other
 type = layers
 layers =
-    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook | geecs_control_room | geecs_configurator | geecs_analysis_worker
+    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook | geecs_control_room | geecs_configurator | geecs_interlocks | geecs_analysis_worker
     geecs_bluesky | scan_analysis | geecs_ca_gateway | geecs_pva_gateway | geecs_archiver | geecs_canopy | geecs_log_triage
     geecs_analysis
     geecs_core | geecs_data_utils | geecs_schemas | geecs_web_theme | logmaker_4_googledocs
@@ -87,6 +88,7 @@ forbidden_modules =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
     geecs_configurator
     geecs_analysis_worker
@@ -109,6 +111,7 @@ source_modules =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
     geecs_configurator
     geecs_analysis_worker
@@ -135,6 +138,7 @@ source_modules =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
     geecs_analysis_worker
 forbidden_modules =
@@ -161,6 +165,7 @@ forbidden_modules =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
 
 [importlinter:contract:analysis-cores]
@@ -187,6 +192,7 @@ forbidden_modules =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
 
 [importlinter:contract:epics-side]
@@ -207,6 +213,7 @@ forbidden_modules =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
 
 [importlinter:contract:core-schemas-only]
@@ -300,6 +307,7 @@ forbidden_modules =
     geecs_analysis_worker
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
     geecs_bluesky
     geecs_core
@@ -348,6 +356,7 @@ forbidden_modules =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_mcp
     geecs_analysis
     scan_analysis
@@ -366,6 +375,7 @@ forbidden_modules =
     geecs_portal
     geecs_logbook
     geecs_control_room
+    geecs_interlocks
     geecs_core
     geecs_schemas
     geecs_analysis
@@ -495,6 +505,7 @@ forbidden_modules =
     geecs_mcp
     geecs_canopy
     geecs_control_room
+    geecs_interlocks
     geecs_archiver
     geecs_log_triage
     geecs_ca_gateway
@@ -503,6 +514,36 @@ forbidden_modules =
     bluesky
     ophyd_async
 allow_indirect_imports = True
+
+# The interlock server reports and never acts: it reads devices through
+# GEECS-Core, its configurations through GEECS-Schemas, and draws its page
+# with GeecsWebTheme. The suspender design it replaced coupled interlocks to
+# the RunEngine; no path back to scan execution, analysis or another surface.
+[importlinter:contract:interlocks-edges]
+name = GEECS-Interlocks imports GEECS-Core, GEECS-Schemas and the web theme: never Bluesky, the analysis packages, the EPICS packages or another surface
+type = forbidden
+source_modules =
+    geecs_interlocks
+forbidden_modules =
+    geecs_data_utils
+    geecs_analysis
+    scan_analysis
+    geecs_analysis_worker
+    geecs_bluesky
+    geecs_ca_gateway
+    geecs_pva_gateway
+    geecs_archiver
+    geecs_canopy
+    geecs_log_triage
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_control_room
+    geecs_mcp
+    geecs_configurator
+    logmaker_4_googledocs
+    bluesky
+    ophyd
 
 [importlinter:contract:analysis-worker-edges]
 name = GeecsAnalysisWorker imports ScanAnalysis (the job runner and the group loader) and nothing else in the repo directly: its clients reach it over HTTP

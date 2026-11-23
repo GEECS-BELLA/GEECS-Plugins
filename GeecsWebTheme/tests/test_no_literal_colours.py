@@ -111,6 +111,8 @@ _SURFACES = [
     "GeecsScanner/geecs_scanner/templates/console.html",
     "GeecsScanner/geecs_scanner/static/scanner.css",
     "GeecsScanner/geecs_scanner/static/scanner.js",
+    "GEECS-Interlocks/geecs_interlocks/web/templates/index.html",
+    "GEECS-Interlocks/geecs_interlocks/web/static/interlocks.js",
     "GeecsControlRoom/geecs_control_room/templates/base.html",
     "GeecsControlRoom/geecs_control_room/templates/home.html",
     "GeecsControlRoom/geecs_control_room/static/control_room.css",

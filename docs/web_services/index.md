@@ -1,6 +1,6 @@
 # Web Services
 
-Five pages in a browser cover the day-to-day work at the beamline: watch
+Six pages in a browser cover the day-to-day work at the beamline: watch
 and set the devices, run a scan, look at what it recorded, write down
 what happened, and change the configuration. Nothing is
 installed on an operator machine. Each is a service on a fleet host,
@@ -76,6 +76,16 @@ the Configurator's, which does not have one yet.
     pull request for the maintainer.
 
     [:octicons-arrow-right-24: Configurator](configurator.md)
+
+-   :material-shield-alert:{ .lg .middle } **Interlocks** · port 8600
+
+    ---
+
+    Watch the software interlocks Master Control reads: the verdict, each
+    interlock and its checks, a trend against the limit. Read only;
+    configurations are edited in the Configurator.
+
+    [:octicons-arrow-right-24: Interlocks](interlocks.md)
 
 </div>
 
