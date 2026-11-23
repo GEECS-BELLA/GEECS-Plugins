@@ -27,6 +27,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from geecs_schemas import PreflightCheckResult, PreflightOutcome
+
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.models import (
     PreflightQuestionOut,
@@ -187,7 +189,13 @@ def provenance(
     from geecs_bluesky.qs_client import build_submission_record
 
     record = build_submission_record(
-        [(q.check, "continued", q.title) for q in answered], client=client
+        [
+            PreflightOutcome(
+                check=q.check, result=PreflightCheckResult.CONTINUED, detail=q.title
+            )
+            for q in answered
+        ],
+        client=client,
     )
     return {
         "geecs": {

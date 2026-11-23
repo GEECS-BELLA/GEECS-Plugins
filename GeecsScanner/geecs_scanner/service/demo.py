@@ -382,11 +382,11 @@ def demo_preflight(
     report = PreflightReport()
     try:
         expand_preset(preset, catalog=catalog, resolver=resolver or DemoResolver())
-        report.outcomes.append(("validate", "passed", ""))
+        report.passed("validate")
     except Exception as exc:  # noqa: BLE001 — the refusal text is the message
         report.refusal = str(exc)
         return report
-    report.outcomes.append(("worker_ready", "passed", "demo manager"))
+    report.passed("worker_ready", "demo manager")
     report.questions.append(
         PreflightQuestion(
             check="gateway_liveness",
