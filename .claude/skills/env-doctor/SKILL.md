@@ -49,10 +49,14 @@ diagnose the package the current task is about.
    | `GeecsCAGateway` | `poetry install` (path-deps geecs-core) |
    | `GEECS-Core` | `poetry install` (self-contained) |
    | `GEECS-LogTriage` | `poetry install` |
-   | `GEECS-DataPortal` | `poetry install --extras analysis` |
+   | `GEECS-DataPortal` | `poetry install --with dev,contract --extras analysis` |
+   | `GeecsControlRoom` | `poetry install --with dev,contract` |
 
    Symptom of missing `ca`: the whole GeecsBluesky mock-device test layer
    collects as "1 skipped" (`pytest.importorskip("aioca")`).
+   Symptom of a missing `contract` group: the portal's or the Control
+   Room's `test_*_contract.py` skips with "the contract group is not
+   installed", which `scripts/check.sh` turns into a failure.
 
 3. **Which env runs which tests.** `scripts/check.sh` is the canonical
    mapping (it mirrors `.github/workflows/unit-tests.yml`) — run

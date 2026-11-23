@@ -146,7 +146,15 @@ jobs:
               # tests (TestProcessingSelector) importorskip the analysis stack
               # and would silently skip without it (the #737 CI-red lesson,
               # 2026-09-01).
-              poetry install --with dev --extras analysis ;;
+              # --with contract: the optional group holding the analysis
+              # worker and the logbook, whose apps the contract tests mount;
+              # without it they skip (the run step fails on that skip).
+              poetry install --with dev,contract --extras analysis ;;
+            GeecsControlRoom)
+              # --with contract: the optional group holding GeecsScanner,
+              # whose app the strip's contract test mounts; without it the
+              # test skips (the run step fails on that skip).
+              poetry install --with dev,contract ;;
             GeecsBluesky)
               # --extras qserver: the queueserver manager-validation pin
               # test (test_qserver_startup.py) importorskips
@@ -225,6 +233,16 @@ jobs:
                 --tb=short -q -rs | tee pytest-report.txt
               if grep -E "could not import '(aioca|p4p)'" pytest-report.txt; then
                 echo "::error::GeecsBluesky's mock-CA tests skipped: the ca extra is missing or broken on the runner (#866)"
+                exit 1
+              fi
+              ;;
+            GEECS-DataPortal|GeecsControlRoom)
+              # The contract tests importorskip their peer with this reason
+              # when the optional `contract` group is absent; here that skip
+              # is a failure. scripts/check.sh's contract runner mirrors this.
+              poetry run pytest tests --tb=short -q -rs | tee pytest-report.txt
+              if grep -F "the contract group is not installed" pytest-report.txt; then
+                echo "::error::${{ matrix.leg }}'s contract tests skipped: the contract group is not installed"
                 exit 1
               fi
               ;;

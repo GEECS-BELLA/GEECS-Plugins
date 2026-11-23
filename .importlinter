@@ -275,6 +275,12 @@ type = forbidden
 source_modules =
     geecs_mcp
 forbidden_modules =
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_control_room
+    geecs_configurator
+    geecs_analysis_worker
     geecs_bluesky
     scan_analysis
     geecs_analysis
@@ -291,7 +297,7 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:portal-edges]
-name = GEECS-DataPortal imports GEECS-Data-Utils, GEECS-Schemas, the analysis packages and the web theme: never the analysis worker's HTTP service (reached over HTTP alone), the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
+name = GEECS-DataPortal imports GEECS-Data-Utils, GEECS-Schemas, the analysis packages and the web theme: never the analysis worker's HTTP service or the logbook (reached over HTTP alone; path deps in the optional contract group for its contract tests), the scanner, MCP, Bluesky, Core or the EPICS side
 type = forbidden
 source_modules =
     geecs_portal
@@ -356,30 +362,11 @@ forbidden_modules =
     geecs_log_triage
 allow_indirect_imports = True
 
-[importlinter:contract:mcp-edges]
-name = GEECS-MCP imports GeecsBluesky's client side, GEECS-Data-Utils and ScanAnalysis: never the scanner, the portal, the logbook, Core, Schemas (test-only), GEECS-Analysis, the web theme or the EPICS side
-type = forbidden
-source_modules =
-    geecs_mcp
-forbidden_modules =
-    geecs_scanner
-    geecs_portal
-    geecs_logbook
-    geecs_control_room
-    geecs_core
-    geecs_schemas
-    geecs_analysis
-    geecs_web_theme
-    geecs_archiver
-    geecs_log_triage
-allow_indirect_imports = True
-
 [importlinter:contract:no-engine-internals]
-name = GeecsScanner and GEECS-MCP never import the worker's engine internals: only qs_client and the import-light client modules
+name = GeecsScanner never imports the worker's engine internals: only qs_client and the import-light client modules (GEECS-MCP imports no GeecsBluesky at all: mcp-is-a-client)
 type = forbidden
 source_modules =
     geecs_scanner
-    geecs_mcp
 forbidden_modules =
     geecs_bluesky.plans
     geecs_bluesky.devices
@@ -456,7 +443,7 @@ forbidden_modules =
     geecs_bluesky.optimization
 
 [importlinter:contract:control-room-edges]
-name = GeecsControlRoom imports GEECS-Schemas and the web theme: never GeecsCanopy (a service), GeecsBluesky, the scanner, the portal, the logbook, the analysis packages, GEECS-Core or GEECS-Data-Utils
+name = GeecsControlRoom imports GEECS-Schemas and the web theme: never GeecsCanopy (a service), GeecsBluesky, the scanner (GeecsCanopy a dev-only path dep and the scanner one in the optional contract group, for its contract tests), the portal, the logbook, the analysis packages, GEECS-Core or GEECS-Data-Utils
 type = forbidden
 source_modules =
     geecs_control_room

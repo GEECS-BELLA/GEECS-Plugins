@@ -34,7 +34,9 @@ which runs this probe first as its gate.
 - `scripts/lab_status.sh --hardware` — **tier 2, gateway liveness.**
   READ-ONLY Channel Access gets (heartbeat, device count) and one
   subscription to the heartbeat (the initial value plus one tick, so it
-  takes up to ~8 s) through the GeecsBluesky env. The subscription
+  takes up to ~8 s) through the GeecsBluesky env — the scanner
+  preflight's own probe (`probe_gateway_monitors`, with its tick check
+  on). The subscription
   catches a gateway that answers gets but delivers no monitors, which
   reads as gateway DOWN. Reads only — it never writes a PV. Pass
   `--experiment NAME` if config.ini doesn't name one.

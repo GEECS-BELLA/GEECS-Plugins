@@ -985,6 +985,16 @@ async def test_status_loop_ticks_heartbeat_and_uptime() -> None:
         task.cancel()
 
 
+def test_status_loop_ticks_at_the_named_heartbeat_period() -> None:
+    """The loop's period is the one constant the tick-waiting probe reads."""
+    import inspect
+
+    from geecs_core.pv_naming import GATEWAY_HEARTBEAT_PERIOD_S
+
+    period = inspect.signature(GeecsCaGateway._status_loop).parameters["period_s"]
+    assert period.default == GATEWAY_HEARTBEAT_PERIOD_S
+
+
 async def test_set_connected_updates_pv_severity_and_count() -> None:
     """CONNECTED transitions carry MAJOR severity when down, count when up."""
     from caproto import AlarmSeverity
