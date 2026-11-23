@@ -64,7 +64,6 @@ class ItemSummary:
     native_image_save: Optional[bool] = None
     preset: Optional[str] = None
     description: str = ""
-    background: bool = False
     detectors: list[str] = field(default_factory=list)
 
 
@@ -127,7 +126,6 @@ def summarize_item(item: dict) -> ItemSummary:  # noqa: C901, PLR0912, PLR0915
         ),
         preset=geecs.get("preset"),
         description=str(md.get("description") or "").strip(),
-        background=bool(md.get("background")),
         detectors=detectors,
     )
     sps = _int(kwargs.get("shots_per_step"))
@@ -214,8 +212,6 @@ def summarize_item(item: dict) -> ItemSummary:  # noqa: C901, PLR0912, PLR0915
         summary.text += f" · {summary.acquisition}"
     if summary.native_image_save is False and name not in _NOT_SCANS:
         summary.text += " · no LabVIEW files"
-    if summary.background:
-        summary.text = "background · " + summary.text
     if summary.description:
         summary.text += f' — "{summary.description}"'
 

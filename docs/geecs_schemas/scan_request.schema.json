@@ -181,12 +181,6 @@
       "description": "Free-text note about this scan; it ends up in the scan's metadata and the experiment log.",
       "title": "Description",
       "type": "string"
-    },
-    "background": {
-      "default": false,
-      "description": "Mark this scan's data as background/calibration shots so analysis can find them later.",
-      "title": "Background",
-      "type": "boolean"
     }
   },
   "required": [

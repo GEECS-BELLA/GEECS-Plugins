@@ -63,18 +63,18 @@ def test_list_scan_counts_points() -> None:
     assert "U_S1H.current [3 pts]" in s.text and s.planned_shots == 12
 
 
-def test_count_reads_num_and_background() -> None:
+def test_count_reads_num() -> None:
     s = summarize_item(
         _item(
             "count",
             [["UC_A"]],
             num=50,
             acquisition="strict",
-            md={"background": True, "description": "darks"},
+            md={"description": "darks"},
         )
     )
-    assert s.text == 'background · count · 50 shots · strict — "darks"'
-    assert s.planned_shots == 50 and s.background is True
+    assert s.text == 'count · 50 shots · strict — "darks"'
+    assert s.planned_shots == 50
 
 
 def test_preset_name_and_description_from_md() -> None:

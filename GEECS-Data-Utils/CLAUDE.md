@@ -353,7 +353,7 @@ cfg_path = scan_analysis_config.find_config(
 
 ## Key Type Definitions
 
-- **`ScanMode`** (Enum) — `STANDARD`, `NOSCAN`, `OPTIMIZATION`, `BACKGROUND`
+- **`ScanMode`** (Enum) — `STANDARD`, `NOSCAN`, `OPTIMIZATION`
 - **`ECSDump`** / **`DeviceDump`** — Pydantic models for ECS live dump files
 
 ## Useful Utilities

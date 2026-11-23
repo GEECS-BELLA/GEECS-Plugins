@@ -385,7 +385,6 @@ def _summarize(
         plan=record.plan,
         scanner=record.scanner,
         trigger_profile=record.trigger_profile,
-        background=record.background,
         purpose=record.purpose,
         status=status,
         failure_reason=end_info_reason(record.end_info),

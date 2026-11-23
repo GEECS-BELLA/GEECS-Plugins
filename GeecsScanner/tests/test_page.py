@@ -242,7 +242,6 @@ def test_form_opens_on_what_every_scan_needs(client: TestClient) -> None:
     for plan_only in (
         'id="optimizer-form"',
         'id="sweep-composer"',
-        'id="count-options"',
     ):
         assert invariants < body.index(plan_only), plan_only
     # #896's other half: the optional picker is not in the body at all
@@ -606,27 +605,6 @@ console.log(JSON.stringify(cases));
         ]
         * 3
     )
-
-
-@pytest.mark.parametrize("mode", ["count", "sweep", "optimize"])
-def test_background_count_flag_does_not_follow_mode_change(mode):
-    _need_node()
-    source = (_PKG / "static/scanner.js").read_text()
-    harness = (
-        r"""
-var S={mode:MODE,acq:'strict',presetDoc:{background:true,plan:{name:'count',kwargs:{num:3}}}};
-function $(id) {return {value:id==='shots'?'3':'',checked:true};}
-function tableDevices() {return [];}
-var composer={value(){return {trajectory:{kind:'axes',axes:[]}};}};
-""".replace("MODE", json.dumps(mode))
-        + "function buildPreset(){\n"
-        + _script_function(source, "buildPreset")
-        + "\n}\nconsole.log(JSON.stringify(buildPreset()));"
-    )
-    result = subprocess.run(
-        ["node", "-"], input=harness, text=True, capture_output=True, check=True
-    )
-    assert json.loads(result.stdout)["background"] is (mode == "count")
 
 
 def test_add_device_is_the_kit_drawer_picker() -> None:
