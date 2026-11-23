@@ -26,7 +26,6 @@
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
 CA_TIMEOUT=3    # seconds per CA read (tier 2)
-HEARTBEAT_PERIOD=5  # seconds between the gateway's heartbeat ticks (GeecsCaGateway._status_loop's period_s)
 TCP_TIMEOUT=2   # seconds per port probe (lab_env.sh reads it)
 
 HARDWARE=0
@@ -166,108 +165,70 @@ if ! poetry -C "$BLUESKY_DIR" env info --path >/dev/null 2>&1; then
     echo "role=CA gateway	state=down	note=GeecsBluesky env not installed"
     exit 1
 fi
-EXPERIMENT="$EXPERIMENT" CA_TIMEOUT="$CA_TIMEOUT" HEARTBEAT_PERIOD="$HEARTBEAT_PERIOD" poetry -C "$BLUESKY_DIR" run python - <<'PY'
-import asyncio
+EXPERIMENT="$EXPERIMENT" CA_TIMEOUT="$CA_TIMEOUT" poetry -C "$BLUESKY_DIR" run python - <<'PY'
 import os
 
 from geecs_core.epics_env import apply_epics_address_config
 
-apply_epics_address_config()  # EPICS_CA_ADDR_LIST from config.ini, before aioca
-import aioca  # noqa: E402
+apply_epics_address_config()  # EPICS_CA_ADDR_LIST from config.ini, before aioca loads
+# PV names come from the naming contract (lowercase components, PV_CONTRACT.md
+# §1) and the monitor verdict from the scanner preflight's own probe, run
+# here with its heartbeat-tick check: never hand-assembled here.
+from geecs_core.pv_naming import (
+    GATEWAY_DEVICES_CONNECTED,
+    GATEWAY_HEARTBEAT,
+    GATEWAY_HEARTBEAT_PERIOD_S,
+    gateway_status_pv,
+)
+from geecs_bluesky.devices.ca.liveness import probe_gateway_monitors
+from geecs_bluesky.devices.ca.oneshot import caget_once
 
 experiment = os.environ["EXPERIMENT"]
 timeout = float(os.environ["CA_TIMEOUT"])
-heartbeat_period = float(os.environ["HEARTBEAT_PERIOD"])
 
-
-async def read(pv):
-    return await asyncio.wait_for(aioca.caget(pv), timeout=timeout)
-
-
-async def monitor_fault(pv):
-    """Subscribe to the heartbeat; return ``(kind, detail)``, kind "" when monitors flow.
-
-    A healthy gateway delivers the current value on subscribe and the next
-    tick within one heartbeat period. Gets answering says nothing about
-    either, so this is the only probe that sees a gateway that has stopped
-    delivering monitors. Kind "monitors": events are not delivered while
-    gets answer. Kind "heartbeat": the subscribe value arrived and a get
-    shows the count did not advance either, so the gateway's status loop
-    is stalled and monitor delivery is not in question. Kind "unreadable":
-    that get failed, so the gateway stopped answering mid-probe.
-    """
-    updates = asyncio.Queue()
-    subscription = aioca.camonitor(pv, updates.put_nowait)
-    try:
-        try:
-            first = await asyncio.wait_for(updates.get(), timeout=timeout)
-        except asyncio.TimeoutError:
-            return "monitors", f"no initial value on subscribe within {timeout:g} s"
-        wait = heartbeat_period + timeout
-        try:
-            await asyncio.wait_for(updates.get(), timeout=wait)
-        except asyncio.TimeoutError:
-            try:
-                now = await read(pv)
-            except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
-                return "unreadable", f"the get after the wait failed ({type(exc).__name__})"
-            if int(now) != int(first):
-                return "monitors", f"a get advanced past {int(first)} and no event followed within {wait:g} s"
-            return "heartbeat", f"the count stayed at {int(first)} for {wait:g} s, by get and by monitor"
-        return "", ""
-    finally:
-        subscription.close()
-
-
-async def main():
-    # PV names come from the naming contract (lowercase components,
-    # PV_CONTRACT.md §1) — never hand-assemble them here.
-    from geecs_core.pv_naming import (
-        GATEWAY_DEVICES_CONNECTED,
-        GATEWAY_HEARTBEAT,
-        gateway_status_pv,
-    )
-
-    heartbeat_pv = gateway_status_pv(experiment, GATEWAY_HEARTBEAT)
-    try:
-        heartbeat = await read(heartbeat_pv)
-        connected = await read(gateway_status_pv(experiment, GATEWAY_DEVICES_CONNECTED))
-        version = await read(gateway_status_pv(experiment, "version"))
-    except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
-        print(f"  [DOWN] gateway PVs unreadable ({type(exc).__name__}: {exc})")
-        print("         network may be up while the gateway service is not")
-        print(f"role=CA gateway\tstate=down\tnote=PVs unreadable ({type(exc).__name__})")
-        raise SystemExit(1)
-    kind, fault = await monitor_fault(heartbeat_pv)
-    if kind == "unreadable":
-        print(f"  [DOWN] gateway PVs went unreadable during the probe ({fault})")
-        print(f"role=CA gateway\tstate=down\tversion={version}\tnote=PVs unreadable mid-probe ({fault})")
-        raise SystemExit(1)
-    if kind == "monitors":
-        print(f"  [DOWN] gateway answers gets but its monitors are not flowing ({fault})")
-        print("         every monitor client (archiver, displays, the scan worker) is")
-        print("         reading stale or no values; the gateway service needs a restart")
-        print("         on its host (GeecsCAGateway/DEPLOYMENT.md § Troubleshooting,")
-        print("         'Gets answer, no monitors')")
-        print(f"role=CA gateway\tstate=down\tversion={version}\tnote=gets answer, monitors not flowing ({fault})")
-        raise SystemExit(1)
-    if kind == "heartbeat":
-        print(f"  [DOWN] gateway heartbeat is not ticking ({fault})")
-        print("         the gateway's status loop is stalled; this probe cannot say")
-        print("         whether device monitors flow (check one with caproto-monitor)")
-        print(f"role=CA gateway\tstate=down\tversion={version}\tnote=heartbeat not ticking ({fault})")
-        raise SystemExit(1)
-    print(f"  [ OK ] gateway alive: heartbeat={int(heartbeat)} (monitor ticking), "
-          f"devices_connected={int(connected)}, version={version}")
-    if int(connected) == 0:
-        print("  [WARN] zero devices connected — GEECS side likely down")
-    # The machine-readable form of the verdict, for fleet_status.sh (a stated
-    # contract: one tab-separated key=value record, same shape as its own).
-    note = "\tnote=zero devices connected" if int(connected) == 0 else ""
-    print(f"role=CA gateway\tstate=ok\tversion={version}\tinfo={int(connected)} devices connected{note}")
-
-
-asyncio.run(main())
+try:
+    heartbeat = caget_once(gateway_status_pv(experiment, GATEWAY_HEARTBEAT), timeout=timeout)
+    connected = caget_once(gateway_status_pv(experiment, GATEWAY_DEVICES_CONNECTED), timeout=timeout)
+    version = caget_once(gateway_status_pv(experiment, "version"), timeout=timeout)
+except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
+    print(f"  [DOWN] gateway PVs unreadable ({type(exc).__name__}: {exc})")
+    print("         network may be up while the gateway service is not")
+    print(f"role=CA gateway\tstate=down\tnote=PVs unreadable ({type(exc).__name__})")
+    raise SystemExit(1)
+# Gets answering says nothing about monitors: the subscription to the
+# heartbeat (its value on subscribe, then the next tick) is the only check
+# that sees a gateway that has stopped delivering them.
+verdict = probe_gateway_monitors(experiment, timeout=timeout, tick=True)
+tick_wait = GATEWAY_HEARTBEAT_PERIOD_S + timeout
+if verdict == "unreachable":
+    fault = "a get during the monitor probe failed"
+    print(f"  [DOWN] gateway PVs went unreadable during the probe ({fault})")
+    print(f"role=CA gateway\tstate=down\tversion={version}\tnote=PVs unreadable mid-probe ({fault})")
+    raise SystemExit(1)
+if verdict == "withheld":
+    fault = f"no heartbeat event when due, within {tick_wait:g} s, while gets answer"
+    print(f"  [DOWN] gateway answers gets but its monitors are not flowing ({fault})")
+    print("         every monitor client (archiver, displays, the scan worker) is")
+    print("         reading stale or no values; the gateway service needs a restart")
+    print("         on its host (GeecsCAGateway/DEPLOYMENT.md § Troubleshooting,")
+    print("         'Gets answer, no monitors')")
+    print(f"role=CA gateway\tstate=down\tversion={version}\tnote=gets answer, monitors not flowing ({fault})")
+    raise SystemExit(1)
+if verdict == "stalled":
+    fault = f"the count did not advance in {tick_wait:g} s, by get and by monitor"
+    print(f"  [DOWN] gateway heartbeat is not ticking ({fault})")
+    print("         the gateway's status loop is stalled; this probe cannot say")
+    print("         whether device monitors flow (check one with caproto-monitor)")
+    print(f"role=CA gateway\tstate=down\tversion={version}\tnote=heartbeat not ticking ({fault})")
+    raise SystemExit(1)
+print(f"  [ OK ] gateway alive: heartbeat={int(heartbeat)} (monitor ticking), "
+      f"devices_connected={int(connected)}, version={version}")
+if int(connected) == 0:
+    print("  [WARN] zero devices connected — GEECS side likely down")
+# The machine-readable form of the verdict, for fleet_status.sh (a stated
+# contract: one tab-separated key=value record, same shape as its own).
+note = "\tnote=zero devices connected" if int(connected) == 0 else ""
+print(f"role=CA gateway\tstate=ok\tversion={version}\tinfo={int(connected)} devices connected{note}")
 PY
 status=$?
 if [ "$status" -eq 0 ]; then

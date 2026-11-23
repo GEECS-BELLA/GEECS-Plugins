@@ -62,6 +62,7 @@ from geecs_core.pv_naming import (
     GATEWAY_DEVICE,
     GATEWAY_DEVICES_CONNECTED,
     GATEWAY_HEARTBEAT,
+    GATEWAY_HEARTBEAT_PERIOD_S,
     gateway_status_pv,
     setpoint_pv,
 )
@@ -1118,11 +1119,12 @@ class GeecsCaGateway:
         except Exception:  # noqa: BLE001 — gateway loop must survive
             logger.debug("failed to update CONNECTED for %s", device, exc_info=True)
 
-    async def _status_loop(self, period_s: float = 5.0) -> None:
+    async def _status_loop(self, period_s: float = GATEWAY_HEARTBEAT_PERIOD_S) -> None:
         """Tick the gateway UPTIME/HEARTBEAT PVs (devIocStats-style).
 
-        ``scripts/lab_status.sh`` waits one period for a heartbeat tick
-        (its ``HEARTBEAT_PERIOD``): change the two together.
+        The period is :data:`~geecs_core.pv_naming.GATEWAY_HEARTBEAT_PERIOD_S`,
+        the one value the tick-waiting probe
+        (``geecs_bluesky.devices.ca.liveness.probe_gateway_monitors``) reads.
         """
         uptime = self._gateway_status.get("uptime")
         heartbeat = self._gateway_status.get(GATEWAY_HEARTBEAT)
