@@ -967,7 +967,11 @@ Two rules for anyone extending this:
   scan page's trace route a trace device shows one shot at a time. The
   Images strip's bin tile (below) is the one average, and it is only
   sample by sample over shots that share one x axis
-  (`geecs_data_utils.io.shot_traces.average_traces`), refused otherwise.
+  (`geecs_data_utils.io.shot_traces.average_traces`), refused otherwise —
+  except an analysis output's tables, whose axis follows each shot's own
+  calibration (a magspec spectrum's momentum, the author 2026-11-23):
+  shots of one length average index-wise, x too, as the analysis core
+  averages that measure, and the big view says so (`TraceResponse.note`).
 
 ## The 2-D map (the Plot page's view; the Grid tab until 2026-10-29)
 
@@ -1092,6 +1096,17 @@ clean-ups, background, colour bar and ROI do not apply and are not shown.
 `tile.png` and `levels` answer for either kind (the device decides);
 `/plot/api/images/trace` is a trace tile as a figure, which the big view
 draws so it zooms.
+**Analysis outputs** (the author, 2026-11-23): the per-shot products an
+analysis run wrote under `{day}/analysis/ScanNNN/<folder>/`
+(`ScanNNN_<stem>_SSS.png` images, `.txt` column tables) are rows too,
+named `analysis:<folder>` (the folder's own series) or
+`analysis:<folder>/<series>` (`geecs_data_utils.io.analysis_outputs`).
+The picker lists the analysis folders after the device folders (one more
+listing), marked `analysis · <folder>`; a picked folder of several series
+offers each (`images.devices(folder, picked)`). An image output is a
+camera row, a table a trace row whose channels are its y columns. A shot
+is its series' file of that number, never a neighbour's; no processing
+recipe is offered on one (`/api/run/{uid}/device`).
 `plotter/static/images.js` draws the **big view**: the tile
 clicked (or stepped to with ‹ › along its camera's row; a click on another
 row moves it to that camera) at full size: the tile's own picture

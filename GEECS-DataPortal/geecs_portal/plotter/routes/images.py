@@ -76,6 +76,8 @@ class TraceResponse(BaseModel):
     points: int
     #: The shots the tile's rows name (a bin's mean is over those that had a trace).
     shots: int
+    #: How a bin's mean was made, when the reader should know ("": nothing to say).
+    note: str = ""
 
 
 class StripResponse(BaseModel):
@@ -1140,9 +1142,11 @@ def register_traces(router: APIRouter, ctx: Context) -> None:
         keep = keep_rows(frame, filters) if strip == "bins" else None
         rows = tile_rows(frame, strip, index, keep, got.bin_col)
         try:
-            trace = images.trace_tile(got.source, frame, device, rows, channel)
+            found = images.trace_tile_found(got.source, frame, device, rows, channel)
         except images.NoImage as why:
             raise HTTPException(status_code=404, detail=str(why)) from None
+        trace = found.result
+        assert trace is not None
         try:
             figure = trace_view(trace, device, parse_window(xmin, xmax))
         except images.NoImage as why:
@@ -1151,5 +1155,6 @@ def register_traces(router: APIRouter, ctx: Context) -> None:
             figure=figure,
             points=int(trace.data.shape[0]),
             shots=len(rows),
+            note=found.note,
         )
         return JSONResponse(body.model_dump(), headers=NO_CACHE)

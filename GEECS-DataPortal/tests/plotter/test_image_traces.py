@@ -325,3 +325,33 @@ def test_other_units_tick_as_plain_numbers(units):
     from geecs_portal.plotter.routes.images import tick_formatter
 
     assert tick_formatter(units) is None
+
+
+def test_a_one_channel_spectrometer_ignores_a_scopes_saved_channel(
+    client: TestClient, camera: Path, settings_dir: Path
+) -> None:
+    # A spectrometer's per-shot text files: one channel (wavelength, counts).
+    spectro = camera / "SPEC-Thorlabs"
+    spectro.mkdir()
+    for shot in (1, 2, 3, 4):
+        (spectro / f"Scan001_SPEC-Thorlabs_{shot:03d}.txt").write_text(
+            "".join(f"{700 + i}\t{shot * i}\r\n" for i in range(5))
+        )
+    # The row last showed a scope on channel 3, then the spectrometer.
+    post(client, scan=1, page="images", device=SCOPE, channel="3")
+    page = post(client, scan=1, page="images", device="SPEC-Thorlabs", strip="shots")
+    assert "channel=0" in page and "channel=3" not in page
+    tile = client.get(
+        "/api/images/tile.png",
+        params={
+            "day": DAY,
+            "scan": 1,
+            "device": "SPEC-Thorlabs",
+            "strip": "shots",
+            "index": 2,
+            "channel": 0,
+        },
+    )
+    assert tile.status_code == 200, tile.text
+    # The saved channel stays the scope's.
+    assert json.loads((settings_dir / "default.json").read_text())["image_channel"] == 3

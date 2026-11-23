@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from geecs_web_theme.web import root_of
 
-from geecs_data_utils.io import shot_images
+from geecs_data_utils.io import analysis_outputs, shot_images
 from geecs_data_utils.tiled_catalog import metadata_rows
 
 from geecs_portal import analysis
@@ -236,6 +236,11 @@ def api_device(
         "ext": probe.ext,
         "event_rows": None if detail.data is None else len(detail.data),
         "planned_shots": detail.summary.shots,
-        "processing_options": portal.processing_names() if renderable else [],
+        # A recipe draws a device's raw shot, never an analysis output.
+        "processing_options": (
+            portal.processing_names()
+            if renderable and not analysis_outputs.is_output_name(device)
+            else []
+        ),
     }
     return JSONResponse(payload, headers=_LISTING_HEADERS)

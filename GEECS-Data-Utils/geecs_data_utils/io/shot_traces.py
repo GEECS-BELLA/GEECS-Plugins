@@ -13,7 +13,13 @@ A device records traces in one of three ways:
   numbers, x then y (a spectrometer's wavelength and counts), header or
   none, read as ``tsv``; or a Thorlabs FTS spectrometer's ``.csv`` export
   (:func:`~geecs_data_utils.io.array1d.is_thorlabs_fts`), read as
-  ``thorlabs_fts``; one channel.
+  ``thorlabs_fts``; one channel;
+- an **analysis output's text table** (``analysis:<folder>``,
+  :mod:`~geecs_data_utils.io.analysis_outputs`): a tab-separated file of
+  two or more numeric columns under a header line, x first, each further
+  column a channel named from the header (``Charge_fC``: label ``Charge``,
+  units ``fC``). Raw device folders keep the two-column rule: a sidecar
+  of four columns beside a camera's files is not a trace.
 
 Each comes back as a :class:`~geecs_data_utils.io.shot_images.ShotTrace`
 (an Nx2 :class:`~geecs_data_utils.io.array1d.Data1DResult`, or the
@@ -22,7 +28,9 @@ neighbour's trace**, as for images.
 
 A bin's traces average sample by sample (:func:`average_traces`) only when
 they share one x axis (the same length and the same x values); otherwise
-the bin has no average and says so. Nothing is resampled: a scope's time
+the bin has no average and says so. The one exception is an analysis
+output's tables, whose axis may follow each shot's calibration (magspec):
+shots of one length average index-wise, x too, as the analysis core does. Nothing is resampled: a scope's time
 base is fixed within a scan, and a bin whose axes differ is something to
 see, not to paper over.
 """
@@ -30,6 +38,7 @@ see, not to paper over.
 from __future__ import annotations
 
 import logging
+import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +53,7 @@ from geecs_data_utils.io.array1d import (
     is_thorlabs_fts,
     read_1d_data,
 )
+from geecs_data_utils.io import analysis_outputs
 from geecs_data_utils.io.shot_images import (
     ScanRows,
     ShotTrace,
@@ -92,6 +102,9 @@ class TraceDevice:
     #: The channels' names, in ``trace_index`` order (one, unnamed, for a stack).
     channels: tuple[str, ...] = ()
     path: Optional[Path] = None
+    #: The files are column tables (an analysis output's): the channel is
+    #: the y column, after the x one.
+    table: bool = False
 
 
 def scope_channels(path: Path) -> Optional[tuple[str, ...]]:
@@ -210,6 +223,94 @@ def read_text_trace(path: Path) -> Optional[Data1DResult]:
     return result
 
 
+def read_text_table(path: Path) -> Optional[tuple[tuple[str, ...], np.ndarray]]:
+    """*path* as a header line over tab-separated numeric columns; ``None`` if not.
+
+    Returns the column names (``column N`` where the header has none, or
+    with no header at all) and the ``(rows, columns)`` values, at least two
+    columns and one row. A row of another width, or a field that is not a
+    number after the first line, makes it no table.
+    """
+    names: tuple[str, ...] = ()
+    rows: list[list[float]] = []
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            for number, line in enumerate(handle):
+                fields = line.rstrip("\r\n").split("\t")
+                if not line.strip():
+                    continue
+                try:
+                    rows.append([float(v) for v in fields])
+                except ValueError:
+                    if number == 0 and not rows:
+                        names = tuple(f.strip() for f in fields)
+                        continue
+                    return None
+                if len(rows[-1]) != len(rows[0]):
+                    return None
+    except OSError:
+        return None
+    if not rows or len(rows[0]) < 2:
+        return None
+    width = len(rows[0])
+    names = tuple(
+        (names[i] if i < len(names) and names[i] else f"column {i}")
+        for i in range(width)
+    )
+    return names, np.asarray(rows, dtype=float)
+
+
+def _axis_name(header: str) -> tuple[str, Optional[str]]:
+    """A column header as ``(label, units)``.
+
+    ``Charge [fC]`` and ``Charge_fC`` (the units after the last ``_``) both
+    give ``("Charge", "fC")``; a header with neither is all label.
+    """
+    match = re.match(r"^(?P<label>.*?)\s*\[(?P<units>[^\]]*)\]$", header)
+    if match:
+        return match.group("label"), match.group("units") or None
+    label, sep, units = header.rpartition("_")
+    if sep and label and units:
+        return label, units
+    return header, None
+
+
+def read_table_trace(path: Path, channel: int) -> Optional[Data1DResult]:
+    """Column *channel* + 1 of a text table (:func:`read_text_table`) against column 0.
+
+    ``None`` when the file is no table, has no such column, or has no row
+    with both numbers finite.
+    """
+    table = read_text_table(path)
+    if table is None:
+        return None
+    names, values = table
+    if not 0 <= channel < values.shape[1] - 1:
+        return None
+    data = values[:, [0, channel + 1]]
+    if not np.isfinite(data).all(axis=1).any():
+        return None
+    x_label, x_units = _axis_name(names[0])
+    y_label, y_units = _axis_name(names[channel + 1])
+    return Data1DResult(
+        data=data, x_units=x_units, y_units=y_units, x_label=x_label, y_label=y_label
+    )
+
+
+def _output_trace_device(scan_folder: Path, name: str) -> TraceDevice:
+    """:func:`trace_device` for an analysis output: a series of text tables."""
+    series = analysis_outputs.resolve_output(scan_folder, name)
+    if series is None or series.ext not in TEXT_TRACE_EXTS:
+        return TraceDevice()
+    for sample in series.files()[:_PROBE_FILES]:
+        table = read_text_table(sample)
+        if table is not None:
+            return TraceDevice(
+                "native", "lineout", series.ext, table[0][1:], series.folder, True
+            )
+    return TraceDevice()
+
+
 def _text_device(device_dir: Path, ext: str) -> bool:
     """Whether one of the device's first files (by name) is a text trace."""
     return any(
@@ -228,8 +329,11 @@ def trace_device(
     (by name) is an NI-HWS waveform (its channels named from that file), and
     one in :data:`TEXT_TRACE_EXTS` when one of its first files is x/y columns
     (:func:`read_text_trace`; one unnamed channel). Everything else is not
-    (``kind == ""``).
+    (``kind == ""``). An analysis output's name is a series of text tables,
+    one channel per y column (:func:`read_text_table`).
     """
+    if analysis_outputs.is_output_name(device):
+        return _output_trace_device(scan_folder, device)
     probe = device_kind(scan_folder, device, devices=devices)
     if probe.kind == "stack":
         content = stack_content(probe)
@@ -303,7 +407,19 @@ def load_row_trace(
     )
     if reason:
         return ShotTrace(kind="missing", path=path, reason=reason)
+    if probe.table:
+        return _read_table(path, channel)
     return _read_native(path, probe.ext, channel)
+
+
+def _read_table(path: Path, channel: int) -> ShotTrace:
+    """One analysis output's text table, its column *channel* + 1."""
+    result = read_table_trace(path, channel)
+    if result is None:
+        return ShotTrace(
+            kind="missing", path=path, reason=f"the file has no column {channel + 1}"
+        )
+    return ShotTrace(kind="native", result=result, content="lineout", path=path)
 
 
 def _read_native(path: Path, ext: str, channel: int) -> ShotTrace:
@@ -327,27 +443,56 @@ def _read_native(path: Path, ext: str, channel: int) -> ShotTrace:
     return ShotTrace(kind="native", result=result, content="waveform", path=path)
 
 
-def average_traces(traces: Sequence[Data1DResult]) -> Optional[Data1DResult]:
+def shared_axis(traces: Sequence[Data1DResult]) -> bool:
+    """Whether the traces share one x axis: the same length and the same x values.
+
+    The same values to float rounding of the first axis' span (``_SAME_AXIS_RTOL``).
+    """
+    if not traces:
+        return True
+    first = traces[0]
+    x = first.data[:, 0]
+    span = float(np.nanmax(x) - np.nanmin(x)) if x.size else 0.0
+    tolerance = _SAME_AXIS_RTOL * max(span, np.finfo(float).tiny)
+    return all(
+        other.data.shape == first.data.shape
+        and np.allclose(other.data[:, 0], x, rtol=0.0, atol=tolerance)
+        for other in traces[1:]
+    )
+
+
+def average_traces(
+    traces: Sequence[Data1DResult], per_shot_axes: bool = False
+) -> Optional[Data1DResult]:
     """The traces' sample-by-sample mean, or ``None`` when their x axes differ.
 
-    One trace is itself. Several must have the same length and the same x
-    values (to float rounding of the axis' span); the mean of the y
-    values is ``nanmean``, so a NaN sample in one shot does not blank the
-    average. The first trace's labels and units are the average's.
+    One trace is itself. Several must share one x axis (:func:`shared_axis`);
+    the mean of the y values is ``nanmean``, so a NaN sample in one shot
+    does not blank the average. The first trace's labels and units are the
+    average's.
+
+    With *per_shot_axes* (a series whose calibration moves from shot to
+    shot: a magspec spectrum's momentum axis follows the shot's field),
+    traces of the same length whose x values differ are averaged index-wise
+    instead, x and y alike: sample *k* of the mean is the mean of every
+    shot's sample *k*. That is the analysis core's own average for such a
+    measure (``per_shot_axes=True`` in GEECS-Analysis), so a bin tile
+    agrees with the run's saved bin average. Nothing is interpolated;
+    traces of different lengths are still refused.
     """
     if not traces:
         return None
     first = traces[0]
     if len(traces) == 1:
         return first
-    x = first.data[:, 0]
-    span = float(np.nanmax(x) - np.nanmin(x)) if x.size else 0.0
-    tolerance = _SAME_AXIS_RTOL * max(span, np.finfo(float).tiny)
-    for other in traces[1:]:
-        if other.data.shape != first.data.shape:
-            return None
-        if not np.allclose(other.data[:, 0], x, rtol=0.0, atol=tolerance):
-            return None
+    if any(t.data.shape != first.data.shape for t in traces[1:]):
+        return None
+    if shared_axis(traces):
+        x = first.data[:, 0]
+    elif per_shot_axes:
+        x = np.mean(np.stack([t.data[:, 0] for t in traces]), axis=0)
+    else:
+        return None
     ys = np.stack([t.data[:, 1] for t in traces])
     with warnings.catch_warnings():
         # A sample NaN in every shot stays NaN, without numpy's warning.
@@ -360,6 +505,13 @@ def average_traces(traces: Sequence[Data1DResult]) -> Optional[Data1DResult]:
         x_label=first.x_label,
         y_label=first.y_label,
     )
+
+
+#: What a bin's mean says when its shots' axes were averaged index-wise.
+AXES_AVERAGED_NOTE = (
+    "the shots' x axes differ (each shot's own calibration): "
+    "averaged sample by sample, x too, as the analysis core averages them"
+)
 
 
 def crop_trace(
@@ -429,7 +581,11 @@ def average_trace_scan_rows(
 
     :func:`average_trace_rows` across scans (a pooled bin's rows, per
     scan): each shot is read from its own scan's folder, and the mean is
-    still sample by sample on one shared x axis, or refused.
+    still sample by sample on one shared x axis, or refused — except for
+    an analysis output's text tables (``TraceDevice.table`` in every
+    part), whose shots of one length average index-wise when their axes
+    differ (:func:`average_traces`' *per_shot_axes*), the result's
+    ``note`` saying so.
 
     Parameters
     ----------
@@ -448,10 +604,12 @@ def average_trace_scan_rows(
     """
     found: list[ShotTrace] = []
     last = ShotTrace(kind="missing", reason="no shots")
+    per_shot_axes = True
     for i, part in enumerate(parts):
         probe = (
             probes[i] if probes is not None else trace_device(part.scan_folder, device)
         )
+        per_shot_axes = per_shot_axes and probe.table
         for row in part.rows:
             one = load_row_trace(
                 part.scan_folder, part.frame, device, row, channel, probe
@@ -462,10 +620,14 @@ def average_trace_scan_rows(
             found.append(one)
     if not found:
         return ShotTrace(kind="missing", path=last.path, reason=last.reason)
-    mean = average_traces([t.result for t in found if t.result is not None])
+    results = [t.result for t in found if t.result is not None]
+    mean = average_traces(results, per_shot_axes=per_shot_axes)
     if mean is None:
         return ShotTrace(
             kind="missing",
             reason="the shots' x axes differ, so they are not averaged",
         )
-    return ShotTrace(kind=found[0].kind, result=mean, content=found[0].content)
+    note = "" if shared_axis(results) else AXES_AVERAGED_NOTE
+    return ShotTrace(
+        kind=found[0].kind, result=mean, content=found[0].content, note=note
+    )

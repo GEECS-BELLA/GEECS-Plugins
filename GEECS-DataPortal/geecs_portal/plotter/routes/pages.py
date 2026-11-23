@@ -436,6 +436,7 @@ def _page(
         "display_query": "",
         "levels_url": "",
         "devices": [],
+        "device_labels": {},
         "device": "",
         "device_kept": "",
         "device_problem": None,
@@ -676,8 +677,11 @@ def _fill_images(
     and background are the open scan's.
     """
     folder = scans.scan_folder(run)
-    devices = images.devices(folder)
+    looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
+    # The analysis output folders a row picked are looked into, for their series.
+    devices = images.devices(folder, [look.device or "" for look in looks])
     page["devices"] = devices
+    page["device_labels"] = {d: images.device_label(d) for d in devices}
     page["conditions"] = scans.conditions(run, frame)
     # the same lines as text, for the exported grid's picture (strip_export.js)
     page["condition_lines"] = [
@@ -686,7 +690,6 @@ def _fill_images(
         + (f" ({c['detail']})" if c["detail"] else "")
         for c in page["conditions"]
     ]
-    looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
     # The strip's X is the Plot page's (the scan variable while autofill
     # is on): the captions' values, and where pooled bins are placed.
     x = page["x"]  # "": the shot number, so the captions carry no value
@@ -907,6 +910,11 @@ def _camera_row(
                 roi="",
                 cbar=False,
             )
+            if len(probe.channels) <= 1:
+                # One channel (a spectrometer's file, a stack): read it,
+                # whatever this row saved for a scope it showed before.
+                # The saved value stays, for when it shows that scope again.
+                row["channel"] = 0
         else:
             row["problem"] = (
                 f"{device} has no pictures (a vendor format or a file the page cannot draw)"
