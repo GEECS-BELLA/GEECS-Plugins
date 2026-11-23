@@ -57,9 +57,11 @@ GATEWAY_MONITORS_REFUSAL = (
     "stale values, or time out after claiming a scan number. The gateway "
     "restarts itself once delivery has stood still for 30 s (relaunched "
     "10 s later), so wait a minute and start the scan again. Refused again "
-    "after that, a slow client is pacing delivery, which the gateway does "
-    "not restart for: find that client, stop it, then restart "
-    "geecs-ca-gateway on its host (GeecsCAGateway/DEPLOYMENT.md § "
+    "after that, a client is still holding delivery up: either a slow "
+    "reader, which the gateway does not restart for, or one that stalls it "
+    "again after each restart (the journal's `delivery STALLED` block names "
+    "it). Find that client, stop it, then restart geecs-ca-gateway on its "
+    "host (GeecsCAGateway/DEPLOYMENT.md § "
     'Troubleshooting, "Gets answer, no monitors").'
 )
 
