@@ -100,7 +100,10 @@ def test_stream_carries_the_scan_log_from_the_start_documents_folder(
     client: TestClient, preset_doc: dict, manager: DemoQueueClient
 ) -> None:
     # before any run: no folder, so no log frame and nothing invented
-    before = _events(client.get("/api/events?once=1").text)
+    resp = client.get("/api/events?once=1")
+    assert resp.status_code == 200
+    before = _events(resp.text)
+    assert [e for e, _ in before if e == "status"]
     assert [d for e, d in before if e == "log"] == []
     r = client.post(
         "/api/submit", json={"preset": preset_doc, "acknowledged": ["gateway_liveness"]}

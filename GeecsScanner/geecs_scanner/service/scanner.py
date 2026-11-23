@@ -478,18 +478,11 @@ class ScannerService:
         """Console lines newer than *seq*."""
         return self.streams.console_since(seq)
 
-    def scan_log(self, offset: int = 0, folder: Optional[str] = None) -> ScanLogOut:
-        """The latest run's ``scan.log`` from *offset* on (read-only; see :mod:`.scanlog`)."""
+    def scan_log(self, offset: int, folder: str) -> ScanLogOut:
+        """The ``scan.log`` of *folder* from *offset* on (read-only; see :mod:`.scanlog`)."""
         from geecs_scanner.service.scanlog import read_scan_log
 
         progress = self.streams.snapshot()
-        folder = folder or progress.scan_folder
-        if not folder:
-            return ScanLogOut(
-                available=False,
-                detail="no run folder yet — it arrives with the start document",
-                scan_number=progress.scan_number,
-            )
         out = read_scan_log(folder, offset)
         out.scan_number = (
             progress.scan_number if folder == progress.scan_folder else None
