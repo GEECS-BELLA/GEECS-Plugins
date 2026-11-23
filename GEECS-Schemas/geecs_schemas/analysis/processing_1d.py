@@ -91,7 +91,8 @@ class Data1DLoading(SchemaModel):
         default_factory=dict,
         description=(
             "Extra named columns to load alongside y, for analyzers that need "
-            "them (name -> column index)."
+            "them (name -> column index; for 'tek_scope_hdf5', name -> trace "
+            "index of another channel on the same time axis)."
         ),
     )
 
@@ -107,14 +108,20 @@ class Data1DLoading(SchemaModel):
     def validate_auxiliary_columns(self) -> "Data1DLoading":
         """Validate named auxiliary column definitions (mirrors ``Data1DConfig``)."""
         seen: set[int] = set()
+        taken = (
+            {self.trace_index}
+            if self.data_type == Data1DType.TEK_SCOPE_HDF5
+            else {self.x_column, self.y_column}
+        )
         for name, column in self.auxiliary_columns.items():
             if not name.strip():
                 raise ValueError("auxiliary column names must be non-empty")
             if column < 0:
                 raise ValueError("auxiliary column indices must be non-negative")
-            if column in {self.x_column, self.y_column}:
+            if column in taken:
                 raise ValueError(
-                    "auxiliary column indices must differ from x_column and y_column"
+                    "auxiliary column indices must differ from the measured "
+                    "trace (trace_index for scope files, else x_column and y_column)"
                 )
             if column in seen:
                 raise ValueError("auxiliary column indices must be unique")

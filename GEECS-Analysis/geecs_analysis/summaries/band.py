@@ -158,32 +158,10 @@ def _labels(ax: Axes, frame: Frame, figure: FigureSpec) -> None:
     )
 
 
-@summary(BandSummary, consumes="shots", filename="summary_band")
-def band(  # noqa: C901, PLR0912, PLR0915
-    results: Sequence[Measurement],
-    positions: Sequence[float | None],
-    label: str,
-    options: BandSummary,
-    figure: FigureSpec,
-) -> Figure | SummaryOutput:
-    """Draw each group's centre line and spread band; ``label`` names the parameter.
-
-    Shots group by position (:func:`group_by_position`); a group with fewer
-    than ``min_shots`` shots, traces of different lengths or a nonfinite
-    position is left out, with a note (none left raises ``RenderError``). One group draws one
-    axes; several draw ``options.layout``. From ``figure`` this layout
-    takes ``fig`` (dpi, and figsize except in the panels layout),
-    ``plot`` (the centre line's keywords; an overlay keeps its colours)
-    and ``axes`` (xlabel, ylabel, title).
-    """
-    import math
-
-    from matplotlib import colormaps
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.cm import ScalarMappable
-    from matplotlib.colors import Normalize
-    from matplotlib.figure import Figure
-
+def _frames(
+    results: Sequence[Measurement], positions: Sequence[float | None]
+) -> list[Frame]:
+    """The shots' traces as drawn, refused unless 1D with one unit set."""
     if not results or len(results) != len(positions):
         raise RenderError("Band requires one position per measurement")
     frames = [display_trace(r.frame) for r in results]
@@ -194,9 +172,20 @@ def band(  # noqa: C901, PLR0912, PLR0915
         f.unit != first.unit or f.axes[0].unit != first.axes[0].unit for f in frames
     ):
         raise RenderError("Band requires matching trace units")
-    grouped = group_by_position(frames, positions)
+    return frames
+
+
+def _drawable(
+    frames: list[Frame],
+    positions: Sequence[float | None],
+    label: str,
+    options: BandSummary,
+) -> tuple[list[tuple[float | None, list[Frame]]], list[str]]:
+    """The groups to draw in position order, and a note for each one left out."""
+    import math
+
     notes, groups = [], []
-    for position, members in grouped:
+    for position, members in group_by_position(frames, positions):
         where = "the scan" if position is None else f"{label} = {position:.4g}"
         if position is not None and not math.isfinite(position):
             notes.append(f"{where}: the position is not finite; not drawn")
@@ -212,74 +201,113 @@ def band(  # noqa: C901, PLR0912, PLR0915
     if not groups:
         raise RenderError("No bin to draw: " + "; ".join(notes))
     groups.sort(key=lambda g: (g[0] is None, g[0] if g[0] is not None else 0.0))
-    gray = options.band_color or DEFAULT_BAND_COLOR
+    return groups, notes
+
+
+def _panels(fig: Figure, groups, label, options, figure, frame) -> None:
+    """One panel per group, shared axes, gray bands; titled by position."""
+    import math
+
+    columns = min(options.columns or math.ceil(math.sqrt(len(groups))), len(groups))
+    rows = math.ceil(len(groups) / columns)
+    fig.set_size_inches(columns * PANEL_SIZE[0], rows * PANEL_SIZE[1])
+    axes = fig.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     line = {"color": "C0", **figure.plot}
+    gray = options.band_color or DEFAULT_BAND_COLOR
+    for ax, (position, members) in zip(axes.flat, groups):
+        _draw(ax, members, options, line_style=line, band_color=gray)
+        value = "all shots" if position is None else f"{position:.4g}"
+        ax.set_title(f"{value} ({len(members)} shots)", fontsize=10)
+    for ax in axes.flat[len(groups) :]:
+        ax.set_visible(False)
+    for ax in axes.flat:
+        _labels(ax, frame, figure)
+        if not ax.get_subplotspec().is_last_row():
+            ax.set_xlabel("")
+        if not ax.get_subplotspec().is_first_col():
+            ax.set_ylabel("")
+    title = f"{_describe(options)}: {label} scan"
+    fig.suptitle(figure.axes.get("title", title), fontsize=12)
+
+
+def _overlay(fig: Figure, groups, label, options, figure, frame) -> None:
+    """Every group on one axes: one gray band, or a colour per bin by position."""
+    from matplotlib import colormaps
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
+
+    ax = fig.subplots()
     described = _describe(options)
-    shots = sum(len(m) for _, m in groups)
-    panels = options.layout == "panels" and len(groups) > 1
-    try:
-        settings = {"figsize": (10, 6), "dpi": 150, "constrained_layout": True}
-        settings.update(figure.fig)
-        if panels:
-            columns = min(
-                options.columns or math.ceil(math.sqrt(len(groups))), len(groups)
+    if len(groups) == 1:
+        position, members = groups[0]
+        line = {"color": "C0", **figure.plot}
+        gray = options.band_color or DEFAULT_BAND_COLOR
+        _draw(ax, members, options, line_style=line, band_color=gray)
+        where = "" if position is None else f", {label} = {position:.4g}"
+        title = f"{described} over {len(members)} shots{where}"
+    else:
+        values = [p for p, _ in groups if p is not None] or [0.0]
+        cmap = colormaps["viridis"]
+        norm = Normalize(min(values), max(values))
+        if norm.vmin == norm.vmax:
+            norm = Normalize(norm.vmin - 0.5, norm.vmax + 0.5)
+        style = {k: v for k, v in figure.plot.items() if k not in ("color", "c")}
+        for position, members in groups:
+            color = cmap(norm(position)) if position is not None else "k"
+            _draw(
+                ax,
+                members,
+                options,
+                line_style={**style, "color": color},
+                band_color=options.band_color or color,
+                label="all" if position is None else f"{position:.4g}",
             )
-            rows = math.ceil(len(groups) / columns)
-            settings["figsize"] = (columns * PANEL_SIZE[0], rows * PANEL_SIZE[1])
-            fig = Figure(**settings)
-            axes = fig.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-            for ax, (position, members) in zip(axes.flat, groups):
-                _draw(ax, members, options, line_style=line, band_color=gray)
-                value = "all shots" if position is None else f"{position:.4g}"
-                ax.set_title(f"{value} ({len(members)} shots)", fontsize=10)
-            for ax in axes.flat[len(groups) :]:
-                ax.set_visible(False)
-            for ax in axes[-1, :]:
-                _labels(ax, first, figure)
-            for ax in axes[:, 0]:
-                _labels(ax, first, figure)
-            for ax in axes.flat:
-                if not ax.get_subplotspec().is_last_row():
-                    ax.set_xlabel("")
-                if not ax.get_subplotspec().is_first_col():
-                    ax.set_ylabel("")
-            fig.suptitle(
-                figure.axes.get("title", f"{described}: {label} scan"), fontsize=12
-            )
+        if len(groups) <= MAX_LEGEND_ENTRIES:
+            ax.legend(title=label or None, fontsize=8)
         else:
-            fig = Figure(**settings)
-            ax = fig.subplots()
-            values = [p for p, _ in groups if p is not None]
-            if len(groups) == 1:
-                position, members = groups[0]
-                _draw(ax, members, options, line_style=line, band_color=gray)
-                where = "" if position is None else f", {label} = {position:.4g}"
-                title = f"{described} over {len(members)} shots{where}"
-            else:
-                cmap = colormaps["viridis"]
-                norm = Normalize(min(values), max(values))
-                if norm.vmin == norm.vmax:
-                    norm = Normalize(norm.vmin - 0.5, norm.vmax + 0.5)
-                style = {
-                    k: v for k, v in figure.plot.items() if k not in ("color", "c")
-                }
-                for position, members in groups:
-                    color = cmap(norm(position)) if position is not None else "k"
-                    _draw(
-                        ax,
-                        members,
-                        options,
-                        line_style={**style, "color": color},
-                        band_color=options.band_color or color,
-                        label=("all" if position is None else f"{position:.4g}"),
-                    )
-                if len(groups) <= MAX_LEGEND_ENTRIES:
-                    ax.legend(title=label or None, fontsize=8)
-                else:
-                    fig.colorbar(ScalarMappable(norm, cmap), ax=ax, label=label)
-                title = f"{described}: {label} scan, {shots} shots"
-            _labels(ax, first, figure)
-            ax.set_title(figure.axes.get("title", title))
+            fig.colorbar(ScalarMappable(norm, cmap), ax=ax, label=label)
+        shots = sum(len(m) for _, m in groups)
+        title = f"{described}: {label} scan, {shots} shots"
+    _labels(ax, frame, figure)
+    ax.set_title(figure.axes.get("title", title))
+
+
+@summary(BandSummary, consumes="shots", filename="summary_band")
+def band(
+    results: Sequence[Measurement],
+    positions: Sequence[float | None],
+    label: str,
+    options: BandSummary,
+    figure: FigureSpec,
+) -> Figure | SummaryOutput:
+    """Draw each group's centre line and spread band; ``label`` names the parameter.
+
+    Shots group by position (:func:`group_by_position`); a group with fewer
+    than ``min_shots`` shots, traces of different lengths or a nonfinite
+    position is left out, with a note (none left raises ``RenderError``).
+    One group draws one axes; several draw ``options.layout``. From
+    ``figure`` this layout takes ``fig`` (dpi, and figsize except in the
+    panels layout), ``plot`` (the centre line's keywords; an overlay keeps
+    its colours) and ``axes`` (xlabel, ylabel, title).
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    frames = _frames(results, positions)
+    groups, notes = _drawable(frames, positions, label, options)
+    try:
+        fig = Figure(
+            **{
+                "figsize": (10, 6),
+                "dpi": 150,
+                "constrained_layout": True,
+                **figure.fig,
+            }
+        )
+        if options.layout == "panels" and len(groups) > 1:
+            _panels(fig, groups, label, options, figure, frames[0])
+        else:
+            _overlay(fig, groups, label, options, figure, frames[0])
         FigureCanvasAgg(fig).draw()
     except RenderError:
         raise

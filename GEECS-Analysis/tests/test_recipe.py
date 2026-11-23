@@ -209,6 +209,7 @@ def test_recipe_schema_binds_the_registry_vocabulary():
     measures = schema["properties"]["measure"]["discriminator"]["mapping"]
     assert set(measures) == {
         "beam",
+        "discharge_delay",
         "downramp_phase",
         "frog",
         "frog_spectral_phase",

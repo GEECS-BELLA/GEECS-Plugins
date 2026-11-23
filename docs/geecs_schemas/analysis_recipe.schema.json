@@ -237,7 +237,7 @@
           "additionalProperties": {
             "type": "integer"
           },
-          "description": "Extra named columns to load alongside y, for analyzers that need them (name -> column index).",
+          "description": "Extra named columns to load alongside y, for analyzers that need them (name -> column index; for 'tek_scope_hdf5', name -> trace index of another channel on the same time axis).",
           "title": "Auxiliary Columns",
           "type": "object"
         }

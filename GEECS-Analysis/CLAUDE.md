@@ -263,6 +263,18 @@ sign convention (τ0 ≥ 0 is the later pulse; the arms are
 indistinguishable from one spectrum) is in the module and in
 `docs/analysis/spectral_interferometry.md`. Numpy only.
 
+The `discharge_delay` measure (`algorithms.discharge_delay`, new; the
+LabVIEW "open scope trace file and calc delay" VI without its
+cable-charging thresholds): a scope's discharge-current channel as the
+trace and the laser photodiode as the `photodiode` **channel**
+(`tek_scope_hdf5` reads another trace index as an auxiliary column).
+Each trace's time axis is shifted by its channel's offset, the current is
+volts × `amps_per_volt`, no baseline is subtracted; start and arrival are
+the last rising crossings of a fraction of each trace's peak before it,
+interpolated. No photodiode, or a photodiode peak below
+`photodiode_min_v` (a shot without the laser), → the laser scalars are
+NaN, with a note.
+
 ## Array-level numerics for viewers (curve fits, image clean-ups)
 
 Two things here are called on plain arrays by the Data Portal's plot
