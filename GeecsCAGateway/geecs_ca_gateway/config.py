@@ -153,9 +153,11 @@ class DeviceSpec(BaseModel):
         variables_metadata : list of dict
             Rows with keys ``name``, ``units``, ``min``, ``max``, ``settable``.
         dtypes : dict, optional
-            Per-variable dtype overrides.  Variables default to ``"float"`` —
-            the GEECS DB carries no scalar type, so non-float variables (enums,
-            addresses) must be named here.
+            Explicit per-variable dtype overrides.  Without one, the dtype
+            comes from the row's ``variabletype`` and ``choices``
+            (:func:`~geecs_core.db.variable_types.effective_vartype`, then
+            ``VARTYPE_TO_DTYPE``), falling back to ``"float"`` for an unknown
+            type.
         prefix : str, optional
             Override the PV prefix (defaults to ``name``).
 

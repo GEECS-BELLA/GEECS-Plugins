@@ -98,9 +98,10 @@ GEECS device  <--UDP set---------  setpoint PV   (caput)
 - **Shot correlation is not the gateway's job.** EPICS PVs are independent by
   design; per-shot bundling is what Bluesky's `trigger`→`read` is for, and
   archiving does not need it.
-- **Non-float types**: the GEECS DB carries no scalar type, so variables default
-  to `float`; enums/addresses must be named via `dtypes=` or kept out of the
-  served set.
+- **Non-float types**: the dtype comes from the DB's `variabletype` (or a
+  type-descriptor `choices` value) via `effective_vartype` and
+  `VARTYPE_TO_DTYPE`; a blank type with an option list is an enum, otherwise
+  blank or unknown falls back to `float`. `dtypes=` is an explicit override.
 
 ## Fitness for our regime (~1 Hz, ~100 devices)
 
