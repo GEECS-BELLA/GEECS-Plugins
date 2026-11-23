@@ -68,14 +68,22 @@ class Data1DConfig(BaseModel):
     def validate_auxiliary_columns(self) -> "Data1DConfig":
         """Validate named auxiliary column definitions."""
         seen_indices: set[int] = set()
+        # A scope file's auxiliary "columns" are trace indices, so they must
+        # differ from the measured trace, not from the text columns.
+        taken = (
+            {self.trace_index}
+            if self.data_type == Data1DType.TEK_SCOPE_HDF5
+            else {self.x_column, self.y_column}
+        )
         for name, column in self.auxiliary_columns.items():
             if not name.strip():
                 raise ValueError("auxiliary column names must be non-empty")
             if column < 0:
                 raise ValueError("auxiliary column indices must be non-negative")
-            if column in {self.x_column, self.y_column}:
+            if column in taken:
                 raise ValueError(
-                    "auxiliary column indices must differ from x_column and y_column"
+                    "auxiliary column indices must differ from the measured "
+                    "trace (trace_index for scope files, else x_column and y_column)"
                 )
             if column in seen_indices:
                 raise ValueError("auxiliary column indices must be unique")
@@ -197,8 +205,14 @@ def _parse_column_header(header: str) -> tuple[str, Optional[str]]:
 def _read_tek_scope_hdf5(
     file_path: Path, config: Data1DConfig
 ) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
-    """Read Tektronix oscilloscope HDF5 file, returning Nx2 array [time, voltage] with metadata."""
-    _raise_if_auxiliary_columns_requested(config, "tek_scope_hdf5")
+    """Read a LabVIEW-waveform HDF5 scope file (Tektronix, LeCroy): ``[time, volts]``.
+
+    ``/wfm_group0/axes`` holds one (time, value) axis pair per channel.
+    ``auxiliary_columns`` names further channels by trace index; each is
+    returned in volts, row-aligned with the measured trace, and a channel
+    whose time axis differs from the measured one (start, step or length)
+    is refused rather than resampled.
+    """
     try:
         import h5py
     except ImportError as err:
@@ -208,44 +222,45 @@ def _read_tek_scope_hdf5(
         ) from err
 
     with h5py.File(file_path, "r") as f:
-        axes = list(f["/wfm_group0/axes"].keys())
-        n_traces = len(axes) // 2  # count pairs
+        axes = f["/wfm_group0/axes"]
+        n_traces = len(axes) // 2  # one (time, value) pair per channel
 
-        if config.trace_index >= n_traces:
-            raise ValueError(
-                f"Requested trace_index {config.trace_index} but file only "
-                f"contains {n_traces} traces (indices 0-{n_traces - 1})"
+        def channel(index: int) -> tuple[float, float, np.ndarray]:
+            if index >= n_traces:
+                raise ValueError(
+                    f"Requested trace index {index} but file only "
+                    f"contains {n_traces} traces (indices 0-{n_traces - 1})"
+                )
+            time_axis = axes[f"axis{2 * index}"]
+            value_axis = axes[f"axis{2 * index + 1}"]
+            raw = value_axis["data_vector/data"][:]
+            coeffs = value_axis["scale_coef"][:]
+            return (
+                float(time_axis.attrs.get("start", 0.0)),
+                float(time_axis.attrs.get("increment")),
+                raw * coeffs[1] + coeffs[0],
             )
 
-        # Calculate axis indices for the requested trace
-        i = 2 * config.trace_index
+        t0, dt, volts = channel(config.trace_index)
+        auxiliary: dict[str, np.ndarray] = {}
+        for name, index in config.auxiliary_columns.items():
+            a0, adt, avolts = channel(index)
+            if (a0, adt, avolts.shape) != (t0, dt, volts.shape):
+                raise ValueError(
+                    f"{file_path}: trace {index} ({name!r}) is not sampled like "
+                    f"trace {config.trace_index}; auxiliary channels must share "
+                    "the measured trace's time axis"
+                )
+            auxiliary[name] = avolts
 
-        # Time axis
-        time_axis = f[f"/wfm_group0/axes/axis{i}"]
-        dt = time_axis.attrs.get("increment")
-        t0 = time_axis.attrs.get("start", 0.0)
-
-        # Voltage axis
-        value_axis = f[f"/wfm_group0/axes/axis{i + 1}"]
-        raw = value_axis["data_vector/data"][:]
-        coeffs = value_axis["scale_coef"][:]
-        volts = raw * coeffs[1] + coeffs[0]
-
-        # Time array
-        time = t0 + np.arange(raw.shape[0]) * dt
-
-        # Data array
-        data = np.column_stack((time, volts))
-
-        # Metadata (fixed for Tek scope)
-        metadata = {
-            "x_units": "s",
-            "y_units": "V",
-            "x_label": "Time",
-            "y_label": "Voltage",
-        }
-
-        return data, metadata, {}
+    time = t0 + np.arange(volts.shape[0]) * dt
+    metadata = {
+        "x_units": "s",
+        "y_units": "V",
+        "x_label": "Time",
+        "y_label": "Voltage",
+    }
+    return np.column_stack((time, volts)), metadata, auxiliary
 
 
 def _read_tdms_scope(  # noqa: C901, PLR0912
