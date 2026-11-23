@@ -9,7 +9,7 @@
 #   deploy/bootstrap_host.sh SITE_ENV --experiment INSTANCE [--instance-env FILE] [--only ...] [--dry-run] [--no-install]
 #
 #   --ref REF      git ref to check out in each clone (default: master)
-#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner,archiver,canopy,control-room,configurator,analysis-worker
+#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner,archiver,canopy,control-room,configurator,analysis-worker,interlocks
 #                  (re-stages only these: the staging dir's units are cleared first,
 #                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
@@ -100,16 +100,18 @@ say() { printf '\n== %s\n' "$1"; }
 # is a plain poetry service in a clone of its own (it will commit to the configs repo).
 # The analysis worker (GeecsAnalysisWorker) is a plain poetry service in a clone
 # of its own: it runs analysis, so no other service's pull moves the code it runs.
-SERVICES="gateway portal logbook qserver tiled-writer mcp scanner archiver canopy control-room configurator analysis-worker"
-clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; archiver) echo "archiver-checkout";; canopy) echo "canopy-checkout";; control-room) echo "control-room-checkout";; configurator) echo "configurator-checkout";; analysis-worker) echo "analysis-worker-checkout";; esac; }
-pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; archiver) echo "GeecsArchiver";; canopy) echo "GeecsCanopy";; control-room) echo "GeecsControlRoom";; configurator) echo "GeecsConfigurator";; analysis-worker) echo "GeecsAnalysisWorker";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "";; scanner) echo "";; archiver) echo "";; canopy|control-room|configurator|analysis-worker) echo "";; esac; }
+# The interlock server (GEECS-Interlocks) is a plain poetry service in a clone of
+# its own: it reports to Master Control, so no other service's pull moves it.
+SERVICES="gateway portal logbook qserver tiled-writer mcp scanner archiver canopy control-room configurator analysis-worker interlocks"
+clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; archiver) echo "archiver-checkout";; canopy) echo "canopy-checkout";; control-room) echo "control-room-checkout";; configurator) echo "configurator-checkout";; analysis-worker) echo "analysis-worker-checkout";; interlocks) echo "interlocks-checkout";; esac; }
+pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; archiver) echo "GeecsArchiver";; canopy) echo "GeecsCanopy";; control-room) echo "GeecsControlRoom";; configurator) echo "GeecsConfigurator";; analysis-worker) echo "GeecsAnalysisWorker";; interlocks) echo "GEECS-Interlocks";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "";; scanner) echo "";; archiver) echo "";; canopy|control-room|configurator|analysis-worker|interlocks) echo "";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
 # (re)start (#793) — enabled together, rendered from the same clone. The
 # Tiled writer is its own service (own unit, own restart, no ordering
 # against the manager): the spool directory is the only thing they share.
-units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; canopy) echo "geecs-canopy";; control-room) echo "geecs-control-room";; configurator) echo "geecs-configurator";; analysis-worker) echo "geecs-analysis-worker";; esac; }
+units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; canopy) echo "geecs-canopy";; control-room) echo "geecs-control-room";; configurator) echo "geecs-configurator";; analysis-worker) echo "geecs-analysis-worker";; interlocks) echo "geecs-interlocks";; esac; }
 # ---- --experiment: one experiment instance, beside the main units ----------
 # Additive by construction: it renders only the <unit>@.service templates,
 # never re-renders or re-enables a main unit, and never moves, fetches or
@@ -262,6 +264,8 @@ wanted() {
         if [ "$1" = "configurator" ] && [ -z "${GEECS_CONFIGURATOR_PORT:-}" ]; then return 1; fi
         # The analysis worker likewise: a site without the key deploys none.
         if [ "$1" = "analysis-worker" ] && [ -z "${GEECS_ANALYSIS_WORKER_PORT:-}" ]; then return 1; fi
+        # The interlock server likewise, by the configuration it runs.
+        if [ "$1" = "interlocks" ] && [ -z "${GEECS_INTERLOCKS_CONFIG:-}" ]; then return 1; fi
         return 0
     fi
     case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac

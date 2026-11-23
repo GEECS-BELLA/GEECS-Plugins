@@ -158,7 +158,7 @@ class TestEngineSignals:
     def test_the_last_state_survives_a_reload(self, engine, port):
         send(port, "safe")
         assert wait_for(lambda: self.state(engine) == "ok")
-        assert engine.reload().startswith("reloaded")
+        assert engine.reload().message.startswith("reloaded")
         # The sender says nothing new; the reloaded server still knows it is safe.
         assert wait_for(lambda: self.state(engine) == "ok")
 
@@ -173,7 +173,7 @@ class TestEngineSignals:
         taken.start()
         try:
             interlocks_file(engine.path, port, taken.address[1])
-            assert engine.reload().startswith("reload refused")
+            assert engine.reload().message.startswith("reload refused")
             assert engine.signals.ports() == [port]
             assert [s.name for s in engine.snapshot().statuses] == [f"ext {port}"]
         finally:

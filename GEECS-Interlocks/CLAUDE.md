@@ -4,7 +4,8 @@ The software interlock server. It watches device values and external
 status packets against one named configuration, and **reports** the
 verdict to Master Control on a TCP stream. It never pauses a scan or
 writes to a device: what a trip stops is Master Control's decision. It runs
-headless (`geecs-interlocks serve`); configurations are edited in the
+headless (`geecs-interlocks serve`) as one systemd unit per experiment
+(`deploy/`, `DEPLOYMENT.md`); configurations are edited in the
 configurator (`interlocks`, tier `maintainer`). The operator's view is
 `docs/web_services/interlocks.md`; this file holds the rules for changing
 the code.
@@ -21,7 +22,8 @@ the code.
 | `wire.py`, `status_server.py` | Master Control's frames and the stream that sends them |
 | `config.py` | `config.ini [interlocks]` settings and the configuration paths |
 | `present.py` | The words every reader uses: the verdict line, values, the kit's state words, the stall rule |
-| `web/` | The read-only page on the kit |
+| `web/` | The page on the kit, and its two actions (`POST /api/arm`, `/api/reload`) |
+| `notify.py` | systemd's notify protocol: `READY=1`, the watchdog fed by the loop (`Monitor(on_tick=)`) |
 | `demo.py` | `--fake-devices`: fake GEECS devices, their scripted values, the fake UDP sender |
 
 ## Rules
@@ -33,7 +35,15 @@ the code.
   and tests them.
 - **Report only.** The `interlocks-edges` import contract keeps scan
   execution, analysis and the other surfaces out. No route acts on the
-  experiment.
+  experiment: the page's two actions act on the server alone.
+- **An action is a person's, named and confirmed.** `POST /api/arm`
+  (`{operator, interlock?}`, `Monitor.arm`) and `POST /api/reload`
+  (`{operator}`, `Engine.reload` of the running file, never another path)
+  refuse a blank operator (400), log the operator with the outcome, and
+  answer the engine's own message (`ActionOut`: 200 done, 409 refused). The
+  page asks for the name (remembered in the browser), confirms in
+  the kit's dialog, sends once and never retries. A reload, like a start,
+  leaves every settings check unarmed.
 - **One snapshot, many readers.** The stream and the page draw the
   monitor's snapshot and compute no verdict of their own, so they never
   disagree. A new reader reads `Engine.snapshot()`.
@@ -74,7 +84,14 @@ the code.
 - **Arming records the moment, so it is a person's act.** `config_change`
   holds the settings seen when it is armed. `--arm-at-start` arms the first
   values that arrive and must never run in an automatic restart (a unit's
-  `ExecStart`): it would arm a setting someone had just changed.
+  `ExecStart`): it would arm a setting someone had just changed. The server
+  refuses it when `NOTIFY_SOCKET` is set (under systemd), exit 2, which the
+  unit's `RestartPreventExitStatus` keeps from looping.
+- **The watchdog is fed by evaluations, not by the process.** Under the
+  unit (`Type=notify`, `WatchdogSec`), `Monitor._loop` calls `on_tick` after
+  each evaluation that succeeds (rate-limited in `Notifier.watchdog`), so a
+  stalled or failing loop gets the server restarted. Never feed it from
+  another thread.
 - **An external signal can name its sender.** With `ExternalCondition.sender`
   set (an IP address; a host name is refused), the condition reads only that
   address's packets: each sender keeps its own reading on the listener, so

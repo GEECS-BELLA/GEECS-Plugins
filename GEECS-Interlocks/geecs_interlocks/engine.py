@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from geecs_schemas import ExternalCondition, InterlockSet
@@ -65,6 +66,14 @@ def geecs_sources(
     return make
 
 
+@dataclass(frozen=True)
+class ReloadResult:
+    """What a reload did: ``ok`` false when it was refused and the old interlocks kept."""
+
+    ok: bool
+    message: str
+
+
 class Engine:
     """Run the interlocks at *path* over sources from *make_source*.
 
@@ -76,12 +85,21 @@ class Engine:
         Builds the source for a document.
     settings :
         Where the stream and the external signals listen, and the wire format.
+    on_tick :
+        Called after every successful evaluation of whichever monitor runs
+        (the systemd watchdog, :class:`~geecs_interlocks.notify.Notifier`).
     """
 
     def __init__(
-        self, path: Path | None, make_source: SourceFactory, settings: Settings
+        self,
+        path: Path | None,
+        make_source: SourceFactory,
+        settings: Settings,
+        *,
+        on_tick: Callable[[], None] | None = None,
     ) -> None:
         self.path = path
+        self._on_tick = on_tick
         self.settings = settings
         self._make_source = make_source
         self._lock = threading.Lock()
@@ -104,6 +122,7 @@ class Engine:
             self._make_source(interlocks),
             signals=self.signals,
             origin=origin,
+            on_tick=self._on_tick,
         )
 
     def start(self) -> None:
@@ -159,8 +178,8 @@ class Engine:
         """Arm the current monitor's ``config_change`` conditions (see :meth:`Monitor.arm`)."""
         return self.monitor.arm(name)
 
-    def reload(self, path: Path | None = None) -> str:
-        """Re-read the file (or switch to *path*) and swap in a fresh monitor; a line saying what happened.
+    def reload(self, path: Path | None = None) -> ReloadResult:
+        """Re-read the file (or switch to *path*) and swap in a fresh monitor; what happened.
 
         An invalid file leaves the running interlocks (and the path) untouched. The new
         monitor starts with every armed interlock waiting, so the verdict is
@@ -170,7 +189,7 @@ class Engine:
         with self._reloading:
             return self._reload(self.path if path is None else path)
 
-    def _reload(self, target: Path | None) -> str:
+    def _reload(self, target: Path | None) -> ReloadResult:
         before = set(self.signals.ports())
         fresh: Monitor | None = None
         try:
@@ -184,20 +203,25 @@ class Engine:
             if fresh is not None:
                 fresh.stop()
             self.signals.retain(before)  # close only what this reload opened
-            return f"reload refused, old interlocks kept: {exc}"
+            return ReloadResult(False, f"reload refused, old interlocks kept: {exc}")
         with self._lock:
             old, self._monitor = self._monitor, fresh
             self._interlocks = interlocks
             self.path = target
-        old.stop()
-        self.signals.retain(ports)
         message = f"reloaded {len(interlocks.interlocks)} interlock(s) from {origin}"
+        try:  # the new monitor already runs: a fault here must not unsay the reload
+            old.stop()
+            self.signals.retain(ports)
+        except Exception:
+            logger.exception("reload: closing the old monitor or ports failed")
+            message += " (closing the old monitor failed; see the server log)"
         logger.info(message)
-        return message
+        return ReloadResult(True, message)
 
 
 __all__ = [
     "Engine",
+    "ReloadResult",
     "SourceFactory",
     "device_variables",
     "external_ports",

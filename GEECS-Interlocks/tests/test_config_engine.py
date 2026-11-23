@@ -104,7 +104,7 @@ class TestEngine:
         write(engine.path, threshold("vac"), threshold("second"))
         with socket.create_connection(engine.stream.address, timeout=2) as sock:
             read_frame(sock)
-            assert engine.reload().startswith("reloaded 2")
+            assert engine.reload().message.startswith("reloaded 2")
             assert engine.sources[0].stopped
             deadline = time.time() + 2
             while "second" not in read_frame(sock) and time.time() < deadline:
@@ -114,7 +114,7 @@ class TestEngine:
 
     def test_a_bad_reload_keeps_the_old_set(self, engine):
         engine.path.write_text("interlocks: [{name: broken}]\n")
-        assert engine.reload().startswith("reload refused")
+        assert engine.reload().message.startswith("reload refused")
         assert [s.name for s in engine.snapshot().statuses] == ["vac"]
 
 
@@ -165,7 +165,7 @@ class TestReloadRollback:
                 threshold(),
                 {"name": "ext", "conditions": [{"kind": "external", "port": port}]},
             )
-            assert eng.reload().startswith("reload refused")
+            assert eng.reload().message.startswith("reload refused")
             assert eng.signals.ports() == []
             assert [s.name for s in eng.snapshot().statuses] == ["vac"]
         finally:

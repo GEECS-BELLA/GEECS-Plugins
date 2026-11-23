@@ -5,8 +5,10 @@ programs outside GEECS, against a configuration you choose, and tells
 **Master Control** whether it is safe. It only reports: what a trip stops is
 Master Control's decision.
 
-It runs headless. Anyone on the network watches it on a read-only page;
-configurations are edited in the [Configurator](configurator.md).
+It runs headless, as a systemd unit on the services box. Anyone on the
+network watches it on its page, where an operator also arms the settings
+checks and reloads the configuration; configurations are edited in the
+[Configurator](configurator.md).
 
 ## Start it
 
@@ -17,14 +19,17 @@ poetry run geecs-interlocks serve --config main
 `main` is a configuration name: the file `interlocks/main.yaml` in the
 experiment's folder of the configs repository. Without `--config` the
 server lists the saved configurations and stops. SIGTERM or Ctrl-C stops
-it; the log goes to stderr.
+it; the log goes to stderr. That is for a test by hand: in the lab the
+server runs as the `geecs-interlocks` unit (one per experiment, restarted
+on its own if it stops or its evaluation stalls); its maintainer's notes
+are [GEECS-Interlocks/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Interlocks/DEPLOYMENT.md).
 
 | Flag | What it does |
 |---|---|
 | `--config NAME` | Run the configuration `interlocks/NAME.yaml` |
 | `--interlocks FILE` | Run a configuration file from anywhere instead |
 | `--experiment NAME` | The experiment, when `config.ini` names none |
-| `--arm-at-start` | Arm the settings checks with the first values that arrive (see below) |
+| `--arm-at-start` | Arm the settings checks with the first values that arrive (by hand only; refused under systemd, see below) |
 | `--no-web` | Do not serve the web page |
 | `--fake-devices` | Fake GEECS devices on this computer: try everything without the lab |
 
@@ -100,30 +105,47 @@ unsafe.
 
 !!! warning "Arming settings"
     A **settings unchanged** check is unsafe until it is armed, and arming
-    records whatever values the device reports at that moment. Today the
-    only way to arm is `--arm-at-start`, which takes the first values that
-    arrive: use it when you start the server by hand with the settings known
-    to be right, never in an automatic restart, which would arm a setting
-    someone had just changed. Arming from the web page comes next.
+    records whatever values the device reports at that moment. Arm from the
+    web page (below) once you know the settings are right. Every start of
+    the server and every reload leaves the checks unarmed: the unit never
+    arms on its own, since a restart would arm a setting someone had just
+    changed. `--arm-at-start` (arm the first values that arrive) is for a
+    server started by hand, and the server refuses it under systemd.
 
 ## Edit a configuration
 
 Configurations are the `interlocks` kind in the
 [Configurator](configurator.md), tier **maintainer**: a change opens a pull
 request on the configs repository, so a new limit is reviewed before it
-runs. Once it is merged, restart the server to run it; every interlock
-then waits for fresh values before reporting safe.
+runs. Once it is merged, press **Reload** on the web page (or restart the
+unit) to run it; every interlock then waits for fresh values before
+reporting safe, and the settings checks must be armed again. A file that
+does not validate is refused and the running interlocks are kept.
 
 ## The web page
 
-`http://<server>:8600/` shows the verdict and the interlocks to anyone on
-the network. Nothing on it changes anything.
+`http://<server>:<port>/` (the port is the site's; 8600 on a computer of
+your own) shows the verdict and the interlocks to anyone on the network.
+It has two actions, both on the server, never on the experiment.
 
 ![The web page: the verdict, the interlocks, and the inspector with one trend per check against its limit](assets/interlocks_03_web.png)
 
 Click an interlock to see each check's last five minutes against its limit,
 and its history. The address keeps the selection
 (`?interlock=pointing%20camera`), so you can send someone the link.
+
+### Arm and Reload
+
+Enter your name in **operator** at the top right first (the browser
+remembers it); an action without it is refused. Each asks you to confirm,
+is sent once, and shows the server's answer under the verdict. The server's
+log records who did what.
+
+| Button | What it does | Refused when |
+|---|---|---|
+| **Arm all** | Records what every settings check sees now as the values to hold | A setting has no value yet or its device is disconnected (nothing is armed then), or no interlock holds settings |
+| **Arm this interlock** (in the inspector, for an interlock that holds settings) | The same, for that interlock only | As above |
+| **Reload** | Re-reads the running configuration file; every interlock waits for fresh values and every settings check is unarmed again | The file does not validate: the running interlocks are kept |
 
 !!! warning "No signal"
     If the page stops hearing from the server for 2 s it says
@@ -151,6 +173,14 @@ all-clear frame, never beside a tripped interlock; the original server's
 the server through the GEECS database, which holds its address and port.
 
 `poetry run geecs-interlocks listen <server>:5001` prints what it receives.
+
+## When the server stops
+
+The unit restarts it within seconds if it exits, and also if its
+evaluation stalls: the evaluation feeds systemd's watchdog, so a server
+that is running but no longer judging is restarted too. Meanwhile Master
+Control has no stream, which it treats as unsafe, and reconnects on its
+own. After the restart, arm the settings checks again.
 
 ## Try it on any computer
 

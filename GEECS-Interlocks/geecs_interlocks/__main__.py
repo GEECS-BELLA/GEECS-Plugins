@@ -11,7 +11,10 @@ geecs_core (the same path the lab uses) and sends the external signals' UDP
 packets itself: no lab network needed.
 
 ``serve`` runs headless until SIGTERM or Ctrl-C (a systemd unit's stop). The
-log goes to stderr, which journald keeps under a unit.
+log goes to stderr, which journald keeps under a unit. Under a ``Type=notify``
+unit it says ``READY=1`` once serving and feeds the watchdog from the
+evaluation loop (:mod:`geecs_interlocks.notify`), and it refuses
+``--arm-at-start`` there: a restart must never arm.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from geecs_interlocks.config import (
 )
 from geecs_interlocks.engine import Engine, SourceFactory, geecs_sources
 from geecs_interlocks.monitor import NothingToArm
+from geecs_interlocks.notify import Notifier
 from geecs_interlocks.wire import parse_status, read_frame
 
 if TYPE_CHECKING:
@@ -49,6 +53,8 @@ LISTEN_RETRY_S = 2.0
 WEB_START_S = 5.0
 #: How long ``--arm-at-start`` waits for the settings to arrive.
 ARM_WAIT_S = 30.0
+#: Exit status of a refused start (the unit's RestartPreventExitStatus).
+EXIT_REFUSED = 2
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -209,10 +215,16 @@ def _wait_for_stop() -> None:
 
 def serve(args: argparse.Namespace) -> int:
     """Run the server until SIGTERM or Ctrl-C."""
+    notifier = Notifier()
+    if args.arm_at_start and notifier.active:
+        # A unit restarts the server on its own; arming then would record a
+        # setting someone had just changed.
+        logger.error("--arm-at-start is refused under systemd: arm from the web page")
+        return EXIT_REFUSED
     settings = _settings(args)
     path = _path(args, settings)
     make_source, fakes = _sources(args, path)
-    engine = Engine(path, make_source, settings)
+    engine = Engine(path, make_source, settings, on_tick=notifier.watchdog)
     engine.start()
     sender = None
     if args.fake_devices:
@@ -237,9 +249,11 @@ def serve(args: argparse.Namespace) -> int:
     web = None if args.no_web else WebClient(engine, settings, experiment)
     if web is not None and not web.start():
         web = None
+    notifier.ready()
     try:
         _wait_for_stop()
     finally:
+        notifier.stopping()
         if web is not None:
             web.stop()
         if sender is not None:
@@ -247,6 +261,7 @@ def serve(args: argparse.Namespace) -> int:
         engine.stop()
         if fakes is not None:
             fakes.stop()
+        notifier.close()
     return 0
 
 
