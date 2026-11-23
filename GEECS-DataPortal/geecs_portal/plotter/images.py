@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -37,7 +37,7 @@ from geecs_data_utils.data.row_filters import RowFilters, filter_mask
 from geecs_analysis.image_prep import HIT_FILTERS, ImagePrep
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec, background_frame
 from geecs_data_utils.frames import Frame
-from geecs_data_utils.io import shot_images, shot_traces
+from geecs_data_utils.io import analysis_outputs, shot_images, shot_traces
 from geecs_data_utils.io.array1d import Data1DResult
 from geecs_data_utils.data.scan_merge import (
     MERGED_BIN_COLUMN,
@@ -269,15 +269,38 @@ def trace_device(
     return found
 
 
-def devices(folder: Path) -> list[str]:
-    """The scan's device folders: one listing, no probe of each.
+def devices(folder: Path, picked: Sequence[str] = ()) -> list[str]:
+    """The scan's device folders, then its analysis outputs: one listing each.
 
     Probing every folder for pictures costs a listing of each over the
     share (tens of seconds cold, for a scan with 70 devices), so the list
     is every folder and the picked one is checked
-    (:func:`is_image_device`).
+    (:func:`is_image_device`). The analysis outputs are the subfolders of
+    ``analysis/ScanNNN`` (``analysis:<folder>``,
+    ``geecs_data_utils.io.analysis_outputs``); an output folder *picked*
+    is looked into, and its series follow it (``analysis:<folder>/<series>``),
+    so a folder of several (an image and its lineouts) offers each.
     """
-    return shot_images.image_devices(folder)
+    found = shot_images.image_devices(folder)
+    for name in analysis_outputs.output_folders(folder):
+        found.append(name)
+        if any(_output_folder(p) == name for p in picked):
+            series = analysis_outputs.output_series(folder, name)
+            if len(series) > 1:
+                found.extend(s.name for s in series)
+    return found
+
+
+def _output_folder(name: str) -> str:
+    """The output folder's own name for an output or series name; ``""`` for a device."""
+    if not analysis_outputs.is_output_name(name):
+        return ""
+    return name.partition("/")[0]
+
+
+def device_label(name: str) -> str:
+    """How the picker shows *name*: an analysis output marked as one."""
+    return analysis_outputs.output_label(name)
 
 
 def bins(
@@ -669,9 +692,19 @@ def _remembered(key: tuple, compute: Callable[[], object]) -> object:
 
 
 def _folder_stamp(folder: Path, device: str) -> Optional[int]:
-    """The device folder's modification time (``None``: it cannot be read)."""
+    """The device folder's modification time (``None``: it cannot be read).
+
+    An analysis output's is its output folder's, by path alone.
+    """
+    path = (
+        analysis_outputs.output_dir(folder, device)
+        if analysis_outputs.is_output_name(device)
+        else folder / device
+    )
+    if path is None:
+        return None
     try:
-        return (folder / device).stat().st_mtime_ns
+        return path.stat().st_mtime_ns
     except OSError:
         return None
 

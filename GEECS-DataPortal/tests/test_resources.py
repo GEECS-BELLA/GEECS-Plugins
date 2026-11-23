@@ -841,6 +841,23 @@ class TestProcessingSelector:
         catalog.details["uid-002"] = detail
         return TestClient(create_app(catalog, processing_config_dir=configs_tree))
 
+    def test_an_analysis_output_offers_no_recipe(
+        self, scan_folder, configs_tree, analysis_extra
+    ):
+        # A recipe draws a device's raw shot: an analysis output's image
+        # (analysis/ScanNNN/<folder>/) renders, with no recipe offered.
+        out = scan_folder.parent.parent / "analysis" / "Scan002" / "py-magspec"
+        out.mkdir(parents=True)
+        Image.fromarray(np.zeros((4, 4), dtype=np.uint16)).save(
+            out / "Scan002_py-magspec_001.png"
+        )
+        client = self._client(scan_folder, configs_tree)
+        camera = client.get("/api/run/uid-002/device?device=cam").json()
+        assert camera["processing_options"]
+        output = client.get("/api/run/uid-002/device?device=analysis:py-magspec").json()
+        assert (output["kind"], output["renderable"]) == ("native", True)
+        assert output["processing_options"] == []
+
     def test_per_shot_processing_applies_the_pipeline(
         self, scan_folder, configs_tree, analysis_extra
     ):

@@ -38,11 +38,12 @@
 {%- macro cam_bar(c) %}
               {% set k = c.place %}
               <div class="row cam-bar" data-cam="{{ k }}">
-                {% set shown = (c.kept ~ " (not in this scan)") if c.kept else c.device or "pick a camera" %}
+                {% set labels = device_labels or {} %}
+                {% set shown = ((labels.get(c.kept, c.kept)) ~ " (not in this scan)") if c.kept else labels.get(c.device, c.device) or "pick a camera" %}
                 <span class="cam-pick">
                 {% call picker("device" ~ c.sfx, "camera", shown, "devf" ~ c.sfx, c.device_filter, "filter devices", "pick") %}
                   {% if c.kept %}<option value="{{ c.kept }}" selected>{{ c.kept }} (not in this scan)</option>{% endif %}
-                  {% for d in devices %}<option value="{{ d }}"{% if d == c.device %} selected{% endif %}>{{ d }}</option>{% endfor %}
+                  {% for d in devices %}<option value="{{ d }}"{% if d == c.device %} selected{% endif %}>{{ labels.get(d, d) }}</option>{% endfor %}
                 {% endcall %}
                 </span>
                 {% if c.trace %}

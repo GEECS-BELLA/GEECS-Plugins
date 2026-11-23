@@ -49,6 +49,7 @@ from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Protocol, Sequ
 import numpy as np
 
 from geecs_data_utils import tiled_schema
+from geecs_data_utils.io import analysis_outputs
 from geecs_data_utils.io.display_png import to_display_png
 from geecs_data_utils.io.array1d import (
     Data1DConfig,
@@ -206,7 +207,14 @@ def device_kind(
         ``("unrenderable", device_dir, ext)`` for non-image native formats,
         ``("native", device_dir, ext)`` otherwise; ``("missing", …)`` for
         an unknown device.
+
+    An analysis output's name (``analysis:<folder>[/<series>]``,
+    :mod:`~geecs_data_utils.io.analysis_outputs`) is its series' per-shot
+    files: ``native`` for images, ``unrenderable`` (with the extension) for
+    anything else, such as text traces.
     """
+    if analysis_outputs.is_output_name(device):
+        return _output_kind(scan_folder, device)
     if device not in (devices if devices is not None else image_devices(scan_folder)):
         return DeviceKind("missing", reason="unknown device")
     device_dir = scan_folder / device
@@ -222,6 +230,16 @@ def device_kind(
     if ext not in DISPLAYABLE_IMAGE_EXTS:
         return DeviceKind("unrenderable", device_dir, ext)
     return DeviceKind("native", device_dir, ext)
+
+
+def _output_kind(scan_folder: Path, name: str) -> DeviceKind:
+    """:func:`device_kind` for an analysis output's series."""
+    series = analysis_outputs.resolve_output(scan_folder, name)
+    if series is None:
+        return DeviceKind("missing", reason="no such analysis output in this scan")
+    if series.ext in DISPLAYABLE_IMAGE_EXTS:
+        return DeviceKind("native", series.folder, series.ext)
+    return DeviceKind("unrenderable", series.folder, series.ext)
 
 
 def stack_parent_device(
@@ -259,8 +277,12 @@ def stack_parent_device(
         The parent's name; ``None`` without a folder, for a folder that is
         itself known, with no such parent, or with no capture stack.
     """
-    if scan_folder is None or Path(device).name != device:
-        return None  # a name that is not one path part is no device folder
+    if (
+        scan_folder is None
+        or Path(device).name != device
+        or analysis_outputs.is_output_name(device)
+    ):
+        return None  # not a device folder of the scan
     parent = tiled_schema.derived_folder_parent(device, known)
     if parent is None or find_stack_file(scan_folder / device) is None:
         return None
@@ -546,7 +568,12 @@ def native_shot_file(
     reads as missing, never as a neighbouring shot's file. Shared by the
     image and trace ladders (:func:`load_shot_array`,
     ``io.shot_traces.load_row_trace``).
+
+    An analysis output's shot is its series' file of that number, exactly:
+    no timestamp probe and no listing order.
     """
+    if analysis_outputs.is_output_name(device):
+        return _output_shot_file(scan_folder, device, shot, file_shot)
     device_dir = scan_folder / device
     try:
         native = ScanPaths(folder=scan_folder).build_asset_path(
@@ -569,6 +596,19 @@ def native_shot_file(
     if chosen is None:
         return native, False, "file not found"
     return chosen, cacheable, ""
+
+
+def _output_shot_file(
+    scan_folder: Path, name: str, shot: int, file_shot: Optional[int]
+) -> tuple[Optional[Path], bool, str]:
+    """:func:`native_shot_file` for an analysis output's series."""
+    series = analysis_outputs.resolve_output(scan_folder, name)
+    if series is None:
+        return None, False, "no such analysis output in this scan"
+    path = series.shot_file(shot if file_shot is None else file_shot)
+    if path.is_file():
+        return path, True, ""
+    return path, False, "file not found"
 
 
 def load_shot_image(
