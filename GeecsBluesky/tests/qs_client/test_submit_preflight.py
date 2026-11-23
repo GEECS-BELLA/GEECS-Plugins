@@ -18,8 +18,13 @@ from geecs_bluesky.qs_client.submit_preflight import (
     run_submit_preflight,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_schemas import Preset
+from geecs_schemas import PreflightCheckResult, PreflightOutcome, Preset
 from geecs_schemas.trigger_profile import TriggerProfile
+
+
+def _triples(report: PreflightReport) -> list[tuple[str, str, str]]:
+    """The report's outcomes as ``(check, result, detail)``, for compact asserts."""
+    return [(o.check, o.result.value, o.detail) for o in report.outcomes]
 
 
 class _FakeQueueClient:
@@ -159,7 +164,7 @@ class TestRunSubmitPreflight:
         report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
         assert report.questions == []
-        assert report.outcomes == [
+        assert _triples(report) == [
             ("validate", "passed", ""),
             ("worker_ready", "passed", ""),
             ("gateway_monitors", "passed", ""),
@@ -183,7 +188,7 @@ class TestRunSubmitPreflight:
             "passed",
             "frozen loop, recorded anyway: UC_Cam2 (not updated in 95 s), "
             "UC_Cam1 (never updated)",
-        ) in report.outcomes
+        ) in _triples(report)
 
     def test_a_down_device_is_never_also_called_frozen(self, engine, monkeypatch):
         """Its stamp is stale because it is down: the liveness note says so, the loop note skips it."""
@@ -206,7 +211,7 @@ class TestRunSubmitPreflight:
         )
         report = run_submit_preflight(preset, "Undulator")
         assert asked == [["UC_Cam1"]]
-        notes = dict((c, d) for c, _, d in report.outcomes)
+        notes = dict((c, d) for c, _, d in _triples(report))
         assert "UC_Cam2" in notes["gateway_liveness"]
         assert "UC_Cam2" not in notes["device_loops"]
 
@@ -218,7 +223,7 @@ class TestRunSubmitPreflight:
         )
         report = run_submit_preflight(_preset(plan=None), "Undulator")
         assert report.refusal is not None and "no plan call" in report.refusal
-        assert report.questions == [] and report.outcomes == []
+        assert report.questions == [] and _triples(report) == []
 
     def test_disconnected_device_raises_a_question(self, engine):
         engine["CONNECTED"] = "Disconnected"
@@ -268,7 +273,7 @@ class TestRunSubmitPreflight:
             "gateway_liveness",
             "passed",
             "left out, disconnected and not required: UC_Cam2",
-        ) in report.outcomes
+        ) in _triples(report)
 
     def test_a_down_condition_in_an_all_required_preset_is_a_note(
         self, engine, monkeypatch
@@ -294,7 +299,7 @@ class TestRunSubmitPreflight:
             "gateway_liveness",
             "passed",
             "left out, disconnected and not required: U_Gauge",
-        ) in report.outcomes
+        ) in _triples(report)
 
     def test_a_fly_run_never_needs_the_box(self, engine, monkeypatch):
         """The worker drives no box in fly mode and never judges it: its being down asks nothing."""
@@ -371,7 +376,7 @@ class TestRunSubmitPreflight:
     def test_device_less_preset_skips_the_liveness_check(self, engine):
         report = run_submit_preflight(_preset(devices=[]), "Undulator")
         assert report.refusal is None
-        assert report.outcomes == [
+        assert _triples(report) == [
             ("validate", "passed", ""),
             ("worker_ready", "passed", ""),
         ]
@@ -449,7 +454,7 @@ class TestGatewayMonitors:
 
     @staticmethod
     def _outcome(report):
-        return next(o for o in report.outcomes if o[0] == "gateway_monitors")
+        return next(o for o in _triples(report) if o[0] == "gateway_monitors")
 
     def test_a_get_then_the_value_on_subscribe_passes(self, aioca):
         report = run_submit_preflight(_preset(), "Undulator")
@@ -487,7 +492,7 @@ class TestGatewayMonitors:
             report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
         assert self._outcome(report)[1] == "skipped"
-        assert ("gateway_liveness", "passed", "") in report.outcomes
+        assert ("gateway_liveness", "passed", "") in _triples(report)
         assert aioca["gets"] == [self.PV] and aioca["subscribed"] == []
         assert any("gateway_monitors" in r.message for r in caplog.records)
 
@@ -503,9 +508,10 @@ class TestGatewayMonitors:
         report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is not None
         assert "answers gets but delivers no monitors" in report.refusal
-        assert "Restart geecs-ca-gateway" in report.refusal
+        assert "restarts itself" in report.refusal
+        assert "restart geecs-ca-gateway on its host" in report.refusal
         assert "Gets answer, no monitors" in report.refusal
-        assert "py-spy dump" in report.refusal
+        assert "py-spy" not in report.refusal
         assert aioca["gets"] == [self.PV, self.PV]
         assert aioca["subscribed"] == [self.PV] and aioca["closed"] == 1
 
@@ -515,14 +521,14 @@ class TestGatewayMonitors:
         report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is not None
         assert report.questions == []
-        assert [check for check, *_ in report.outcomes] == ["validate", "worker_ready"]
+        assert [check for check, *_ in _triples(report)] == ["validate", "worker_ready"]
 
     def test_a_missing_ca_extra_is_skipped_not_raised(self, aioca, monkeypatch):
         monkeypatch.setitem(sys.modules, "aioca", None)  # import raises
         report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
         assert self._outcome(report)[1] == "skipped"
-        assert ("gateway_liveness", "passed", "") in report.outcomes  # still runs
+        assert ("gateway_liveness", "passed", "") in _triples(report)  # still runs
 
     def test_a_submit_with_no_devices_is_not_probed(self, aioca):
         """As ``gateway_liveness``: nothing to probe when the run lists no device and no box."""
@@ -663,7 +669,7 @@ class TestWorkerReady:
         )
         report = run_submit_preflight(preset, "Undulator")
         assert report.refusal is None
-        assert ("worker_ready", "passed", "") in report.outcomes
+        assert ("worker_ready", "passed", "") in _triples(report)
 
     def test_an_unknown_device_not_required_is_left_out_not_refused(
         self, engine, monkeypatch
@@ -683,7 +689,7 @@ class TestWorkerReady:
             "worker_ready",
             "passed",
             "left out, unknown to the worker and not required: UC_Off",
-        ) in report.outcomes
+        ) in _triples(report)
 
     def test_an_unknown_required_device_is_still_refused(self, engine, monkeypatch):
         fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.acq_timestamp"])
@@ -736,7 +742,7 @@ class TestWorkerReady:
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
         report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
-        skipped = [o for o in report.outcomes if o[0] == "worker_ready"]
+        skipped = [o for o in _triples(report) if o[0] == "worker_ready"]
         assert skipped and skipped[0][1] == "skipped"
 
     def test_stub_client_is_skipped(self, engine, monkeypatch):
@@ -749,7 +755,7 @@ class TestWorkerReady:
             "worker_ready",
             "skipped",
             "no [qserver] config — submission is off",
-        ) in (report.outcomes)
+        ) in (_triples(report))
 
     def test_unanswered_plan_list_is_skipped_with_a_note_not_passed(
         self, engine, monkeypatch
@@ -758,7 +764,7 @@ class TestWorkerReady:
         monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
         report = run_submit_preflight(_preset(), "Undulator")
         assert report.refusal is None
-        outcome = next(o for o in report.outcomes if o[0] == "worker_ready")
+        outcome = next(o for o in _triples(report) if o[0] == "worker_ready")
         assert outcome[1] == "skipped" and outcome[2]
 
     def test_opening_environment_is_a_refusal_saying_retry(self, engine, monkeypatch):
@@ -788,13 +794,20 @@ class TestWorkerReady:
         passed = _FakeQueueClient()
         report = run_submit_preflight(_preset(), "Undulator", client=passed)
         assert passed.status_calls == 1 and passed.closed == 0
-        assert ("worker_ready", "passed", "") in report.outcomes
+        assert ("worker_ready", "passed", "") in _triples(report)
 
 
 class TestBuildSubmissionRecord:
     def test_builds_an_aware_timestamp_and_outcomes(self):
         record = build_submission_record(
-            [("validate", "passed", ""), ("gateway_liveness", "continued", "x down")],
+            [
+                PreflightOutcome(check="validate", result=PreflightCheckResult.PASSED),
+                PreflightOutcome(
+                    check="gateway_liveness",
+                    result=PreflightCheckResult.CONTINUED,
+                    detail="x down",
+                ),
+            ],
             client="geecs-console 0.21.0",
         )
         assert record.client == "geecs-console 0.21.0"
@@ -817,6 +830,16 @@ class TestReportShape:
         report = PreflightReport()
         assert report.refusal is None
         assert report.outcomes == [] and report.questions == []
+
+    def test_outcomes_are_the_schema_model(self):
+        report = PreflightReport()
+        report.passed("validate")
+        report.skipped("worker_ready", "unreachable")
+        assert all(isinstance(o, PreflightOutcome) for o in report.outcomes)
+        assert [o.result for o in report.outcomes] == [
+            PreflightCheckResult.PASSED,
+            PreflightCheckResult.SKIPPED,
+        ]
 
 
 class TestAcquisitionRules:
@@ -867,7 +890,7 @@ class TestAcquisitionRules:
         report = run_submit_preflight(preset, "TestExp")
         assert report.refusal and "acquisition='gated' is retired" in report.refusal
         assert "use acquisition='strict'" in report.refusal
-        assert report.outcomes == [] and report.questions == []
+        assert _triples(report) == [] and report.questions == []
 
 
 class TestInlineTriggerProfile:
@@ -914,7 +937,7 @@ class TestInlineTriggerProfile:
             _profile().model_dump(mode="json"), "Undulator"
         )
         assert report.refusal is None
-        assert report.outcomes[0] == ("validate", "passed", "")
+        assert _triples(report)[0] == ("validate", "passed", "")
         assert calls == [["U_DG645_ShotControl", "U_Shutter"]]
         assert [q.check for q in report.questions] == ["gateway_liveness"]
 
@@ -930,7 +953,7 @@ class TestInlineTriggerProfile:
         from geecs_bluesky.qs_client import run_trigger_profile_preflight
 
         report = run_trigger_profile_preflight({"states": "nonsense"}, "X")
-        assert report.refusal and report.outcomes == []
+        assert report.refusal and _triples(report) == []
 
 
 def test_a_preset_whose_every_device_is_unknown_is_refused(engine, monkeypatch):
