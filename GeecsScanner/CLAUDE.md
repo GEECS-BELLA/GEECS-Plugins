@@ -193,7 +193,8 @@ deploy/           the unit template + DEPLOYMENT.md
   own checks, never re-implemented here; it queues nothing.
 - **scan.log is read where the start document says.** `scan_folder` in the
   start document is the run's folder on this host; `service/scanlog.py`
-  reads `<folder>/scan.log` from an offset and never creates anything. The
+  reads `<folder>/scan.log` from an offset and never creates anything; the
+  SSE stream's `log` frame is its one route. The
   page's tail shows scan.log by default and the manager console behind a
   toggle — two narrations, never reconciled.
 - **The scan-log list is stamped, never resolved.** One list per
