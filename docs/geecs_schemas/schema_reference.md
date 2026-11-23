@@ -1144,7 +1144,7 @@ How to read one trace file into an x-vs-y array.
 | `delimiter` | `str (optional)` | no | None | Column delimiter for csv/tsv; unset uses the format's default. |
 | `x_column` | `int` | no | 0 | Column index of x (text formats). |
 | `y_column` | `int` | no | 1 | Column index of y (text formats). |
-| `auxiliary_columns` | `dict[str, int]` | no | empty | Extra named columns to load alongside y, for analyzers that need them (name -> column index). |
+| `auxiliary_columns` | `dict[str, int]` | no | empty | Extra named columns to load alongside y, for analyzers that need them (name -> column index; for 'tek_scope_hdf5', name -> trace index of another channel on the same time axis). |
 
 ### FrameInput
 

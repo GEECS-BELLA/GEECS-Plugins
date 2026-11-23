@@ -38,3 +38,15 @@ def test_negative_auxiliary_column_is_refused_at_the_schema_layer():
 
     with pytest.raises(ValidationError):
         Data1DLoading(data_type="tsv", auxiliary_columns={"w": -1})
+
+
+def test_a_scope_extra_channel_is_validated_alike_at_both_layers():
+    import pytest
+    from pydantic import ValidationError
+
+    for model in (Data1DLoading, Data1DConfig):
+        model(data_type="tek_scope_hdf5", trace_index=3, auxiliary_columns={"pd": 1})
+        with pytest.raises(ValidationError):
+            model(
+                data_type="tek_scope_hdf5", trace_index=3, auxiliary_columns={"pd": 3}
+            )
