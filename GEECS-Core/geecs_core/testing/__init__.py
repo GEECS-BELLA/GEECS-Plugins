@@ -2,7 +2,9 @@
 
 Also the shared test doubles: ``patch_geecs_db`` (canned experiment-wide DB
 queries) and ``hand_fed_udp_client`` (a UDP client whose replies the test
-delivers). Test code only; nothing in a package's runtime imports this.
+delivers). Those two are test code only, imported by no production module;
+the wire-protocol fakes have one runtime consumer, the CA gateway's offline
+demo, which serves ``FakeGeecsServer``.
 """
 
 from .fake_db import patch_geecs_db

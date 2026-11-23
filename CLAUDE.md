@@ -569,6 +569,9 @@ The rule is pinned by tests:
   — a measure's sibling outputs (the magspec `-interp` / `-interpSpec`
   folders beside the device's raw folder): the suffix folder is the one
   directory created, never the scan folder
+- `.importlinter`'s `data-utils-testing-is-test-only` contract — no
+  production module imports `geecs_data_utils.testing`, the tests' scan-folder
+  builder (`make_scan_folder`)
 
 Each package's CLAUDE.md restates this rule with package-specific guidance for
 adding new analyzers/writers.

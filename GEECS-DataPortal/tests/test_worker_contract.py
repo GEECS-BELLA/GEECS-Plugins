@@ -14,14 +14,13 @@ start), and the reply fields asserted are the ones it reads.
 from __future__ import annotations
 
 import importlib.util
-import os
 import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_data_utils.data.sfile import sfile_path_for_scan
+from geecs_data_utils.testing import write_closed
 
 from geecs_portal.batch import WorkerLink
 from test_app import FakeCatalog, _client
@@ -72,14 +71,8 @@ def _scan(base: Path, number: int, *, closed: bool) -> None:
     tag = ScanTag(year=2026, month=3, day=10, number=number, experiment=EXPERIMENT)
     folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=base)
     folder.mkdir(parents=True)  # fixture acquisition
-    if not closed:
-        return
-    (folder / f"ScanDataScan{number:03d}.txt").write_text("Shotnumber\n1\n")
-    sfile = sfile_path_for_scan(folder)
-    sfile.parent.mkdir(parents=True, exist_ok=True)  # fixture acquisition
-    sfile.write_text("Shotnumber\n1\n")
-    then = time.time() - 60.0
-    os.utime(sfile, (then, then))
+    if closed:
+        write_closed(folder)
 
 
 @pytest.fixture
