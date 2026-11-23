@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_data_utils.config_roots import scan_analysis_config
 from geecs_data_utils.io.images import write_png16
 from geecs_schemas.analysis import AnalysisRecipe
@@ -165,32 +166,35 @@ def frame(seed: int) -> np.ndarray:
 
 def build_scan(base_dir: Path, *, fields=FIELDS, bins=None) -> Path:
     """Dark Scan001 and Scan002: shot-number-named PNGs and an s-file with the field."""
-    dark = ScanPaths.get_scan_folder_path(
-        tag=TAG.model_copy(update={"number": 1}), base_directory=base_dir
+    dark = make_scan_folder(
+        ScanPaths.get_scan_folder_path(
+            tag=TAG.model_copy(update={"number": 1}), base_directory=base_dir
+        ),
+        devices=[DEVICE],
+        scan_info='[Scan Info]\nScan No = "1"\n',
     )
-    (dark / DEVICE).mkdir(parents=True)  # fixture acquisition
-    (dark / "ScanInfoScan001.ini").write_text('[Scan Info]\nScan No = "1"\n')
     for shot in range(1, 4):
         noise = np.random.default_rng(100 + shot).normal(30, 4, (64, 160))
         write_png16(
             dark / DEVICE / f"Scan001_{DEVICE}_{shot:03d}.png", noise.astype(np.uint16)
         )
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    (scan / DEVICE).mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan002.ini").write_text(
-        '[Scan Info]\nScan No = "2"\nScan Parameter = "Shotnumber"\n'
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        devices=[DEVICE],
+        scan_info='[Scan Info]\nScan No = "2"\nScan Parameter = "Shotnumber"\n',
     )
     for shot in range(1, SHOTS + 1):
         write_png16(scan / DEVICE / f"Scan002_{DEVICE}_{shot:03d}.png", frame(shot))
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    pd.DataFrame(
-        {
-            "Shotnumber": range(1, SHOTS + 1),
-            "Bin #": bins or [1] * SHOTS,
-            COLUMN: list(fields),
-        }
-    ).to_csv(analysis / "s2.txt", sep="\t", index=False)
+    write_sfile(
+        scan,
+        pd.DataFrame(
+            {
+                "Shotnumber": range(1, SHOTS + 1),
+                "Bin #": bins or [1] * SHOTS,
+                COLUMN: list(fields),
+            }
+        ),
+    )
     return scan
 
 
@@ -374,9 +378,7 @@ def test_a_stitcher_reads_the_core_written_spectra_on_a_timestamp_named_scan(
     (scan / "ScanInfoScan002.ini").write_text(
         '[Scan Info]\nScan No = "2"\nScan Parameter = "Shotnumber"\n'
     )
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    pd.DataFrame(rows).to_csv(analysis / "s2.txt", sep="\t", index=False)
+    sfile = write_sfile(scan, pd.DataFrame(rows))
     private_scan_paths(monkeypatch, root)
     for camera in (DEVICE, "TestCam2"):
         document = diagnostic(configs, dark=False)
@@ -402,7 +404,7 @@ def test_a_stitcher_reads_the_core_written_spectra_on_a_timestamp_named_scan(
         _run_core(stitcher)
     assert "No file found" not in caplog.text, "both cameras' spectra join every shot"
     assert "stitching without" not in caplog.text
-    stitched = pd.read_csv(analysis / "s2.txt", sep="\t")
+    stitched = pd.read_csv(sfile, sep="\t")
     assert stitched[f"{DEVICE}_integrated_intensity"].notna().all()
     assert stitched[f"{DEVICE}_integrated_intensity"].gt(0).all()
 
@@ -443,9 +445,7 @@ def test_stack_frames_name_their_outputs_by_the_announced_shot(
             f"{DEVICE} acq_timestamp": [t + LABVIEW_EPOCH_OFFSET for t in stamps],
         }
     )
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    rows.to_csv(analysis / "s2.txt", sep="\t", index=False)
+    write_sfile(scan, rows)
     private_scan_paths(monkeypatch, root)
     document = diagnostic(configs, dark=False)
     document = document.model_copy(

@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_schemas.analysis import ScalarJob
 
 from scan_analysis import base
@@ -31,11 +32,6 @@ RATIO = {"name": "ratio", "expr": "a * b / c", "inputs": {"a": "A", "b": "B", "c
 
 def build_scan(base_dir: Path) -> tuple[Path, Path]:
     """A completed noscan with its raw ScanData table and its s-file."""
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    scan.mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan012.ini").write_text(
-        '[Scan Info]\nScan No = "12"\nScan Parameter = "noscan"\n'
-    )
     rows = pd.DataFrame(
         {
             "Shotnumber": [1, 2, 3, 4],
@@ -45,13 +41,12 @@ def build_scan(base_dir: Path) -> tuple[Path, Path]:
             "C": [1.0, 0.0, 4.0, 8.0],
         }
     )
-    rows.to_csv(scan / "ScanDataScan012.txt", sep="\t", index=False)
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    sfile = analysis / "s12.txt"
-    rows.assign(**{"Cam centroid x": [10, 20, "nan", 40]}).to_csv(
-        sfile, sep="\t", index=False
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        scan_info='[Scan Info]\nScan No = "12"\nScan Parameter = "noscan"\n',
+        scan_data=rows,
     )
+    sfile = write_sfile(scan, rows.assign(**{"Cam centroid x": [10, 20, "nan", 40]}))
     return scan, sfile
 
 

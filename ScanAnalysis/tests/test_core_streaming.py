@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_data_utils.io import scan_stack
 from geecs_data_utils.io.scan_stack import (
     FRAMES_DATASET,
@@ -43,21 +44,19 @@ def recipe(**scan):
 
 
 def build_noscan(base_dir: Path, shots: int = SHOTS) -> Path:
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    device = scan / "Camera"
-    device.mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan003.ini").write_text(
-        '[Scan Info]\nScan No = "3"\nScan Parameter = "noscan"\n'
-        'Start = "1"\nEnd = "1"\nStep size = "1"\nShots per step = "1"\n'
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        devices=["Camera"],
+        scan_info='[Scan Info]\nScan No = "3"\nScan Parameter = "noscan"\n'
+        'Start = "1"\nEnd = "1"\nStep size = "1"\nShots per step = "1"\n',
     )
+    device = scan / "Camera"
     yy, xx = np.mgrid[:12, :12]
     for shot in range(1, shots + 1):
         image = 100 * np.exp(-((xx - 6 - shot % 3) ** 2 + (yy - 6) ** 2) / 4) + 2
         np.save(device / f"Scan003_Camera_{shot:03d}.npy", image.astype(np.uint16))
     rows = pd.DataFrame({"Shotnumber": range(1, shots + 1), "Bin #": 1})
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    rows.to_csv(analysis / "s3.txt", sep="\t", index=False)
+    write_sfile(scan, rows)
     return scan
 
 

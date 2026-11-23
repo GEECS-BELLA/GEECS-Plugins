@@ -965,7 +965,8 @@ CLI parses Python literals not JSON).
 `qs_client/` is the client seam every GEECS client uses (`QueueClient`,
 `ZmqQueueClient`/`StubQueueClient`, the `[qserver]` config reader,
 `readiness_verdict` — the ONE definition of ready, `run_submit_preflight`
-+ `build_submission_record`).  A client submits a **plan item** by name
++ `build_submission_record`; tests drive it over
+`qs_client.testing.FakeManagerAPI` and `client_over`).  A client submits a **plan item** by name
 (`submit_plan("count", args=[["UC_Amp4_IR_input"], 10],
 kwargs={"trigger_profile": "HTU-NoGas"})`) or a saved preset
 (`submit_preset(preset)` → `presets.expand_preset`: device bindings,

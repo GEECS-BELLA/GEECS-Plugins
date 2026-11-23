@@ -376,6 +376,9 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 - **GeecsBluesky / GeecsScanner** — `ScanPaths` for scan folder
   resolution and post-scan file organization (`ScanMode` remains here as
   the `ScanInfoScanNNN.ini` vocabulary)
+- **Every package's tests** — `geecs_data_utils.testing` (`make_scan_folder`,
+  `write_sfile`, `write_closed`, `forge_imaq_blob`): test fixtures only,
+  never imported by production code, since it creates scan folders
 
 ## `analysis_status/` reader (`analysis_status`)
 
