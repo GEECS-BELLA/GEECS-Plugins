@@ -126,6 +126,25 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--configs-root",
+        default="",
+        help=(
+            "the configs repo's root (the share's clone, or the configurator's "
+            "live checkout): the Plot tab's shared sets are read from the "
+            "experiment's plot_settings/ folder there. Omitted = no shared sets"
+        ),
+    )
+    parser.add_argument(
+        "--configurator-url",
+        default="",
+        help=(
+            "the configurator as this process reaches it (a site value, e.g. "
+            "http://127.0.0.1:8800): the Plot tab's Save as shares a set "
+            "through it, a commit to the configs repo. Omitted = Save as is "
+            "refused, saying so"
+        ),
+    )
+    parser.add_argument(
         "--tiled",
         action="store_true",
         help=(
@@ -253,6 +272,8 @@ def main() -> None:
             settings_dir=args.settings_dir,
             mount="/plot",
             logbook_url=args.logbook_url,
+            configs_root=args.configs_root or None,
+            configurator_url=args.configurator_url,
         ),
         logbook_browser_url=args.logbook_browser_url,
         configurator_url=args.configurator_browser_url,

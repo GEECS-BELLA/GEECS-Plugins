@@ -27,6 +27,9 @@ geecs-analysis = { path = "../GEECS-Analysis", develop = true }
 # Imported directly (the analysis documents in processing.py and app.py):
 # declared, not ridden transitively via GEECS-Analysis.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+# The shared settings sets are YAML files in the configs repo
+# (plotter.shared_sets); declared, not ridden in via GEECS-Analysis.
+pyyaml = "^6.0"
 scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
 
 [tool.poetry.extras]

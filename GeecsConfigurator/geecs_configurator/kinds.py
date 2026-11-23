@@ -62,6 +62,12 @@ CONSUMERS: dict[str, list[Consumer]] = {
     "operator_policy": [_c("Canopy's GEECS module", "per request, short cache")],
     "screen": [_c("Control Room", _PER_REQUEST)],
     "home_layout": [_c("Control Room", _PER_REQUEST)],
+    "plot_settings": [
+        _c(
+            "Data Portal (Plot and Images pages)",
+            "per request, once it reads the configs repo's sets",
+        )
+    ],
     "panel_devices": [_CANOPY_DIRECTORY, _ARCHIVER_REGISTRY, _CONTROL_ROOM_VIA_CANOPY],
     "derived_channels": [
         _c(

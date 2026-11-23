@@ -33,6 +33,7 @@ from geecs_schemas.epics.panel_devices import PANEL_DEVICES_FILENAME
 from geecs_schemas.experiment_defaults import EXPERIMENT_DEFAULTS_FILENAME
 from geecs_schemas.home_layout import HOME_LAYOUT_FILENAME
 from geecs_schemas.optimizer_config import OPTIMIZER_CONFIGS_FOLDER
+from geecs_schemas.plot_settings import PLOT_SETTINGS_FOLDER
 from geecs_schemas.preset import PRESETS_FOLDER
 from geecs_schemas.scan_variables import SCAN_VARIABLES_FILENAME, SCAN_VARIABLES_FOLDER
 from geecs_schemas.screens import SCREENS_DIRNAME
@@ -169,6 +170,7 @@ KIND_STORAGE: dict[str, KindStorage] = {
     "operator_policy": _experiment("", OPERATOR_POLICY_FILENAME),
     "screen": _experiment(SCREENS_DIRNAME),
     "home_layout": _experiment("", HOME_LAYOUT_FILENAME),
+    "plot_settings": _experiment(PLOT_SETTINGS_FOLDER),
     "setup": _experiment(SETUPS_FOLDER, suffixes=YAML_SUFFIXES),
     "analysis_recipe": _analysis(ANALYZERS_FOLDER, ANALYSIS_DISPATCH),
     "himg_job": _analysis(ANALYZERS_FOLDER, ANALYSIS_DISPATCH),

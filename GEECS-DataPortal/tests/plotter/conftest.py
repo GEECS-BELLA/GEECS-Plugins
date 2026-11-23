@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -71,11 +72,66 @@ def settings_dir(tmp_path: Path) -> Path:
     return tmp_path / "plotter-settings"
 
 
+class FakeConfigurator:
+    """The configurator as the portal sees it, in memory.
+
+    A save writes ``<stem>.yaml`` into the shared folder at once, as a
+    commit followed by the share's fast-forward would, and records who made
+    it; a create over a file that is there is refused, as the real one is.
+    """
+
+    def __init__(self, folder: Path) -> None:
+        self.folder = folder
+        self.saves: list[tuple[str, str]] = []  # (stem, operator)
+
+    def save(self, stem: str, document: dict, *, operator: str, overwrite: bool) -> str:
+        from geecs_portal.plotter.shared_sets import taken
+
+        path = self.folder / f"{stem}.yaml"
+        if path.exists() and not overwrite:
+            raise taken(stem)
+        self.folder.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        self.saves.append((stem, operator))
+        return f"committed {stem} as {operator}'s"
+
+
 @pytest.fixture
-def client(share: Path, settings_dir: Path) -> TestClient:
-    """The app over the fake share."""
+def configs_root(tmp_path: Path) -> Path:
+    """The configs repo's root, with no shared sets yet."""
+    return tmp_path / "configs"
+
+
+@pytest.fixture
+def shared_dir(configs_root: Path) -> Path:
+    """Where the experiment's shared sets are read from."""
+    from geecs_portal.plotter.shared_sets import shared_folder
+
+    return shared_folder(configs_root, EXPERIMENT)
+
+
+@pytest.fixture
+def configurator(shared_dir: Path) -> FakeConfigurator:
+    """The configurator the app shares sets through."""
+    return FakeConfigurator(shared_dir)
+
+
+@pytest.fixture
+def client(
+    share: Path,
+    settings_dir: Path,
+    configs_root: Path,
+    configurator: FakeConfigurator,
+) -> TestClient:
+    """The app over the fake share, sharing sets through the fake configurator."""
     return TestClient(
-        create_app(EXPERIMENT, base_directory=share, settings_dir=settings_dir)
+        create_app(
+            EXPERIMENT,
+            base_directory=share,
+            settings_dir=settings_dir,
+            configs_root=configs_root,
+            set_saver=configurator,
+        )
     )
 
 

@@ -52,8 +52,7 @@ def find_scan(
     RunDetail or None
         The scan's documents; its folder is :func:`scan_folder`.
     """
-    config = current_paths_config()
-    name = experiment or (getattr(config, "experiment", None) or "")
+    name = resolved_experiment(experiment)
     if not name:
         return None
     catalog = catalog or FolderScanCatalog(base_path)
@@ -61,6 +60,11 @@ def find_scan(
         return catalog.load_run(folder_uid(name, day, number))
     except (KeyError, OSError):
         return None
+
+
+def resolved_experiment(experiment: str = "") -> str:
+    """*experiment*, else ``config.ini [Experiment] expt``; empty when neither names one."""
+    return experiment or (getattr(current_paths_config(), "experiment", None) or "")
 
 
 def day_scans(
@@ -76,8 +80,7 @@ def day_scans(
     OSError
         The data root is unreachable.
     """
-    config = current_paths_config()
-    name = experiment or (getattr(config, "experiment", None) or "")
+    name = resolved_experiment(experiment)
     if not name:
         return []
     runs = catalog.list_runs(name, day)

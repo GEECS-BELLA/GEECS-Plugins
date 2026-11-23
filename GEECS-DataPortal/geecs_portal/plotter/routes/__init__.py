@@ -13,7 +13,7 @@ from geecs_data_utils.folder_catalog import FolderScanCatalog
 from geecs_data_utils.tiled_catalog import RunDetail
 
 from geecs_portal.plotter import scans
-from geecs_portal.plotter.settings import SettingsStore
+from geecs_portal.plotter.shared_sets import SetBook
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -21,12 +21,13 @@ STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
 @dataclass(frozen=True)
 class Context:
-    """What every route needs: experiment, catalog, templates, settings store."""
+    """What every route needs: experiment, catalog, templates, the settings sets."""
 
     experiment: str
     templates: Jinja2Templates
     catalog: FolderScanCatalog
-    store: SettingsStore
+    #: This host's sets (the working copies) and the shared ones.
+    store: SetBook
     #: Whether the plot can be sent to the scan's logbook entry (the portal
     #: has an absolute ``--logbook-url``; its route does the sending).
     logbook_send: bool = False

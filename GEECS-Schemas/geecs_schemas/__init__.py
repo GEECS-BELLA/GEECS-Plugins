@@ -86,6 +86,12 @@ from geecs_schemas.home_layout import (
     HomeLayout,
     HomeLink,
 )
+from geecs_schemas.plot_settings import (
+    PLOT_SETTINGS_FOLDER,
+    ImageCamera,
+    PlotterSettings,
+    ScanRef,
+)
 from geecs_schemas.experiment_defaults import (
     EXPERIMENT_DEFAULTS_FILENAME,
     ExperimentDefaults,
@@ -283,6 +289,11 @@ __all__ = [
     "HomeLink",
     "HOME_LAYOUT_FILENAME",
     "resolve_screen",
+    # plot_settings (the Data Portal plotter's named sets: <experiment>/plot_settings/<name>.yaml)
+    "PlotterSettings",
+    "ImageCamera",
+    "ScanRef",
+    "PLOT_SETTINGS_FOLDER",
     # experiment_defaults
     "ExperimentDefaults",
     "EXPERIMENT_DEFAULTS_FILENAME",
@@ -367,6 +378,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "journal_entry": JournalEntry,
     "screen": Screen,
     "home_layout": HomeLayout,
+    "plot_settings": PlotterSettings,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,

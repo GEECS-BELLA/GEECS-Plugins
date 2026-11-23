@@ -17,7 +17,8 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from geecs_portal.plotter import images, scans
-from geecs_portal.plotter.settings import SettingsError, merged, PlotterSettings
+from geecs_schemas.plot_settings import PlotterSettings
+from geecs_portal.plotter.settings import SettingsError, merged
 from tests.plotter.conftest import CAM, DAY, EXPERIMENT, post
 
 SCAN = {"day": "2026-10-02", "scan": 1}

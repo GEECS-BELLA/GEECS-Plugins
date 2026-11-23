@@ -19,7 +19,8 @@ from geecs_analysis.algorithms.curve_fit import FitModel
 
 from geecs_portal.plotter import figures
 from geecs_portal.plotter.routes.api import plus_minus
-from geecs_portal.plotter.settings import PlotterSettings, SettingsError, form_value
+from geecs_schemas.plot_settings import PlotterSettings
+from geecs_portal.plotter.settings import SettingsError, form_value
 from tests.plotter.conftest import SCAN_VARIABLE, post
 
 LINE = {"day": "2026-10-02", "scan": 1, "x": SCAN_VARIABLE, "y": "U_ICT charge"}
