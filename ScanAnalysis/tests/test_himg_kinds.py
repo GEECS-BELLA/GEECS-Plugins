@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 import yaml
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_data_utils.io.himg import himg_bytes
 from geecs_data_utils.io.himg_compact import (
     MANIFEST_NAME,
@@ -61,10 +62,9 @@ def _himg(seed: int) -> bytes:
 
 def build_scan(base_dir: Path, *, device_files=True, device_folder=True) -> Path:
     """A completed legacy-named HASO scan with its s-file and ScanInfo."""
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    scan.mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan012.ini").write_text(
-        '[Scan Info]\nScan No = "12"\nScan Parameter = "noscan"\n'
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        scan_info='[Scan Info]\nScan No = "12"\nScan Parameter = "noscan"\n',
     )
     device = scan / DEVICE
     if device_folder:
@@ -82,9 +82,7 @@ def build_scan(base_dir: Path, *, device_files=True, device_folder=True) -> Path
             f"{DEVICE} acq_timestamp": STAMPS,
         }
     )
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    rows.to_csv(analysis / "s12.txt", sep="\t", index=False)
+    write_sfile(scan, rows)
     return scan
 
 

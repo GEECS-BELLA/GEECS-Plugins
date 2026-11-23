@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from datetime import date
 from pathlib import Path
 
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_data_utils.data.sfile import sfile_path_for_scan
+from geecs_data_utils.testing import write_closed
 
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.task_queue import read_statuses
@@ -19,7 +18,8 @@ DAY = date(2026, 3, 10)
 
 
 # GeecsAnalysisWorker/tests/test_api.py keeps a copy of the fixtures below
-# (FakeAnalyzer, write_closed, build_day, make_worker): change both.
+# (FakeAnalyzer, build_day, make_worker): change both. write_closed is
+# geecs_data_utils.testing's.
 
 
 class FakeAnalyzer:
@@ -45,17 +45,6 @@ class FakeAnalyzer:
 
     def cleanup(self):
         pass
-
-
-def write_closed(folder: Path, *, age: float = 60.0) -> None:
-    """What the scanner leaves at the end of a run: the table, then the s-file."""
-    n = int(folder.name[len("Scan") :])
-    (folder / f"ScanDataScan{n:03d}.txt").write_text("Shotnumber\n1\n")
-    sfile = sfile_path_for_scan(folder)
-    sfile.parent.mkdir(parents=True, exist_ok=True)  # fixture acquisition
-    sfile.write_text("Shotnumber\n1\n")
-    then = time.time() - age
-    os.utime(sfile, (then, then))
 
 
 def build_day(base: Path, closed=(1, 2), open_=(3,)) -> None:

@@ -11,6 +11,7 @@ import pytest
 from geecs_core.db.alarms import AlarmLimits
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig
 from geecs_core.db.geecs_db import GeecsDb
+from geecs_core.testing import patch_geecs_db
 from geecs_ca_gateway.gateway import GeecsCaGateway
 
 # Mirrors GeecsDb.get_device_variables("U_S1H") observed against real hardware.
@@ -96,33 +97,19 @@ def test_alarm_limits_hysteresis_holds_level_before_stepdown() -> None:
 
 def test_from_geecs_experiment_attaches_numeric_alarm_limits(monkeypatch) -> None:
     """DB alarm rows attach only to served numeric readback variables."""
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_devices",
-        classmethod(lambda cls, experiment, enabled_only=True: {"U_A": ("h", 1)}),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_device_variables",
-        classmethod(
-            lambda cls, experiment, enabled_only=True: {
-                "U_A": [
-                    {
-                        "name": "Current",
-                        "units": "A",
-                        "min": -5.0,
-                        "max": 5.0,
-                        "settable": True,
-                        "variabletype": "numeric",
-                    }
-                ]
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_subscribed_variables",
-        classmethod(lambda cls, experiment, enabled_only=True: {"U_A": ["Current"]}),
+    current = {
+        "name": "Current",
+        "units": "A",
+        "min": -5.0,
+        "max": 5.0,
+        "settable": True,
+        "variabletype": "numeric",
+    }
+    patch_geecs_db(
+        monkeypatch,
+        devices={"U_A": ("h", 1)},
+        variables={"U_A": [current]},
+        subscribed={"U_A": ["Current"]},
     )
     monkeypatch.setattr(
         GeecsDb,
@@ -366,22 +353,8 @@ def _patch_experiment_db(
     sub_map: dict,
 ) -> None:
     """Stub the three batched GeecsDb queries from_geecs_experiment issues."""
-    from geecs_core.db.geecs_db import GeecsDb
-
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_devices",
-        classmethod(lambda cls, experiment, *, enabled_only=True: endpoints),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_device_variables",
-        classmethod(lambda cls, experiment, *, enabled_only=True: var_map),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_subscribed_variables",
-        classmethod(lambda cls, experiment, *, enabled_only=True: sub_map),
+    patch_geecs_db(
+        monkeypatch, devices=endpoints, variables=var_map, subscribed=sub_map
     )
 
 

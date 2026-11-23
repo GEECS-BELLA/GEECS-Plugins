@@ -1,7 +1,7 @@
 """The queue client's environment verbs: close, open (each waits until settled), queue start.
 
-No manager: the real client over the recording fake of
-``test_queue_client``, its status answers scripted poll by poll.
+No manager: the real client over ``qs_client.testing.FakeManagerAPI``,
+its status answers scripted poll by poll.
 """
 
 from __future__ import annotations
@@ -12,7 +12,9 @@ pytest.importorskip("bluesky_queueserver_api")
 
 from geecs_bluesky.qs_client import StubQueueClient, ZmqQueueClient
 
-from .test_queue_client import _client, _FakeManagerAPI
+from geecs_bluesky.qs_client.testing import FakeManagerAPI
+
+from .test_queue_client import _client
 
 
 def _env(exists: bool, manager: str = "idle", worker: str | None = None) -> dict:
@@ -25,22 +27,14 @@ def _env(exists: bool, manager: str = "idle", worker: str | None = None) -> dict
     }
 
 
-class _EnvFake(_FakeManagerAPI):
-    def environment_close(self) -> None:
-        self.calls.append(("environment_close",))
-
-    def environment_open(self) -> None:
-        self.calls.append(("environment_open",))
-
-
-def _env_client(fake: _EnvFake) -> ZmqQueueClient:
+def _env_client(fake: FakeManagerAPI) -> ZmqQueueClient:
     client = _client(fake)
     client._environment_poll_s = 0
     return client
 
 
 def test_close_waits_until_the_manager_is_idle_with_no_environment():
-    fake = _EnvFake()
+    fake = FakeManagerAPI()
     fake.status_payloads = [
         _env(True, "closing_environment", "closing"),
         _env(False, "closing_environment", "closing"),
@@ -105,7 +99,7 @@ def test_open_waits_for_the_plan_list_not_merely_the_environment(transport):
         [[], list(GEECS_PLAN_NAMES)],
     )
     seen = transport(manager)
-    ok, message = _client(_EnvFake()).environment_open()
+    ok, message = _client(FakeManagerAPI()).environment_open()
     assert ok, message
     assert seen["addr"] == "tcp://x:1"  # the client's control address
     assert manager.calls.count("environment_open") == 1
@@ -117,7 +111,7 @@ def test_a_plan_list_that_never_lands_is_restored_once_from_disk(transport):
 
     manager = _Manager([_env(False), _env(True)], [[]] * 6 + [list(GEECS_PLAN_NAMES)])
     transport(manager)
-    ok, message = _client(_EnvFake()).environment_open()
+    ok, message = _client(FakeManagerAPI()).environment_open()
     assert ok, message
     assert manager.calls.count("permissions_reload") == 1
 
@@ -125,18 +119,18 @@ def test_a_plan_list_that_never_lands_is_restored_once_from_disk(transport):
 def test_a_restore_that_times_out_is_a_failure_never_a_raise(transport):
     manager = _Manager([_env(True)], [[]], restore=(None, "timeout during receive"))
     transport(manager)
-    ok, message = _client(_EnvFake()).environment_open()
+    ok, message = _client(FakeManagerAPI()).environment_open()
     assert not ok and "restore from disk failed" in message
 
 
 def test_an_open_that_settles_closed_names_the_startup_profile(transport):
     transport(_Manager([_env(False)], [[]]))
-    ok, message = _client(_EnvFake()).environment_open()
+    ok, message = _client(FakeManagerAPI()).environment_open()
     assert not ok and "startup profile" in message
 
 
 def test_a_refused_request_fails_and_waits_for_nothing():
-    class Refusing(_EnvFake):
+    class Refusing(FakeManagerAPI):
         def environment_close(self) -> None:
             raise RuntimeError("Environment does not exist")
 
@@ -147,14 +141,14 @@ def test_a_refused_request_fails_and_waits_for_nothing():
 
 
 def test_the_wait_is_bounded():
-    fake = _EnvFake()
+    fake = FakeManagerAPI()
     fake.status_payloads = [_env(True, "closing_environment", "closing")] * 1000
     ok, message = _env_client(fake).environment_close(timeout=0)
     assert not ok and "not settled" in message
 
 
 def test_queue_start_and_the_stub():
-    fake = _EnvFake()
+    fake = FakeManagerAPI()
     assert _client(fake).queue_start() == (True, "queue started")
     assert fake.calls == [("queue_start",)]
     stub = StubQueueClient()

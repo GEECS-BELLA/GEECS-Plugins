@@ -530,3 +530,24 @@ forbidden_modules =
     fastapi
     starlette
     uvicorn
+
+# geecs_data_utils.testing builds scans/ScanNNN/ fixture trees (it plays the
+# scanner in tests). Production code must never reach it: only the scanner
+# side brings a scan folder into existence. Test suites are outside the graph
+# (lint_imports.py analyses package sources only), so they may import it.
+[importlinter:contract:data-utils-testing-is-test-only]
+name = No production module imports geecs_data_utils.testing: it creates scan folders, which only the scanner side may do
+type = forbidden
+source_modules =
+    geecs_data_utils
+    geecs_analysis
+    scan_analysis
+    geecs_bluesky
+    geecs_pva_gateway
+    geecs_log_triage
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_analysis_worker
+forbidden_modules =
+    geecs_data_utils.testing

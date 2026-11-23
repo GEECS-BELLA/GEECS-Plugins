@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_data_utils.io.scan_stack import ShotRef
 from geecs_schemas.analysis import AnalysisRecipe
 
@@ -96,21 +97,19 @@ def document(**scan) -> AnalysisRecipe:
 
 
 def build_scan(base_dir: Path) -> Path:
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    device = scan / "Camera"
-    device.mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan001.ini").write_text(
-        '[Scan Info]\nScan No = "1"\nScan Parameter = "noscan"\n'
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        devices=["Camera"],
+        scan_info='[Scan Info]\nScan No = "1"\nScan Parameter = "noscan"\n',
     )
+    device = scan / "Camera"
     for shot in range(1, SHOTS + 1):
         np.save(
             device / f"Scan001_Camera_{shot:03d}.npy",
             np.full((10, 12), shot, dtype=np.uint16),
         )
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    pd.DataFrame({"Shotnumber": range(1, SHOTS + 1), "Bin #": [1] * SHOTS}).to_csv(
-        analysis / "s1.txt", sep="\t", index=False
+    write_sfile(
+        scan, pd.DataFrame({"Shotnumber": range(1, SHOTS + 1), "Bin #": [1] * SHOTS})
     )
     return scan
 

@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 from geecs_analysis.engine import stream
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
@@ -51,13 +52,13 @@ def recipe(*, per_bin: bool = False, save: bool = False) -> AnalysisRecipe:
 @pytest.fixture
 def scan(tmp_path, monkeypatch) -> Path:
     """Six camera shots in three bins, a seventh row with no file, foreign columns."""
-    folder = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=tmp_path)
-    device = folder / "Camera"
-    device.mkdir(parents=True)  # fixture acquisition
-    (folder / "ScanInfoScan001.ini").write_text(
-        '[Scan Info]\nScan No = "1"\nScan Parameter = "U_Motor:Position"\n'
-        'Start = "1"\nEnd = "3"\nStep size = "1"\nShots per step = "2"\n'
+    folder = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=tmp_path),
+        devices=["Camera"],
+        scan_info='[Scan Info]\nScan No = "1"\nScan Parameter = "U_Motor:Position"\n'
+        'Start = "1"\nEnd = "3"\nStep size = "1"\nShots per step = "2"\n',
     )
+    device = folder / "Camera"
     yy, xx = np.mgrid[:16, :16]
     for shot in range(1, SHOTS + 1):
         image = 100 * np.exp(-((xx - 4 - shot) ** 2 + (yy - 8) ** 2) / 4) + 2
@@ -70,9 +71,7 @@ def scan(tmp_path, monkeypatch) -> Path:
             **FOREIGN,
         }
     )
-    analysis = folder.parent.parent / "analysis"
-    analysis.mkdir()
-    rows.to_csv(analysis / "s1.txt", sep="\t", index=False)
+    write_sfile(folder, rows)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
     return folder
 
