@@ -18,9 +18,6 @@ Design decisions carried from the legacy system:
 
 - ``shots_per_step`` is declared directly (intent), replacing the legacy
   derivation ``round(rep_rate_hz * wait_time)`` (mechanics).
-- The legacy ``Background`` scan mode is a ``noscan`` with the ``background``
-  flag set — it was never a distinct acquisition behaviour, only a marker in
-  the scan metadata.
 - ``acquisition`` defaults to ``strict`` to match the engine default
   (``GEECS_BLUESKY_ACQUISITION_MODE``).
 - Step scans declare ``axes: [ScanAxis]`` (variable + positions per axis).
@@ -527,13 +524,6 @@ class ScanRequest(VersionedSchemaModel):
         description=(
             "Free-text note about this scan; it ends up in the scan's "
             "metadata and the experiment log."
-        ),
-    )
-    background: bool = Field(
-        False,
-        description=(
-            "Mark this scan's data as background/calibration shots so "
-            "analysis can find them later."
         ),
     )
 

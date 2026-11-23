@@ -528,7 +528,7 @@
   // embedded editor, with this page's operator; the configurator commits it as theirs. The form here is not
   // reloaded: a save says to load the preset again.
   var CONFIGURATOR = (document.body.dataset.configurator || "").replace(/\/$/, "");
-  var PRESET_FIELDS = ["description", "trigger_profile", "background", "native_image_save", "background_telemetry", "devices"];
+  var PRESET_FIELDS = ["description", "trigger_profile", "native_image_save", "background_telemetry", "devices"];
   if ($("btn-edit-preset")) $("btn-edit-preset").addEventListener("click", function () {
     if (!S.loadedName) return;
     if (!window.GeecsConfigurator) { showError("The configurator's editor did not load from " + CONFIGURATOR + "."); return; }
@@ -567,7 +567,6 @@
     S.formableNote = S.formable ? "" : "Retired or unsupported preset plan: " + plan.name;
     setMode(shape || "", true);
     setAcq(kw.acquisition || "strict");
-    $("background").checked = !!doc.background;
     if (shape === "sweep") {
       try { composer.load(kw.sweep); }
       catch (e) { S.formable = false; S.formableNote = "Cannot load Sweep preset: " + e.message; showError(S.formableNote); }
@@ -636,7 +635,6 @@
     });
     var count = mode === "count";
     $("sweep-composer").hidden = mode !== "sweep";
-    $("count-options").hidden = !count;
     $("optimizer-form").hidden = mode !== "optimize";
     $("acq").hidden = mode === "optimize";
     if (mode === "optimize") setAcq("strict");
@@ -645,11 +643,12 @@
     $("shots-hint").textContent = count ? "num — the shots of the count" : "shots_per_step";
     // the lower half is named for what it holds, so "this changes with the mode"
     // is legible without switching modes to find out
-    $("plan-eyebrow").textContent = count ? "Count · options"
+    $("plan-eyebrow").textContent = count ? "Count"
       : mode === "sweep" ? "Sweep · trajectory"
       : mode === "optimize" ? "Optimize · optimizer"
       : "This plan";
     $("plan-empty").hidden = !!mode;   // at boot no mode is pressed: say so, don't show a bare rule
+    $("count-note").hidden = !count;
     if (!silent) recalc();
   }
   function setAcq(acq) {
@@ -748,7 +747,6 @@
     else delete kwargs.shot_period;
     return {name: S.presetName || "adhoc", description: $("desc").value.trim(), trigger_profile: $("trig").value || null,
       native_image_save: nativeSave === "" ? null : nativeSave === "true",
-      background: name === "count" && $("background").checked,
       devices: tableDevices(), plan: {name: name, args: [], kwargs: kwargs}};
   }
 

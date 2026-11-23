@@ -216,20 +216,15 @@ def _as_int(raw: Optional[str]) -> Optional[int]:
     return None if value is None else int(value)
 
 
-def _as_bool(raw: Optional[str]) -> Optional[bool]:
-    if raw is None:
-        return None
-    text = raw.strip().lower()
-    if text in {"true", "yes", "1"}:
-        return True
-    if text in {"false", "no", "0"}:
-        return False
-    return None
-
-
 def _as_text(raw: Optional[str]) -> Optional[str]:
     text = (raw or "").strip()
     return text or None
+
+
+def _scan_mode(raw: Optional[str]) -> Optional[str]:
+    """``ScanMode``, with an older ini's ``background`` read as ``noscan``."""
+    mode = _as_text(raw)
+    return "noscan" if mode is not None and mode.lower() == "background" else mode
 
 
 def is_noscan(parameter: Optional[str]) -> bool:
@@ -258,9 +253,9 @@ class ScanInfoRecord(BaseModel):
     shots_per_step : int or None
         ``Shots per step``.
     mode, plan, scanner, trigger_profile : str or None
-        ``ScanMode``, ``Plan``, ``Scanner``, ``Trigger profile``.
-    background : bool or None
-        ``Background``.
+        ``ScanMode``, ``Plan``, ``Scanner``, ``Trigger profile``. An older
+        ini's ``ScanMode = background`` (a count of shots, no variable
+        moved) reads as ``noscan``; its ``Background`` line is ignored.
     purpose : str or None
         ``ScanStartInfo`` — the operator's stated reason for the scan.
     end_info : str or None
@@ -279,7 +274,6 @@ class ScanInfoRecord(BaseModel):
     plan: Optional[str] = None
     scanner: Optional[str] = None
     trigger_profile: Optional[str] = None
-    background: Optional[bool] = None
     purpose: Optional[str] = None
     end_info: Optional[str] = None
 
@@ -292,11 +286,10 @@ class ScanInfoRecord(BaseModel):
             end=finite_float(info.get("End")),
             step_size=finite_float(info.get("Step size")),
             shots_per_step=_as_int(info.get("Shots per step")),
-            mode=_as_text(info.get("ScanMode")),
+            mode=_scan_mode(info.get("ScanMode")),
             plan=_as_text(info.get("Plan")),
             scanner=_as_text(info.get("Scanner")),
             trigger_profile=_as_text(info.get("Trigger profile")),
-            background=_as_bool(info.get("Background")),
             purpose=_as_text(info.get("ScanStartInfo")),
             end_info=info.get("ScanEndInfo"),
         )

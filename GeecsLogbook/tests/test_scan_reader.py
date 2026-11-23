@@ -26,7 +26,6 @@ class TestReadDay:
         assert scan.start == -1.0 and scan.end == 1.0
         assert scan.shots_per_step == 2
         assert scan.plan == "scan" and scan.scanner == "bluesky"
-        assert scan.background is False
         assert scan.purpose.startswith("807 phase 1 acceptance")
         assert scan.status == "success"
         assert scan.failure_reason is None

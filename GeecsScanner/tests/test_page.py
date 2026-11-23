@@ -242,7 +242,6 @@ def test_form_opens_on_what_every_scan_needs(client: TestClient) -> None:
     for plan_only in (
         'id="optimizer-form"',
         'id="sweep-composer"',
-        'id="count-options"',
     ):
         assert invariants < body.index(plan_only), plan_only
     # #896's other half: the optional picker is not in the body at all
@@ -608,25 +607,37 @@ console.log(JSON.stringify(cases));
     )
 
 
-@pytest.mark.parametrize("mode", ["count", "sweep", "optimize"])
-def test_background_count_flag_does_not_follow_mode_change(mode):
+@pytest.mark.parametrize(
+    ("mode", "eyebrow", "note_hidden"),
+    [("count", "Count", False), ("sweep", "Sweep · trajectory", True)],
+)
+def test_count_mode_names_itself_and_says_it_moves_nothing(
+    client: TestClient, mode, eyebrow, note_hidden
+):
+    """Count mode has no options of its own: a true heading and a note, no empty group."""
+    html = client.get("/").text
+    assert (
+        '<span class="dim note" id="count-note" hidden>A count moves nothing: '
+        "the shots above are the whole plan.</span>"
+    ) in html
+    assert "count's own options" not in html and 'id="count-options"' not in html
     _need_node()
     source = (_PKG / "static/scanner.js").read_text()
     harness = (
-        r"""
-var S={mode:MODE,acq:'strict',presetDoc:{background:true,plan:{name:'count',kwargs:{num:3}}}};
-function $(id) {return {value:id==='shots'?'3':'',checked:true};}
-function tableDevices() {return [];}
-var composer={value(){return {trajectory:{kind:'axes',axes:[]}};}};
-""".replace("MODE", json.dumps(mode))
-        + "function buildPreset(){\n"
-        + _script_function(source, "buildPreset")
-        + "\n}\nconsole.log(JSON.stringify(buildPreset()));"
+        "var els={};\n"
+        "function $(id){return els[id]||(els[id]={hidden:false,textContent:'',"
+        "querySelectorAll:function(){return [];}});}\n"
+        "var S={};function setAcq(){}function lockOptimizerDevices(){}function recalc(){}\n"
+        "function setMode(mode, silent){\n"
+        + _script_function(source, "setMode")
+        + "\n}\nsetMode(MODE, true);\n".replace("MODE", json.dumps(mode))
+        + "console.log(JSON.stringify({eyebrow:$('plan-eyebrow').textContent,"
+        "note:$('count-note').hidden}));"
     )
     result = subprocess.run(
         ["node", "-"], input=harness, text=True, capture_output=True, check=True
     )
-    assert json.loads(result.stdout)["background"] is (mode == "count")
+    assert json.loads(result.stdout) == {"eyebrow": eyebrow, "note": note_hidden}
 
 
 def test_add_device_is_the_kit_drawer_picker() -> None:

@@ -205,7 +205,7 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
     q = client.get("/api/queue").json()
     assert q["running"]["plan"] == "count" and q["running"]["planned_shots"] == 20
     assert [w["position"] for w in q["waiting"]] == [1]
-    assert q["waiting"][0]["summary"].startswith("background · count · 50 shots")
+    assert q["waiting"][0]["summary"].startswith("count · 50 shots")
     # a third while one WAITS is the failed-item-at-front trap: refused, pending items named
     r = client.post("/api/submit", json={"preset": first, "acknowledged": ack})
     assert r.status_code == 409
@@ -222,7 +222,7 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
     assert r.status_code == 200
     q = client.get("/api/queue").json()
     assert len(q["waiting"]) == 1 and q["waiting"][0]["plan"] == "count"
-    assert not q["waiting"][0]["summary"].startswith("background")
+    assert q["waiting"][0]["summary"].startswith("count · 20 shots")
     for _ in range(20):
         manager.step()
     q = client.get("/api/queue").json()
@@ -243,7 +243,7 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
     )
     # an add starts the queue the stop left stopped: it runs at once
     running = client.get("/api/queue").json()["running"]
-    assert running is not None and running["summary"].startswith("background")
+    assert running is not None and running["summary"].startswith("count · 50 shots")
     assert (
         client.post(
             "/api/submit", json={"preset": first, "acknowledged": ack}
@@ -406,8 +406,8 @@ def test_append_queues_in_order_and_remove_drops_only_a_waiting_item(
         assert client.post("/api/submit", json=body).status_code == 200
     q = client.get("/api/queue").json()
     assert [w["position"] for w in q["waiting"]] == [1, 2]
-    assert q["waiting"][0]["summary"].startswith("background")
-    assert not q["waiting"][1]["summary"].startswith("background")
+    assert q["waiting"][0]["summary"].startswith("count · 50 shots")
+    assert q["waiting"][1]["summary"].startswith("count · 20 shots")
     # an unacknowledged question still refuses an append
     r = client.post("/api/submit", json={"preset": first, "append": True})
     assert r.status_code == 409 and "needs_acknowledgement" in r.json()["error"]

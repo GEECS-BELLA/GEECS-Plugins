@@ -136,8 +136,7 @@ opens this page.
   connected but whose LabVIEW loop has stopped updating (nothing new in
   30 s) is never waited on, so the scan warns about it in `scan.log` when
   it starts and records it anyway: check the device. The mode buttons fill the bottom half:
-  **Count** (N shots at a fixed configuration, optionally tagged as a
-  background), **Sweep** (one or more variables along a trajectory) or
+  **Count** (N shots at a fixed configuration), **Sweep** (one or more variables along a trajectory) or
   **Optimize** (an optimizer drives the variables). Acquisition is
   **strict** (one fire per shot, one row per fire); **fly** (a software
   tick, the box never driven) is a preset's `acquisition: fly`, with no

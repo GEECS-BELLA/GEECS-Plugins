@@ -105,9 +105,20 @@ class TestScanInfoRecord:
         assert record.parameter == "U_S1H Current"
         assert (record.start, record.end, record.step_size) == (-1.0, 1.0, 0.5)
         assert record.shots_per_step == 2
-        assert record.background is False
         assert record.purpose is None
         assert record.end_info == ""
+
+    def test_an_older_background_scan_reads_as_noscan(self):
+        """The retired background flag: its mode is ``noscan``, its line ignored."""
+        record = ScanInfoRecord.from_ini(
+            {
+                "Scan Parameter": "Shotnumber",
+                "ScanMode": "background",
+                "Background": "true",
+            }
+        )
+        assert record.mode == "noscan" and record.noscan
+        assert not hasattr(record, "background")
 
     @pytest.mark.parametrize("raw", ["inf", "-inf", "nan", "1e400", "abc", ""])
     def test_unusable_numbers_are_none(self, raw):

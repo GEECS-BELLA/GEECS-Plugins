@@ -144,7 +144,6 @@ def demo_presets() -> list[Any]:
                 "name": "background_dark",
                 "description": "Darks with the shutter closed",
                 "trigger_profile": "no_gas",
-                "background": True,
                 "devices": [
                     {
                         "device": "UC_ALineEBeam3",
