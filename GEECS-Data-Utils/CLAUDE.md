@@ -160,6 +160,9 @@ geecs_data_utils/
                                #   folders <folder>-interpSpec (momentum,
                                #   one row per column) and <folder>-interpDiv
                                #   (angle, one row per row), read per shot
+                               #   ; charge_density (per pixel → per unit
+                               #   of each axis, pC/mrad/(GeV/c)) and
+                               #   average_shots (index-wise, axes averaged)
                                #   (the momentum axis moves with the field);
                                #   a length mismatch is refused, never
                                #   resampled; read_lineout_table reads the

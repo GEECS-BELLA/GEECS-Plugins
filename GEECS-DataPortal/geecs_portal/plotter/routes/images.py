@@ -453,6 +453,7 @@ def tile_png(
     prep: ImagePrep = ImagePrep(),
     cbar: bool = False,
     background: Optional[images.Background] = None,
+    axes: bool = False,
 ) -> bytes:
     """The tile's pixels, in its ROI, drawn as a PNG; a 404 naming why not.
 
@@ -460,8 +461,20 @@ def tile_png(
     view): the same colour map and levels, so its values read off. With
     *cbar*, the tile itself with a slim labelled bar at its right (a strip
     whose tiles each scale themselves).
+
+    With *axes*, a calibrated output (``images.calibrated_device``: a
+    magspec image) is drawn as charge density on its physical axes, with
+    titled axes (:func:`_calibrated_png`); the levels are in its unit.
     """
     try:
+        if axes:
+            image = images.crop_frame(
+                images.kept_calibrated_tile(
+                    folder, frame, device, rows, prep, background
+                ),
+                roi,
+            )
+            return _calibrated_png(image, cmap, levels, bar=bar or cbar, big=bar)
         pixels = images.crop(
             images.kept_tile_array(folder, frame, device, rows, prep, background), roi
         )
@@ -507,6 +520,66 @@ def _with_colour_bar(pixels, cmap: str, levels: Optional[tuple[float, float]]) -
         interpolation="nearest",
     )
     fig.colorbar(shown, ax=ax, fraction=0.046, pad=0.03)
+    return figure_png(fig, tight=True)
+
+
+def _edges(values: np.ndarray) -> tuple[float, float]:
+    """The outer edges of the first and last pixel centred on *values*."""
+    if values.size == 1:
+        return float(values[0]) - 0.5, float(values[0]) + 0.5
+    first = values[0] - (values[1] - values[0]) / 2
+    last = values[-1] + (values[-1] - values[-2]) / 2
+    return float(first), float(last)
+
+
+def _calibrated_png(
+    image, cmap: str, levels: Optional[tuple[float, float]], bar: bool, big: bool
+) -> bytes:
+    """A frame drawn on its own axes: its titled axes and, with *bar*, a titled colour bar.
+
+    Row 0 stays at the top, as the plain tile draws it (a magspec's first
+    angle at the top). *big* is the big view's size; otherwise a tile's,
+    small type. Black and white are *levels* when given, else the frame's
+    own lowest and highest value.
+    """
+    from matplotlib.figure import Figure
+
+    from geecs_portal.resources import figure_png
+
+    data = np.asarray(image.data, dtype=float)
+    finite = data[np.isfinite(data)]
+    lo, hi = (
+        levels
+        if levels
+        else ((float(finite.min()), float(finite.max())) if finite.size else (0.0, 1.0))
+    )
+    rows, columns = image.axes
+    left, right = _edges(columns.values)
+    top, bottom = _edges(rows.values)
+    height, width = data.shape
+    # (width, least and most picture height, label margin: inches; type: pt).
+    # A tile is drawn small so its type stays legible at a grid's width.
+    span = (8.0, 1.6, 6.0, 1.0, 10) if big else (2.6, 0.7, 2.2, 0.65, 9)
+    across, least, most, margin, points = span
+    tall = min(most, max(least, across * height / max(width, 1))) + margin
+    fig = Figure(figsize=(across, tall), dpi=110 if big else 100)
+    ax = fig.add_subplot()
+    shown = ax.imshow(
+        data,
+        cmap=safe_cmap(cmap) or "gray",
+        vmin=lo,
+        vmax=hi,
+        interpolation="nearest",
+        aspect="auto",
+        extent=(left, right, bottom, top),
+    )
+    ax.set_xlabel(_axis_title(columns.label, columns.unit), fontsize=points)
+    ax.set_ylabel(_axis_title(rows.label, rows.unit), fontsize=points)
+    ax.tick_params(labelsize=points - 1)
+    if bar:
+        colour = fig.colorbar(shown, ax=ax, fraction=0.046, pad=0.02)
+        colour.set_label(image.unit, fontsize=points)
+        colour.ax.tick_params(labelsize=points - 1)
     return figure_png(fig, tight=True)
 
 
@@ -1037,6 +1110,10 @@ def register(router: APIRouter, ctx: Context) -> None:
             default="",
             description="the tiles on screen, their indices comma-separated; empty is all",
         ),
+        axes: bool = Query(
+            default=False,
+            description="a calibrated output's levels in charge density",
+        ),
         extra: str = Query(
             default="",
             alias="scans",
@@ -1091,6 +1168,7 @@ def register(router: APIRouter, ctx: Context) -> None:
                 parse_roi(roi),
                 prep,
                 open_background(ctx, bg),
+                calibrated=axes and images.calibrated_device(got.folder, device),
             )
         except images.NoImage as why:
             raise HTTPException(status_code=404, detail=str(why)) from None
@@ -1115,6 +1193,10 @@ def register(router: APIRouter, ctx: Context) -> None:
         ),
         cbar: bool = Query(
             default=False, description="a slim labelled colour bar at the tile's right"
+        ),
+        axes: bool = Query(
+            default=False,
+            description="a calibrated output (a magspec image) on its physical axes",
         ),
         hits: str = Query(default="none", description="the X-ray-hit filter"),
         centre: Optional[float] = Query(
@@ -1188,6 +1270,7 @@ def register(router: APIRouter, ctx: Context) -> None:
             prep,
             cbar,
             open_background(ctx, bg),
+            axes and images.calibrated_device(got.folder, device),
         )
         return Response(png, media_type="image/png", headers=NO_CACHE)
 

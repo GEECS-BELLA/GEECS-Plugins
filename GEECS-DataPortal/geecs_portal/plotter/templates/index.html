@@ -98,13 +98,23 @@
                 <select name="hits{{ c.sfx }}" form="pick" data-submit-on-change aria-label="X-ray hits" title="X-ray hits">
                   {% for value, text in hit_labels.items() %}<option value="{{ value }}"{% if c.hits == value %} selected{% endif %}>{{ 'hits: ' ~ text if value == 'none' else text }}</option>{% endfor %}
                 </select>
+                {% if not c.axes_on %}{# no centring on physical axes: it would move charge off its momentum #}
                 <input name="centre{{ c.sfx }}" form="pick" type="text" inputmode="decimal" class="narrow-number" placeholder="centre: off"
                        value="{{ c.centre if c.centre is not none else '' }}" data-submit-on-change aria-label="Centre on beam: threshold"
                        title="Centre each image on its beam: the centre of mass above this threshold. 1 or more is counts, below 1 a fraction of the peak (0.5 = half max). Empty is off.">
+                {% endif %}
                 <div class="seg" role="group" aria-label="Colour bars" title="Colour bars: one per tile while each scales itself, one for the row on a shared or fixed scale">
                   <button type="button" data-toggle-for="cbar{{ c.sfx }}" data-value="true" aria-pressed="{{ 'true' if c.cbar else 'false' }}">bar</button>
                   <button type="button" data-toggle-for="cbar{{ c.sfx }}" data-value="false" aria-pressed="{{ 'false' if c.cbar else 'true' }}">no bar</button>
                 </div>
+                {% if c.calibrated %}
+                {# A calibrated output (a magspec image): pixels and raw values, or
+                   its physical axes (momentum, angle) and charge density. #}
+                <div class="seg" role="group" aria-label="Axes" title="Draw each tile on its physical axes (momentum, angle) as charge density, pC/mrad/(GeV/c); or in pixels and raw values">
+                  <button type="button" data-toggle-for="axes{{ c.sfx }}" data-value="false" aria-pressed="{{ 'false' if c.axes else 'true' }}">pixels</button>
+                  <button type="button" data-toggle-for="axes{{ c.sfx }}" data-value="true" aria-pressed="{{ 'true' if c.axes else 'false' }}">GeV/c · mrad</button>
+                </div>
+                {% endif %}
                 {% if bg %}
                 <div class="seg" role="group" aria-label="Background subtraction" title="Take the background scan's average (this camera's) off every shot">
                   <button type="button" data-toggle-for="bgsub{{ c.sfx }}" data-value="true" aria-pressed="{{ 'true' if c.bgsub else 'false' }}">bg</button>
@@ -348,6 +358,7 @@
           <input type="hidden" name="layout" value="{{ layout }}">
           <input type="hidden" name="zscale" value="{{ zscale }}">
           <input type="hidden" name="cbar" value="{{ 'true' if cbar else 'false' }}">
+          {% if cams %}<input type="hidden" name="axes" value="{{ 'true' if cams[0].axes else 'false' }}">{% endif %}
           {% if tab == "images" %}
           {# The background scan (YYYY-MM-DD:N; the Strip group's day and scan
              boxes write it) and the first camera's on/off for it. #}
@@ -358,6 +369,7 @@
           <input type="hidden" name="bgsub{{ c.sfx }}" value="{{ 'true' if c.bgsub else 'false' }}">
           <input type="hidden" name="zscale{{ c.sfx }}" value="{{ c.zscale }}">
           <input type="hidden" name="cbar{{ c.sfx }}" value="{{ 'true' if c.cbar else 'false' }}">
+          <input type="hidden" name="axes{{ c.sfx }}" value="{{ 'true' if c.axes else 'false' }}">
           {% endfor %}
           <div class="row">
             <button class="btn primary sm" type="submit">Open</button>
@@ -710,7 +722,7 @@
                   {# Tiles across: the same rule plotter.js applies when the box changes. #}
                   <div id="strip{{ c.sfx }}" class="strip {{ lay }}{{ ' traces' if c.trace }}" data-cam="{{ c.place }}" data-zscale="{{ c.zscale }}" data-roi="{{ c.roi }}"
                        data-kind="{{ 'trace' if c.trace else 'image' }}" data-channel="{{ c.channels | join(',') if c.trace else '' }}"
-                       data-cbar="{{ 'true' if c.cbar else 'false' }}" data-device="{{ c.device }}"
+                       data-cbar="{{ 'true' if c.cbar else 'false' }}" data-axes="{{ 'true' if c.axes_on else 'false' }}" data-device="{{ c.device }}"
                        data-levels-url="{{ root }}/{{ c.levels_url }}" data-full-url="{{ root }}/{{ c.tiles[0].url }}"
                        style="{% if lay == 'row' %}grid-auto-columns: {% if tile_max %}min({{ tile_max }}px, calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }})){% else %}calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% endif %}{% else %}grid-template-columns: repeat({{ cols }}, minmax(0, {{ (tile_max ~ 'px') if tile_max else '1fr' }})){% endif %}">
                     {% for t in c.tiles %}
@@ -725,6 +737,7 @@
                        plotter.js draws it once the levels are known. #}
                     <figure class="strip-bar-cell" hidden>
                       <img alt="colour bar" data-bar="{{ root }}/api/images/colourbar.png">
+                      {% if c.axes_unit %}<figcaption class="hint">{{ c.axes_unit }}</figcaption>{% endif %}
                     </figure>
                   </div>
                 {% endif %}

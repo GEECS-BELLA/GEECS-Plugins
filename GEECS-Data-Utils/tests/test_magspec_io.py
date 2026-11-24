@@ -14,6 +14,7 @@ import numpy as np
 import png
 import pytest
 
+from geecs_data_utils.frames import Axis, Frame
 from geecs_data_utils.io import magspec
 from geecs_data_utils.io.images import write_png16
 
@@ -243,3 +244,74 @@ def test_reading_creates_nothing(scan_folder):
     magspec.magspec_shot(scan_folder, NAME, 3)
     magspec.magspec_shot(scan_folder.parent / "Scan099", NAME, 1)
     assert _tree(root) == before
+
+
+def _image(data, angle, momentum, unit="aC"):
+    axes = (
+        Axis(angle, unit="mrad", label="Angle"),
+        Axis(momentum, unit="GeV/c", label="Momentum"),
+    )
+    return Frame(np.asarray(data, dtype=float), axes, None, unit, "Charge")
+
+
+def test_charge_density_is_charge_over_each_pixels_widths():
+    # Rows 0.5 mrad apart, columns 0.25 GeV/c apart: a pixel is 0.125 mrad·GeV/c.
+    frame = _image(np.full((3, 4), 2.0), [0.0, 0.5, 1.0], [1.0, 1.25, 1.5, 1.75])
+    density = magspec.charge_density(frame)
+    assert density.unit == "pC/mrad/(GeV/c)"
+    assert density.label == "Charge density"
+    # 2 aC = 2e-6 pC over 0.125 mrad·GeV/c.
+    np.testing.assert_allclose(density.data, 2e-6 / 0.125)
+    assert density.axes == frame.axes
+    # Integrating the density over the pixels gives the charge back, in pC.
+    assert density.data.sum() * 0.125 == pytest.approx(frame.data.sum() * 1e-6)
+
+
+def test_charge_density_follows_a_descending_or_uneven_axis():
+    frame = _image(np.ones((2, 3)), [1.0, 0.0], [1.0, 2.0, 4.0])
+    density = magspec.charge_density(frame, unit="fC")
+    # Column widths by central difference: 1, 1.5, 2; row widths 1.
+    np.testing.assert_allclose(density.data, 1e-3 / np.array([[1, 1.5, 2]] * 2))
+    assert density.unit == "fC/mrad/(GeV/c)"
+
+
+@pytest.mark.parametrize(
+    "frame, match",
+    [
+        (_image(np.ones((2, 2)), [0, 1], [0, 1], unit="counts"), "charge units"),
+        (_image(np.ones((1, 2)), [0], [0, 1]), "one sample"),
+        (_image(np.ones((2, 2)), [0, 1], [1, 1]), "repeats"),
+    ],
+)
+def test_charge_density_refuses(frame, match):
+    with pytest.raises(ValueError, match=match):
+        magspec.charge_density(frame)
+
+
+def test_shots_average_pixels_and_axes_index_by_index():
+    one = _image([[0.0, 2.0]], [0.0], [1.0, 2.0])
+    two = _image([[2.0, 4.0]], [0.0], [1.1, 2.2])
+    mean = magspec.average_shots([one, two])
+    np.testing.assert_allclose(mean.data, [[1.0, 3.0]])
+    np.testing.assert_allclose(mean.axes[1].values, [1.05, 2.1])
+    assert (mean.axes[1].unit, mean.unit) == ("GeV/c", "aC")
+    assert magspec.average_shots([one]) is one
+    with pytest.raises(ValueError, match="differ in size"):
+        magspec.average_shots([one, _image([[1.0]], [0.0], [1.0])])
+    with pytest.raises(ValueError, match="no shots"):
+        magspec.average_shots([])
+
+
+def test_a_shot_keeps_what_one_count_is(tmp_path):
+    image, spec, div = tmp_path / "i.png", tmp_path / "s.txt", tmp_path / "d.txt"
+    _png(image, _pixels(0), comment="10 aC/count")
+    _table(
+        spec,
+        "Momentum_GeV/c\tCharge_fC\tChargeDen_pC/GeV/c",
+        _momentum(0),
+        np.ones(WIDTH),
+    )
+    _table(div, "Angle_mrad\tCharge_fC\tChargeDen_fC/mrad", ANGLE, np.ones(HEIGHT))
+    shot = magspec.read_magspec_shot(image, spec, div)
+    assert shot.charge_per_count == 10.0
+    np.testing.assert_allclose(shot.frame.data, _pixels(0) * 10.0)

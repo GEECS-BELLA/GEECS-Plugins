@@ -88,6 +88,12 @@
           "title": "Cbar",
           "type": "boolean"
         },
+        "axes": {
+          "default": false,
+          "description": "Draw a calibrated output (a magspec image) on its physical axes (momentum, angle) as charge density; off: pixels and raw values.",
+          "title": "Axes",
+          "type": "boolean"
+        },
         "bgsub": {
           "default": true,
           "description": "Subtract the set's background scan.",
@@ -489,6 +495,12 @@
       "default": true,
       "description": "Draw colour bars.",
       "title": "Image Cbar",
+      "type": "boolean"
+    },
+    "image_axes": {
+      "default": false,
+      "description": "The first camera draws a calibrated output (a magspec image) on its physical axes (momentum, angle) as charge density; off: pixels.",
+      "title": "Image Axes",
       "type": "boolean"
     },
     "image_bg": {
