@@ -29,7 +29,7 @@ from scan_analysis.core_sink import (
     write_shot_table,
     write_sibling_outputs,
 )
-from scan_analysis.core_source import source_directory
+from scan_analysis.core_source import OutputUnavailable, source_directory
 from scan_analysis.core_workers import effective_workers
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
             )
         try:
             prepared = prepare_scan(document, scan_folder, self.auxiliary_data)
-        except StackMappingUnavailable as exc:
+        except (StackMappingUnavailable, OutputUnavailable) as exc:
             raise DataUnavailableWarning(str(exc)) from exc
         self.display_contents = []
         self.last_plan = None

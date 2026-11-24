@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Union, get_args, get_origin
 
-from geecs_schemas.analysis import AnalysisDocument, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisDocument, AnalysisRecipe, is_analysis_output
 from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
 
@@ -124,7 +124,10 @@ def blank_recipe(input_kind: str, *, name: str, device: str | None = None, input
     """The fewest-part recipe that binds for a new document: its input, no steps, the registry's default measure.
 
     ``name`` is the recipe's stem and its ``output_name`` (its own columns and
-    folders); ``device`` the data folder (the name when not given);
+    folders); ``device`` the data folder (the name when not given) — an
+    earlier analysis's output (``analysis:<folder>[/<series>]``) is the
+    input's ``folder``, the device then the name, since the device names
+    what is written;
     ``input_fields`` what the input kind requires beyond its kind (a trace's
     ``loading``). The measure is the one the registry declares the default
     for the input's frames (:func:`geecs_analysis.registry.default_measure`).
@@ -135,11 +138,12 @@ def blank_recipe(input_kind: str, *, name: str, device: str | None = None, input
     if input_kind not in kinds:
         raise RecipeError(f"no input kind {input_kind!r} (one of {', '.join(kinds)})")
     measure = default_measure(kinds[input_kind]).spec.model_fields["kind"].default
+    folder = {"folder": device} if is_analysis_output(device) else {}
     document = {
         "schema_version": 3,
-        "device": device or name,
+        "device": name if folder else (device or name),
         "output_name": name,
-        "input": {"kind": input_kind, **(input_fields or {})},
+        "input": {"kind": input_kind, **folder, **(input_fields or {})},
         "steps": [],
         "measure": {"kind": measure},
     }

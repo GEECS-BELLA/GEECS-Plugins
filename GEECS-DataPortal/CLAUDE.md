@@ -1145,7 +1145,11 @@ listing), marked `analysis · <folder>`; a picked folder of several series
 offers each (`images.devices(folder, picked)`). An image output is a
 camera row, a table a trace row whose channels are its y columns. A shot
 is its series' file of that number, never a neighbour's; no processing
-recipe is offered on one (`/api/run/{uid}/device`).
+recipe is offered on one (`/api/run/{uid}/device`). A recipe may read one
+(`input.folder: analysis:<folder>[/<series>]`, ScanAnalysis' rule): the
+Analysis tab lists it applicable where that output folder exists, and its
+previews resolve the shot through `_image_folder`, which checks such a name
+against the scan's analysis folder by the same reader.
 `plotter/static/images.js` draws the **big view**: the tile
 clicked (or stepped to with ‹ › along its camera's row; a click on another
 row moves it to that camera) at full size: the tile's own picture

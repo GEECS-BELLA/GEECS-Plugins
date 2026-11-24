@@ -529,6 +529,39 @@ class TestListing:
         catalog = client.get("/api/analysis/catalog").json()["analyzers"]
         assert next(a for a in catalog if a["id"] == "Derived")["kind"] == "scalar"
 
+    def test_a_recipe_over_an_analysis_output_applies_where_it_exists(
+        self, scan_folder, configs_tree
+    ):
+        """Its data folder is analysis/ScanNNN/<folder>/, not a device folder."""
+        pytest.importorskip("scan_analysis")
+        yaml = pytest.importorskip("yaml")
+        for stem, folder in (
+            ("Lineout", "analysis:py-spec"),
+            ("Elsewhere", "analysis:py-none"),
+        ):
+            (configs_tree / "analyzers" / "HTU" / f"{stem}.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "schema_version": 3,
+                        "device": stem,
+                        "input": {
+                            "kind": "line",
+                            "folder": folder,
+                            "loading": {"data_type": "tsv"},
+                        },
+                    }
+                )
+            )
+        (analysis_folder_for(scan_folder) / "py-spec").mkdir(parents=True)
+        client = _client(scan_folder, configs_tree)
+        by_id = {
+            a["id"]: a
+            for a in client.get("/api/run/uid-002/analysis").json()["analyzers"]
+        }
+        assert by_id["Lineout"]["device"] == "analysis:py-spec"
+        assert by_id["Lineout"]["applicable"] is True
+        assert by_id["Elsewhere"]["applicable"] is False
+
     def test_files_on_disk_survive_without_a_record(self, scan_folder, configs_tree):
         """A page loaded after a portal restart still lists earlier outputs."""
         pytest.importorskip("scan_analysis")

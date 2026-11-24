@@ -10,6 +10,7 @@ from typing import Mapping
 
 import numpy as np
 import pandas as pd
+from geecs_data_utils.io.analysis_outputs import output_dir, resolve_output
 from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
 from geecs_data_utils.io.himg_stack import HIMG_SUFFIX
 from geecs_data_utils.io.images import read_imaq_image
@@ -21,6 +22,8 @@ from geecs_data_utils.io.scan_stack import (
     read_shot,
 )
 from geecs_data_utils.shot_files import StackMappingUnavailable, map_shot_files
+from geecs_data_utils.tiled_schema import announced_shots
+from geecs_schemas.analysis import is_analysis_output
 
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 
@@ -31,6 +34,10 @@ STACK_HINT = (
     "convert the scan first with the himg_to_stack analyzer "
     "(HasoLift_stack in the Data Portal's Analysis tab)"
 )
+
+
+class OutputUnavailable(LookupError):
+    """An ``analysis:`` input names an output this scan has no per-shot files of."""
 
 
 def stack_required(device_dir: Path) -> Path:
@@ -199,11 +206,21 @@ def _resolved(recipe: ScanRecipe | AnalysisDocument) -> ScanRecipe:
 
 
 def source_directory(recipe: ScanRecipe | AnalysisDocument, scan_folder: Path) -> Path:
-    """Validate a preexisting scan and resolve its single device subfolder."""
+    """Validate a preexisting scan and resolve its single device subfolder.
+
+    An ``analysis:<folder>[/<series>]`` input resolves to
+    ``analysis/ScanNNN/<folder>``, the earlier analysis's output folder
+    (by path alone: the caller checks it is there).
+    """
     folder = Path(scan_folder)
     if not folder.is_dir():
         raise FileNotFoundError(f"Scan folder does not exist: {folder}")
     file_device = _resolved(recipe).folder
+    if is_analysis_output(file_device):
+        directory = output_dir(folder, file_device)
+        if directory is None:
+            raise ValueError("Input must name one analysis output folder")
+        return directory
     if file_device in {".", ".."} or "/" in file_device or "\\" in file_device:
         raise ValueError("Input device must name one scan subfolder")
     return folder / file_device
@@ -226,6 +243,14 @@ def prepare_source(
     """
     spec = _resolved(recipe)
     device_dir = source_directory(spec, scan_folder)
+    if is_analysis_output(spec.folder):
+        return RecipeShotSource(
+            device_dir,
+            output_references(spec.folder, scan_folder, rows),
+            spec.line_loading_json if spec.line else None,
+            (),
+            spec.recipe.channels,
+        )
     loading_json = None
     stacks_only = False
     default_tail = ".png"
@@ -255,6 +280,61 @@ def prepare_source(
     return RecipeShotSource(
         device_dir, references, loading_json, siblings, spec.recipe.channels
     )
+
+
+def file_numbers(rows: pd.DataFrame) -> dict[int, int] | None:
+    """Each shot's number in a shot-number file name, in a scan-mode run.
+
+    A scan-mode run numbers its ``ScanNNN_<device>_SSS`` files by the
+    announced shot, and data-utils' shot mapping reads such names back
+    through that column (``announced_shots``), so a file the host names for
+    a shot (a capture-stack frame's sidecar or sibling output) carries the
+    same number. A row without a usable announced shot is left out: no
+    shot-number name maps back to it. ``None`` outside scan mode, where the
+    number is the shot.
+    """
+    numbers = announced_shots(rows)
+    if numbers is None:
+        return None
+    shots = pd.to_numeric(rows["Shotnumber"], errors="coerce")
+    return {
+        int(shot): int(number)
+        for shot, number in zip(shots, numbers)
+        if pd.notna(shot) and pd.notna(number)
+    }
+
+
+def output_references(
+    name: str, scan_folder: Path, rows: pd.DataFrame
+) -> dict[int, Path]:
+    """Each shot's file in the analysis output *name* (``analysis:<folder>[/<series>]``).
+
+    A shot's file is its series' file of that shot's number — the shot, or
+    in a scan-mode run the shot it announced (:func:`file_numbers`), as the
+    earlier analysis named it — and only when it exists: a shot that earlier
+    run did not write is missing, never a neighbour's file. One listing of
+    the analysis folder and one of the output folder; nothing is created.
+    An output this scan has none of raises :class:`OutputUnavailable`.
+    """
+    series = resolve_output(Path(scan_folder), name)
+    if series is None:
+        raise OutputUnavailable(
+            f"no per-shot files of {name} in this scan's analysis folder"
+        )
+    numbers = file_numbers(rows)
+    present = {path.name for path in series.files()}
+    references: dict[int, Path] = {}
+    for value in pd.to_numeric(rows["Shotnumber"], errors="coerce"):
+        if pd.isna(value):
+            continue
+        shot = int(value)
+        number = shot if numbers is None else numbers.get(shot)
+        if number is None:
+            continue
+        path = series.shot_file(number)
+        if path.name in present:
+            references[shot] = path
+    return references
 
 
 def _sibling_references(

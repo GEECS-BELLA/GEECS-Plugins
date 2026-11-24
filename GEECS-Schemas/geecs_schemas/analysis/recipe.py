@@ -93,6 +93,24 @@ class MeasureRef(SchemaModel):
 
 # -------------------------------------------------------------------- input
 
+#: What starts an input folder that names an analysis run's per-shot outputs
+#: (``{day}/analysis/ScanNNN/<folder>/``) instead of a folder under
+#: ``scans/ScanNNN/``: ``analysis:<folder>`` (the folder's own series) or
+#: ``analysis:<folder>/<series>``. The same prefix as data-utils'
+#: ``io.analysis_outputs.OUTPUT_PREFIX``, the reader that resolves it.
+ANALYSIS_OUTPUT_PREFIX = "analysis:"
+
+
+def is_analysis_output(folder: Optional[str]) -> bool:
+    """Whether an input folder names an analysis output rather than a scan subfolder."""
+    return bool(folder) and str(folder).startswith(ANALYSIS_OUTPUT_PREFIX)
+
+
+def _one_part(part: str) -> bool:
+    return (
+        bool(part) and part not in {".", ".."} and "/" not in part and "\\" not in part
+    )
+
 
 class _InputBase(SchemaModel):
     #: Declared here so ``kind`` stays the first key of every input; each
@@ -102,7 +120,10 @@ class _InputBase(SchemaModel):
         None,
         description=(
             "Data subfolder under scans/ScanNNN/ when it differs from the "
-            "device (stitched or post-processed outputs in a sibling folder)."
+            "device (stitched or post-processed outputs in a sibling folder), "
+            "or analysis:<folder> to read the per-shot files an earlier "
+            "analysis wrote under analysis/ScanNNN/<folder>/ "
+            "(analysis:<folder>/<series> when the folder holds several)."
         ),
     )
     file_tail: Optional[str] = Field(
@@ -661,8 +682,13 @@ class AnalysisRecipe(VersionedSchemaModel):
 
     @property
     def data_folder(self) -> str:
-        """The subfolder under scans/ScanNNN/ holding the files: ``input.folder`` or the device."""
+        """Where the files are: ``input.folder`` or the device (a subfolder of scans/ScanNNN/, or an ``analysis:`` output)."""
         return self.input.folder or self.device
+
+    @property
+    def reads_analysis_output(self) -> bool:
+        """Whether the input is an earlier analysis's per-shot outputs (``analysis:<folder>``)."""
+        return is_analysis_output(self.input.folder)
 
     @property
     def destructive(self) -> bool:
@@ -721,6 +747,48 @@ class AnalysisRecipe(VersionedSchemaModel):
         return self
 
     @model_validator(mode="after")
+    def _analysis_output_input(self) -> "AnalysisRecipe":
+        """An ``analysis:`` input names one output folder (and series), read file by file.
+
+        ``device`` names what the run writes (its s-file columns and output
+        folder), so it is never an ``analysis:`` name, and the output folder
+        is never the one the input reads. The files are the output's own
+        per-shot files: no capture stack, no file tail, no stitched siblings.
+        """
+        if is_analysis_output(self.device):
+            raise ValueError(
+                f"device {self.device!r} names an analysis output; put it in "
+                "input.folder and give the device a plain name (it names the "
+                "s-file columns and the output folder)"
+            )
+        if not self.reads_analysis_output:
+            return self
+        folder = str(self.input.folder)
+        output, _, series = folder[len(ANALYSIS_OUTPUT_PREFIX) :].partition("/")
+        if not _one_part(output) or (series and not _one_part(series)):
+            raise ValueError(
+                f"input.folder {folder!r} is not analysis:<folder> or "
+                "analysis:<folder>/<series>"
+            )
+        if output == self.effective_output_name:
+            raise ValueError(
+                f"input.folder reads analysis output {output!r}, the folder this "
+                "recipe writes to; give it another output_name"
+            )
+        if self.input.format == "device_hdf5":
+            raise ValueError(
+                "an analysis output is per-shot files: format device_hdf5 does not apply"
+            )
+        if self.input.file_tail is not None:
+            raise ValueError(
+                "an analysis output's series picks its files: leave file_tail unset "
+                "(name the series, analysis:<folder>/<series>)"
+            )
+        if self.sibling_folders:
+            raise ValueError("input.siblings does not apply to an analysis output")
+        return self
+
+    @model_validator(mode="after")
     def _summaries_fit_the_input(self) -> "AnalysisRecipe":
         """Every summary kind must accept the input's dimensionality."""
         ndim = type(self.input).ndim
@@ -754,6 +822,7 @@ class AnalysisRecipe(VersionedSchemaModel):
 
 
 __all__ = [
+    "ANALYSIS_OUTPUT_PREFIX",
     "CURRENT_RECIPE_VERSION",
     "SUMMARY_KINDS",
     "AnalysisRecipe",
@@ -772,4 +841,5 @@ __all__ = [
     "Summary",
     "WaterfallSummary",
     "declared_schema_version",
+    "is_analysis_output",
 ]

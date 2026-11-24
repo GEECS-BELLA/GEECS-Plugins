@@ -1229,7 +1229,7 @@ Frames are camera images (2D).
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'camera'` | no | 'camera' | Image input. |
-| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder). |
+| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder), or analysis:<folder> to read the per-shot files an earlier analysis wrote under analysis/ScanNNN/<folder>/ (analysis:<folder>/<series> when the folder holds several). |
 | `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.txt', '_postprocessed.tsv'); unset uses the kind's default. |
 | `format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes; a camera falls back to per-shot files when no stack can be mapped, a 'pva_stack' trace does not. |
 
@@ -1240,7 +1240,7 @@ Frames are traces (1D): how one file is read and scaled.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'line'` | no | 'line' | Trace input. |
-| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder). |
+| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder), or analysis:<folder> to read the per-shot files an earlier analysis wrote under analysis/ScanNNN/<folder>/ (analysis:<folder>/<series> when the folder holds several). |
 | `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.txt', '_postprocessed.tsv'); unset uses the kind's default. |
 | `format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes; a camera falls back to per-shot files when no stack can be mapped, a 'pva_stack' trace does not. |
 | `loading` | `Data1DLoading` | yes | — | How to read one trace file. |

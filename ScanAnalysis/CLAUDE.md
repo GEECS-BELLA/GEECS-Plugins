@@ -125,6 +125,24 @@ is the one allowance for that (the harness's `--nonuniform-axis`), and
 `tests/test_core_stitch.py` compares the two routes through it, everything
 else exact.
 
+An **earlier analysis's per-shot outputs** are an input too: `input.folder`
+`analysis:<folder>` (the folder's own series) or `analysis:<folder>/<series>`
+reads `analysis/ScanNNN/<folder>/` — the `Scan{NNN}_{stem}_{shot}.{ext}`
+files a pipeline wrote there, `py-magspec-interpSpec`'s spectra or an image
+series — through data-utils' reader of them (`io.analysis_outputs`, the one
+the portal's Images page draws them with). `source_directory` resolves the
+folder by path; `output_references` maps each row's shot to its series' file
+of that number (the announced shot on a scan-mode run, `file_numbers`), only
+when it exists — a shot the earlier run did not write is missing, never a
+neighbour's file — and an output the scan has no files of raises
+`OutputUnavailable`, which the analyzer reports as `no_data`. The recipe's
+`device` stays a plain name, since it names what the run writes; the schema
+refuses an `analysis:` device, an output folder equal to the input's, a
+`file_tail` (the series picks the files), a capture stack and stitched
+siblings for such an input (`tests/test_core_analysis_input.py`). Its
+`{scan_dir}` is that output folder; a scan background still reads the
+device's raw folder, which such a recipe does not have.
+
 `core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
 for one explicit run. A measure that reads a recorded column per shot
 (`pipeline.shot_scalar_columns`: the magspec field) gets its finite cells on
@@ -650,8 +668,8 @@ In practice:
   the shot's raw file (`core_sink.write_shot_table`), where the legacy
   analyzer wrote it and follow-on analyzers read it through a recipe
   input's `folder`. It creates no directory. Moving derived artifacts
-  under `analysis/` and letting inputs read from there is a separate,
-  undecided design question. The second exception (the HASO arc brief the
+  under `analysis/` is a separate, undecided design question; reading them
+  from there is not (an `analysis:<folder>` input, above). The second exception (the HASO arc brief the
   owner approved 2026-09-28): the `himg_to_stack` job writes
   the device's capture stack `<device>/<device>.h5` beside the `.himg`
   sources — the one place every stack reader looks, by the file-plugin

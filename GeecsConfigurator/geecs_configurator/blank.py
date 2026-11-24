@@ -17,6 +17,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from geecs_schemas import SCHEMA_REGISTRY
+from geecs_schemas.analysis import is_analysis_output
 from geecs_schemas.analysis.scalar import blank_scalar_job
 
 from geecs_configurator.ownership import Ownership
@@ -47,7 +48,9 @@ def schema_blank(kind: str, name: str, input_kind: str, device: str, fields: Jso
     elif kind == "scalar_job":
         return blank_scalar_job(name)
     else:
-        document = {"schema_version": 3, "device": device or name, "output_name": name, "input": {"kind": input_kind, **fields}, "steps": []}  # fmt: skip
+        # an earlier analysis's output is the input's folder; the device (what is written) is then the name
+        folder = {"folder": device} if is_analysis_output(device) else {}
+        document = {"schema_version": 3, "device": name if folder else (device or name), "output_name": name, "input": {"kind": input_kind, **folder, **fields}, "steps": []}  # fmt: skip
     SCHEMA_REGISTRY[kind].model_validate(document)
     return document
 

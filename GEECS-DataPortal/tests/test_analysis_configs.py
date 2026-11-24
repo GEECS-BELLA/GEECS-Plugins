@@ -674,6 +674,65 @@ class TestLinePreview:
         assert r.status_code == 200, r.text
         assert r.content[:4] == b"\x89PNG"
 
+    def test_an_analysis_output_previews_its_shots_own_table(
+        self, scan_folder, configs_tree, seen
+    ):
+        """A recipe reading an earlier analysis's outputs previews that shot's file."""
+        np = pytest.importorskip("numpy")
+        from geecs_data_utils.scan_info import analysis_folder_for
+
+        output = analysis_folder_for(scan_folder) / "py-spec"
+        output.mkdir(parents=True)
+        for shot in (1, 2):
+            xy = np.column_stack([np.linspace(50, 150, 11), np.full(11, float(shot))])
+            np.savetxt(
+                output / f"Scan002_py-spec_{shot:03d}.txt",
+                xy,
+                delimiter="\t",
+                header="Energy_MeV\tCharge_pC",
+                comments="",
+            )
+        client = _client(scan_folder, configs_tree)
+        doc = {
+            "schema_version": 3,
+            "device": "Lineout",
+            "input": {
+                "kind": "line",
+                "folder": "analysis:py-spec",
+                "loading": {"data_type": "tsv"},
+            },
+            "measure": {"kind": "line"},
+        }
+        assert self._post(client, doc, shot=2).status_code == 200
+        ((frames, _),) = seen
+        assert frames[0].shape == (11, 2) and (frames[0][:, 1] == 2.0).all()
+        missing = dict(doc, input={**doc["input"], "folder": "analysis:py-none"})
+        assert self._post(client, missing).status_code == 404
+
+    def test_an_analysis_output_image_previews_its_shots_own_picture(
+        self, scan_folder, configs_tree, seen
+    ):
+        """An image series of an earlier analysis: the shot's own PNG."""
+        np = pytest.importorskip("numpy")
+        Image = pytest.importorskip("PIL.Image")
+        from geecs_data_utils.scan_info import analysis_folder_for
+
+        output = analysis_folder_for(scan_folder) / "py-ebeam"
+        output.mkdir(parents=True)
+        for shot in (1, 2):
+            Image.fromarray(np.full((4, 6), 10 * shot, dtype=np.uint8)).save(
+                output / f"Scan002_py-ebeam_{shot:03d}.png"
+            )
+        client = _client(scan_folder, configs_tree)
+        doc = {
+            "schema_version": 3,
+            "device": "Ebeam",
+            "input": {"kind": "camera", "folder": "analysis:py-ebeam"},
+        }
+        assert self._post(client, doc, shot=2).status_code == 200
+        ((frames, _),) = seen
+        assert frames[0].shape == (4, 6) and int(frames[0][0, 0]) == 20
+
     def test_the_analyzer_gets_the_files_values_read_by_the_documents_loader(
         self, scan_folder, configs_tree, seen
     ):
