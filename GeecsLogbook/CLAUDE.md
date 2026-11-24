@@ -57,7 +57,7 @@ owns scan folders — one surface to fix when a format changes:
 | An s-file's columns / first row | `data.sfile.read_sfile_head`, `sfile_column` (bare or LabVIEW `Alias:`), `header_for_variable` | a local split or a full `read_sfile` |
 | A `ScanNNN` folder's number | `scan_info.parse_scan_folder_name(name)` | a local regex |
 | A scan's outcome | `scan_info.classify_end_info(end_info, closed=…)` | a local classifier |
-| When a scan ran | `scan_log_loader.first_log_timestamp(path)` | the folder's `st_mtime` |
+| When a scan ran | `scan_info.scan_start_time` (the portal's rule: first shot's `DateTime Timestamp`, else `scan.log`, else the ini mtime, each on the folder's day) | the folder's `st_mtime` |
 
 The folder's mtime is **not** a start time: any later pass that writes into
 the folder (the analysis task queue's `analysis_status/`, for one) moves it,
@@ -362,7 +362,8 @@ which ScanAnalysis appends its scalars to, then `ScanDataScanNNN.txt`; the
 portal's catalog uses the same order). The s-file is written in place at the run's close,
 so the two-line read is cached on the file's `(mtime, size)` and copied
 onto the ini-keyed summary, never into it: a read that raced the write is
-replaced by the next request's. `ScanSummary.values_state` says why values
+replaced by the next request's. The start time's s-file rung follows the
+same rule (`scan_reader._started`). `ScanSummary.values_state` says why values
 are missing: "recording" (no s-file, not finalised), "no_sfile" (finished
 without one), "no_shots" (a header and no row); a listed name with no
 column → "not recorded" (background telemetry off, or a member the probe
@@ -474,7 +475,7 @@ An adversarial review argued it is pure logic that belongs in
 So the shape this package wants is a *pure* reader with no path-object
 ceremony, and moving it under `ScanPaths` would bind it to the very design
 that needs fixing. The parse itself **is** shared
-(`read_scan_info_file`, `first_log_timestamp`) — that was the half worth
+(`read_scan_info_file`, `scan_start_time`) — that was the half worth
 doing now. A little duplication in the day-walking and the summary model is
 accepted in exchange.
 

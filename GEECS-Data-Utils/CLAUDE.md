@@ -17,7 +17,8 @@ geecs_data_utils/
                                #   floats), read_scan_info_sections (every section,
                                #   one parse, interpolation off) + scan_log_variables
                                #   (the web scanner's [Scan Log] list), is_noscan,
-                               #   classify_end_info — the one
+                               #   classify_end_info, scan_start_time (the
+                               #   start-time ladder) + LABVIEW_EPOCH_OFFSET — the one
                                #   home the portal, logbook, ScanAnalysis and
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
@@ -459,10 +460,11 @@ this package and must never depend on GeecsBluesky or a GUI package).
   = the s-file column that records the scan parameter, alias and all;
   `num_points`/`shots_per_step`; `scan_folder`; `time` = the first
   shot's LabVIEW `DateTime Timestamp`, else `scan.log`'s first record,
-  else the ini mtime — the logbook's ladder — every rung clamped to the
-  folder's day, `time_approximate` flagging the ini-mtime and noon
-  rungs). A loaded run has **`data=None`** on purpose: its scalars are
-  the s-file, which `scan_frame` already reads for a run-less scan — one
+  else the ini mtime, every rung clamped to the folder's day, then local
+  noon; `time_approximate` flags the ini-mtime and noon rungs). The rungs
+  are `scan_info.scan_start_time`, which the logbook calls too, so a scan
+  shows one start time on both surfaces; noon is the catalog's alone. A
+  loaded run has **`data=None`** on purpose: its scalars are the s-file, which `scan_frame` already reads for a run-less scan — one
   s-file reader. The outcome is `scan_info.classify_end_info` — the
   logbook's classifier too — projected onto the stop document's
   `exit_status` words (`success`/`fail`/`abort`/`unknown`, `incomplete` →
@@ -598,8 +600,8 @@ this package and must never depend on GeecsBluesky or a GUI package).
 Tests are hermetic (`tests/test_tiled_*.py`) — fake client objects that
 quack like Tiled search results; no network, no real catalog.
 
-Data Utils has no intra-repo dependencies. `io.scan_stack.LABVIEW_EPOCH_OFFSET`
-is a file-format constant, deliberately independent of Core's wire-format
+Data Utils has no intra-repo dependencies. `scan_info.LABVIEW_EPOCH_OFFSET`
+(re-used by `io.scan_stack`) is a file-format constant, deliberately independent of Core's wire-format
 constant. GeecsBluesky (which already depends on both) pins their equality;
 sharing this integer does not justify an access-library dependency here.
 
