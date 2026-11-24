@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import write_sfile
 from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
@@ -89,9 +90,7 @@ def build_scan(
             SORT_COLUMN: [30.0, 10.0, 50.0, 20.0, 60.0, 40.0],
         }
     )
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    rows.to_csv(analysis / "s1.txt", sep="\t", index=False)
+    write_sfile(scan, rows)
     return scan
 
 

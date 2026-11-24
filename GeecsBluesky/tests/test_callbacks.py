@@ -134,14 +134,14 @@ def test_scan_info_lines_carry_the_legacy_keys(tmp_path) -> None:
     assert (info["Start"], info["End"], info["Step size"]) == ("4.0", "6.0", "1.0")
     assert info["Shots per step"] == "10"
     assert info["ScanEndInfo"] == "success"
-    assert info["Background"] == "false" and info["ScanMode"] == "standard"
+    assert info["ScanMode"] == "standard" and "Background" not in info
     assert info["Scanner"] == "bluesky" and info["Plan"] == "scan"
     assert info["Trigger profile"] == "HTU-Normal"
     noscan = _ini_from(
-        scan_info_lines({"plan_name": "count", "num_points": 5, "background": True}),
+        scan_info_lines({"plan_name": "count", "num_points": 5}),
         tmp_path,
     )
-    assert noscan["ScanMode"] == "background" and noscan["Background"] == "true"
+    assert noscan["ScanMode"] == "noscan" and "Background" not in noscan
     assert noscan["Scan Parameter"] == "Shotnumber" and noscan["Shots per step"] == "5"
 
 

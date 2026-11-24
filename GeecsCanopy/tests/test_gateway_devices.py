@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from geecs_core.db.geecs_db import GeecsDb
+from geecs_core.testing import patch_geecs_db
 
 from geecs_canopy.gateway import GatewaySource
 from geecs_canopy.journal import Journal
@@ -49,20 +49,18 @@ PREFIX = "test:u_plc:"
 def db(monkeypatch):
     state = SimpleNamespace(down=False)
 
-    def answer(value):
-        def call(cls, experiment, **_):
-            if state.down:
-                raise ConnectionError("no route to the DB")
-            return value
+    def reachable():
+        if state.down:
+            raise ConnectionError("no route to the DB")
 
-        return classmethod(call)
-
-    monkeypatch.setattr(GeecsDb, "get_experiment_devices", answer({"U_PLC": ("h", 1), "U_Stage": ("h", 2)}))  # fmt: skip
-    monkeypatch.setattr(GeecsDb, "get_experiment_device_variables", answer(VARIABLES))
-    monkeypatch.setattr(
-        GeecsDb, "get_subscribed_variables", answer({"U_PLC": ["DI.Ch1"]})
-    )  # get=yes: served read-only
-    monkeypatch.setattr(GeecsDb, "get_experiment_device_types", answer(TYPES))
+    patch_geecs_db(
+        monkeypatch,
+        devices={"U_PLC": ("h", 1), "U_Stage": ("h", 2)},
+        variables=VARIABLES,
+        subscribed={"U_PLC": ["DI.Ch1"]},  # get=yes: served read-only
+        types=TYPES,
+        before=reachable,
+    )
     return state
 
 

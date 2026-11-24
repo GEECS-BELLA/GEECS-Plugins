@@ -180,13 +180,6 @@ class Preset(VersionedSchemaModel):
             "use the experiment default (experiment_defaults.yaml)."
         ),
     )
-    background: bool = Field(
-        False,
-        description=(
-            "Flag this scan as a background measurement (metadata only: "
-            "ScanMode 'background' in ScanInfo, 'background' in the run)."
-        ),
-    )
     native_image_save: Optional[bool] = Field(
         None,
         description=(

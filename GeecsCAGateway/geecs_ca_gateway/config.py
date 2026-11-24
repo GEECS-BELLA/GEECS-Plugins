@@ -132,18 +132,17 @@ class DeviceSpec(BaseModel):
         port: int,
         variables_metadata: Sequence[Mapping[str, Any]],
         *,
-        include: list[str] | None = None,
-        include_settable: bool = False,
         dtypes: dict[str, DType] | None = None,
         prefix: str | None = None,
         experiment: str | None = None,
     ) -> "DeviceSpec":
         """Build a spec from already-fetched GEECS DB variable metadata.
 
-        This is the pure, network-free core of :meth:`from_geecs_db` — it takes
-        the rows returned by ``GeecsDb.get_device_variables`` and maps them onto
+        Pure and network-free: it maps the rows it is given (already down-
+        selected to the served set by
+        :func:`geecs_core.db.served_set.served_variables`) onto
         :class:`VariableSpec` fields (units → ``egu``, min/max → ``lo``/``hi``,
-        ``set`` → ``settable``).
+        ``set`` → ``settable``).  Every row given is served.
 
         Parameters
         ----------
@@ -153,18 +152,12 @@ class DeviceSpec(BaseModel):
             Device endpoint, as returned by ``GeecsDb.find_device``.
         variables_metadata : list of dict
             Rows with keys ``name``, ``units``, ``min``, ``max``, ``settable``.
-        include : list of str, optional
-            If given, only these variable names are exposed.  Otherwise all are.
-        include_settable : bool
-            Expose settable variables even when ``include`` would filter them
-            out.  The include list is the *monitoring* subset (``get='yes'``);
-            settable variables are the device's *control surface* (e.g. a
-            camera's ``save`` / ``localsavingpath``), which CA clients need for
-            writes regardless of what is monitored per shot.
         dtypes : dict, optional
-            Per-variable dtype overrides.  Variables default to ``"float"`` —
-            the GEECS DB carries no scalar type, so non-float variables (enums,
-            addresses) must be named here or excluded via ``include``.
+            Explicit per-variable dtype overrides.  Without one, the dtype
+            comes from the row's ``variabletype`` and ``choices``
+            (:func:`~geecs_core.db.variable_types.effective_vartype`, then
+            ``VARTYPE_TO_DTYPE``), falling back to ``"float"`` for an unknown
+            type.
         prefix : str, optional
             Override the PV prefix (defaults to ``name``).
 
@@ -177,9 +170,6 @@ class DeviceSpec(BaseModel):
         seen: set[str] = set()
         for meta in variables_metadata:
             var_name = meta["name"]
-            if include is not None and var_name not in include:  # noqa: SIM102 — reads clearer nested
-                if not (include_settable and bool(meta.get("settable", False))):
-                    continue
             if var_name in seen:  # DB can list a variable more than once
                 continue
             seen.add(var_name)
@@ -245,51 +235,6 @@ class DeviceSpec(BaseModel):
             variables=specs,
         )
 
-    @classmethod
-    def from_geecs_db(
-        cls,
-        name: str,
-        *,
-        include: list[str] | None = None,
-        include_settable: bool = False,
-        dtypes: dict[str, DType] | None = None,
-        prefix: str | None = None,
-        experiment: str | None = None,
-    ) -> "DeviceSpec":
-        """Build a spec by querying the GEECS database (needs lab network).
-
-        Thin wrapper over :meth:`from_db_metadata`: resolves the device endpoint
-        with ``GeecsDb.find_device`` and its variables with
-        ``GeecsDb.get_device_variables``.  Import of ``GeecsDb`` is deferred so
-        the rest of the package stays importable without a DB/MySQL dependency.
-
-        Parameters
-        ----------
-        name : str
-            GEECS device name exactly as it appears in the database.
-        include, include_settable, dtypes, prefix
-            Forwarded to :meth:`from_db_metadata`.
-
-        Returns
-        -------
-        DeviceSpec
-        """
-        from geecs_core.db.geecs_db import GeecsDb
-
-        host, port = GeecsDb.find_device(name)
-        metadata = GeecsDb.get_device_variables(name)
-        return cls.from_db_metadata(
-            name,
-            host,
-            port,
-            metadata,
-            include=include,
-            include_settable=include_settable,
-            dtypes=dtypes,
-            prefix=prefix,
-            experiment=experiment,
-        )
-
 
 class GatewayConfig(BaseModel):
     """Top-level gateway configuration: the set of devices to serve."""
@@ -310,8 +255,9 @@ class GatewayConfig(BaseModel):
 
         Enumerates the experiment's devices (``enabled_only`` skips devices whose
         ``expt_device.enabled`` is not ``"yes"``), and builds a
-        :class:`DeviceSpec` for each via :meth:`DeviceSpec.from_geecs_db`, tagged
-        with ``experiment`` as the PV namespace prefix.  Devices that fail to
+        :class:`DeviceSpec` for each from its served rows via
+        :meth:`DeviceSpec.from_db_metadata`, tagged with ``experiment`` as the
+        PV namespace prefix.  Devices that fail to
         resolve are logged and skipped rather than aborting the whole config.
 
         With ``subscribed_only`` (default), only the per-shot monitoring subset is

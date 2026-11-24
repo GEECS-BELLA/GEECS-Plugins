@@ -175,7 +175,9 @@ def test_submit_then_run_pause_resume_stop(
     q = client.get("/api/queue").json()
     assert q["running"] is None
     done = q["finished"][0]
-    assert done["state"] == "failed" and done["word"] == "stopped"
+    assert (
+        done["state"] == "degraded" and done["word"] == "stopped"
+    )  # amber: red is for failures
     assert done["scan_numbers"] == [47] and done["detail"] == "stopped by operator"
     # RunEngine.stop() marks the run successful; the history row is what says stopped
     assert client.get("/api/progress").json()["state"] == "done"
@@ -203,7 +205,7 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
     q = client.get("/api/queue").json()
     assert q["running"]["plan"] == "count" and q["running"]["planned_shots"] == 20
     assert [w["position"] for w in q["waiting"]] == [1]
-    assert q["waiting"][0]["summary"].startswith("background · count · 50 shots")
+    assert q["waiting"][0]["summary"].startswith("count · 50 shots")
     # a third while one WAITS is the failed-item-at-front trap: refused, pending items named
     r = client.post("/api/submit", json={"preset": first, "acknowledged": ack})
     assert r.status_code == 409
@@ -220,7 +222,7 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
     assert r.status_code == 200
     q = client.get("/api/queue").json()
     assert len(q["waiting"]) == 1 and q["waiting"][0]["plan"] == "count"
-    assert not q["waiting"][0]["summary"].startswith("background")
+    assert q["waiting"][0]["summary"].startswith("count · 20 shots")
     for _ in range(20):
         manager.step()
     q = client.get("/api/queue").json()
@@ -241,7 +243,7 @@ def test_queue_runs_items_in_order_and_clear_drops_the_waiting(
     )
     # an add starts the queue the stop left stopped: it runs at once
     running = client.get("/api/queue").json()["running"]
-    assert running is not None and running["summary"].startswith("background")
+    assert running is not None and running["summary"].startswith("count · 50 shots")
     assert (
         client.post(
             "/api/submit", json={"preset": first, "acknowledged": ack}
@@ -353,6 +355,46 @@ def test_a_gateway_withholding_monitors_refuses_even_acknowledged(
     assert queue["running"] is None and queue["waiting"] == []
 
 
+def test_preflight_outcomes_on_the_wire_are_pinned(
+    manager: DemoQueueClient, streams, tmp_path
+) -> None:
+    """Each outcome's bytes as the page, GEECS-MCP and the saved records read them."""
+    from geecs_bluesky.qs_client import PreflightReport
+    from geecs_schemas import PreflightCheckResult, PreflightOutcome
+
+    from geecs_scanner.service import ScannerService
+    from geecs_scanner.service.demo import DemoResolver
+    from geecs_scanner.web import create_app
+
+    def preflight(preset, experiment, **_):
+        report = PreflightReport()
+        for result in PreflightCheckResult:
+            report.outcomes.append(
+                PreflightOutcome(check=f"c_{result.value}", result=result, detail="ü")
+            )
+        report.passed("bare")
+        return report
+
+    service = ScannerService(
+        manager,
+        DemoResolver(),
+        experiment="Demo",
+        identity="geecs-scanner test",
+        streams=streams,
+        preflight=preflight,
+        heartbeat_path=tmp_path / "heartbeat.json",
+    )
+    client = TestClient(create_app(service))
+    body = client.post("/api/preflight", json=service.preset("eb_align_1hz")).content
+    assert (
+        '"outcomes":['
+        '{"check":"c_passed","result":"passed","detail":"ü"},'
+        '{"check":"c_continued","result":"continued","detail":"ü"},'
+        '{"check":"c_skipped","result":"skipped","detail":"ü"},'
+        '{"check":"bare","result":"passed","detail":""}]'
+    ).encode() in body
+
+
 def test_append_queues_in_order_and_remove_drops_only_a_waiting_item(
     client: TestClient, service
 ) -> None:
@@ -364,8 +406,8 @@ def test_append_queues_in_order_and_remove_drops_only_a_waiting_item(
         assert client.post("/api/submit", json=body).status_code == 200
     q = client.get("/api/queue").json()
     assert [w["position"] for w in q["waiting"]] == [1, 2]
-    assert q["waiting"][0]["summary"].startswith("background")
-    assert not q["waiting"][1]["summary"].startswith("background")
+    assert q["waiting"][0]["summary"].startswith("count · 50 shots")
+    assert q["waiting"][1]["summary"].startswith("count · 20 shots")
     # an unacknowledged question still refuses an append
     r = client.post("/api/submit", json={"preset": first, "append": True})
     assert r.status_code == 409 and "needs_acknowledgement" in r.json()["error"]

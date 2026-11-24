@@ -89,8 +89,6 @@ class ScanSummary(BaseModel):
         ``Plan`` and ``Scanner``, e.g. ``"scan"`` / ``"bluesky"``.
     trigger_profile : str or None
         ``Trigger profile``.
-    background : bool or None
-        ``Background``.
     purpose : str or None
         ``ScanStartInfo`` — the operator's stated reason for the scan,
         captured at submission. This is the one human-authored field the
@@ -142,7 +140,6 @@ class ScanSummary(BaseModel):
     plan: Optional[str] = None
     scanner: Optional[str] = None
     trigger_profile: Optional[str] = None
-    background: Optional[bool] = None
     purpose: Optional[str] = None
     status: ScanStatus = "unknown"
     failure_reason: Optional[str] = None

@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from geecs_data_utils.testing import make_scan_folder
 from PIL import Image
 
 from geecs_portal.plotter.app import create_app
@@ -27,17 +28,14 @@ def write_scan(
 ) -> Path:
     """Write ``scans/ScanNNN/`` (with its ScanInfo) and ``analysis/sN.txt``."""
     day = root / EXPERIMENT / "Y2026" / "10-Oct" / "26_1002"
-    folder = day / "scans" / f"Scan{number:03d}"
-    folder.mkdir(parents=True)
-    (folder / f"ScanInfoScan{number:03d}.ini").write_text(
-        "[Scan Info]\n"
+    return make_scan_folder(
+        day / "scans" / f"Scan{number:03d}",
+        scan_info="[Scan Info]\n"
         f'Scan No = "{number}"\n'
         f'Scan Parameter = "{parameter}"\n'
-        'Start = "1"\nEnd = "2"\nStep size = "1"\nShots per step = "2"\n'
+        'Start = "1"\nEnd = "2"\nStep size = "1"\nShots per step = "2"\n',
+        sfile=frame,
     )
-    (day / "analysis").mkdir(exist_ok=True)
-    frame.to_csv(day / "analysis" / f"s{number}.txt", sep="\t", index=False)
-    return folder
 
 
 @pytest.fixture

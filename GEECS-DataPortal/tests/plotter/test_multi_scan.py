@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from geecs_data_utils.testing import make_scan_folder
 
 from tests.plotter.conftest import EXPERIMENT, SCAN_VARIABLE, post
 
@@ -25,27 +26,25 @@ OTHER_DAY = date(2026, 10, 3)
 def two_days(share: Path) -> Path:
     """The share plus Scan001 of 2026-10-03, stepping the jet too."""
     day = share / EXPERIMENT / "Y2026" / "10-Oct" / "26_1003"
-    folder = day / "scans" / "Scan001"
-    folder.mkdir(parents=True)
-    (folder / "ScanInfoScan001.ini").write_text(
-        "[Scan Info]\n"
+    make_scan_folder(
+        day / "scans" / "Scan001",
+        scan_info="[Scan Info]\n"
         'Scan No = "1"\n'
         f'Scan Parameter = "{SCAN_VARIABLE}"\n'
         'Start = "1"\nEnd = "2"\nStep size = "1"\nShots per step = "1"\n'
-        'ScanStartInfo = "the other day"\n'
+        'ScanStartInfo = "the other day"\n',
+        sfile=pd.DataFrame(
+            {
+                "Shotnumber": [1, 2],
+                "Bin #": [1, 2],
+                SCAN_VARIABLE: [1.0, 2.0],
+                CHARGE: [20.0, 40.0],
+                ONLY_THERE: [7.0, 8.0],
+                # A Bluesky s-file's own scan column: the scan number per row.
+                "scan": [1, 1],
+            }
+        ),
     )
-    (day / "analysis").mkdir()
-    pd.DataFrame(
-        {
-            "Shotnumber": [1, 2],
-            "Bin #": [1, 2],
-            SCAN_VARIABLE: [1.0, 2.0],
-            CHARGE: [20.0, 40.0],
-            ONLY_THERE: [7.0, 8.0],
-            # A Bluesky s-file's own scan column: the scan number per row.
-            "scan": [1, 1],
-        }
-    ).to_csv(day / "analysis" / "s1.txt", sep="\t", index=False)
     return share
 
 

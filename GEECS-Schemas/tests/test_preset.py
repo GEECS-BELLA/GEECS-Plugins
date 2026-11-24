@@ -16,7 +16,7 @@ def test_minimal_preset_is_a_device_group():
     assert preset.plan is None
     assert preset.devices[0].save_images is True
     assert preset.devices[0].required is True  # phase 2: waited on every shot
-    assert preset.trigger_profile is None and preset.background is False
+    assert preset.trigger_profile is None
     assert preset.native_image_save is None  # unset: the experiment default
     assert preset.background_telemetry is None  # unset: the experiment default
 
@@ -27,7 +27,6 @@ def test_full_preset_round_trips():
         "name": "emq1",
         "description": "emq1 sweep",
         "trigger_profile": "HTU-Normal",
-        "background": False,
         "native_image_save": False,
         "background_telemetry": True,
         "devices": [
@@ -94,6 +93,8 @@ def test_duplicate_devices_are_refused():
 def test_unknown_keys_and_empty_names_are_refused():
     with pytest.raises(ValidationError):
         Preset.model_validate({"name": "p", "save_sets": ["x"]})
+    with pytest.raises(ValidationError):  # the retired background-scan flag
+        Preset.model_validate({"name": "p", "background": True})
     with pytest.raises(ValidationError):
         Preset.model_validate({"name": "p", "devices": [{"device": ""}]})
     with pytest.raises(ValidationError):

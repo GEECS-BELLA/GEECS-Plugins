@@ -308,3 +308,41 @@ def test_a_scan_mode_profile_with_writes_keeps_refusing_undefined_states(
     assert sc.use_scan_mode and not sc.boxless
     with pytest.raises(GeecsConfigurationError, match="ARMED"):
         _run(RE, lambda: sc.set("ARMED"))
+
+
+# ------------------------------------------------- the profile adapter (#1413)
+def test_the_adapter_keeps_each_states_writes_in_declared_order() -> None:
+    """A profile becomes exactly its ordered ``(device, variable, value)`` triples.
+
+    Undefined states are absent, and the devices come out in order of first
+    appearance — never sorted.
+    """
+    from geecs_schemas.trigger_profile import TriggerProfile
+
+    from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
+
+    def write(device: str, variable: str, value: str) -> dict[str, str]:
+        return {"device": device, "variable": variable, "value": value}
+
+    profile = TriggerProfile.model_validate(
+        {
+            "name": "order",
+            "states": {
+                "ARMED": [
+                    write("U_Shutter", "Position", "open"),
+                    write("U_DG645", "Trigger.Source", "Single shot"),
+                ],
+                "STANDBY": [write("U_ZGasJet", "DO.Jet", "off")],
+            },
+        }
+    )
+    writes = trigger_writes_from_profile(profile)
+    assert writes.states == {
+        "STANDBY": [("U_ZGasJet", "DO.Jet", "off")],
+        "ARMED": [
+            ("U_Shutter", "Position", "open"),
+            ("U_DG645", "Trigger.Source", "Single shot"),
+        ],
+    }
+    assert list(writes.states) == ["STANDBY", "ARMED"]
+    assert writes.devices == ["U_ZGasJet", "U_Shutter", "U_DG645"]

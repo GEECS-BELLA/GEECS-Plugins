@@ -24,34 +24,12 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
-from geecs_schemas.log_entry import Book, EntryKind, EntryStatus, LogEntry
+from geecs_schemas.log_entry import Book, EntryCreate, EntryStatus, LogEntry
 from pydantic import BaseModel, Field
 
 from geecs_logbook.render import render_markdown
 from geecs_logbook.routes._common import Context, attachment_base, entry_base
 from geecs_logbook.store import ConflictError
-
-
-class EntryCreate(BaseModel):
-    """What a client sends to add an entry.
-
-    Tags are not a field: they are read out of ``body_md`` at save.
-    """
-
-    day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    book: Book = "scans"
-    scan: Optional[int] = Field(
-        None, ge=1, description="Scan number; omit both for a day-level entry."
-    )
-    after: Optional[int] = Field(
-        None, ge=0, description="Interscan: the scan it follows."
-    )
-    author: str = Field(min_length=1, max_length=120)
-    body_md: str = Field(max_length=200_000)
-    template: str = Field("blank", max_length=64)
-    kind: EntryKind = "note"
-    status: EntryStatus = "kept"
-    payload: Optional[dict] = None
 
 
 class EntryUpdate(BaseModel):

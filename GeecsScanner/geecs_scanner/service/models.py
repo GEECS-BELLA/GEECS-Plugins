@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from geecs_bluesky.qs_client.progress import SlowDevice
+from geecs_schemas import PreflightOutcome
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -82,6 +83,22 @@ class StatusOut(BaseModel):
     reopening: bool = Field(
         default=False,
         description="The worker environment is being reopened (POST /api/environment/reopen)",
+    )
+    run_word: str = Field(
+        default="unknown",
+        description="What the manager is doing, in one word (idle, the run engine's word, reopening, unreachable, or the readiness word)",
+    )
+    run_kit: str = Field(
+        default="unknown",
+        description="The run word's kit status state (ok, running, paused, degraded, failed, unknown)",
+    )
+    start_queue_blocker: Optional[str] = Field(
+        default=None,
+        description="Why POST /api/queue/start is refused now, as the verb words it; null when allowed",
+    )
+    idle_blocker: Optional[str] = Field(
+        default=None,
+        description="Why an idle-only item (a move, a setup, a calibration, Set to best) is refused now, in one shared sentence (each verb's refusal names that verb); null when allowed",
     )
 
 
@@ -174,14 +191,6 @@ class PreflightQuestionOut(BaseModel):
     abort_label: str = "Abort"
 
 
-class PreflightOutcomeOut(BaseModel):
-    """One check already decided (``passed`` / ``skipped``)."""
-
-    check: str
-    result: str
-    detail: str = ""
-
-
 class PlanCallOut(BaseModel):
     """The expanded plan call — what the queue would receive."""
 
@@ -196,7 +205,7 @@ class PreflightOut(BaseModel):
 
     refusal: Optional[str] = None
     questions: list[PreflightQuestionOut] = Field(default_factory=list)
-    outcomes: list[PreflightOutcomeOut] = Field(default_factory=list)
+    outcomes: list[PreflightOutcome] = Field(default_factory=list)
     plan: Optional[PlanCallOut] = None
     summary: str = ""
     planned_shots: Optional[int] = None

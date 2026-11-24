@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
@@ -91,13 +92,13 @@ def lineout(shot: int) -> pd.DataFrame:
 
 
 def build_scan(base_dir: Path) -> Path:
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    device = scan / DEVICE
-    device.mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan001.ini").write_text(
-        '[Scan Info]\nScan No = "1"\nScan Parameter = "U_Motor:Position"\n'
-        'Start = "1"\nEnd = "3"\nStep size = "1"\nShots per step = "2"\n'
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        devices=[DEVICE],
+        scan_info='[Scan Info]\nScan No = "1"\nScan Parameter = "U_Motor:Position"\n'
+        'Start = "1"\nEnd = "3"\nStep size = "1"\nShots per step = "2"\n',
     )
+    device = scan / DEVICE
     for shot in range(1, SHOTS + 1):
         lineout(shot).to_csv(
             device / f"Scan001_{DEVICE}_{shot:03d}_retrieved_lineouts.tsv",
@@ -105,15 +106,16 @@ def build_scan(base_dir: Path) -> Path:
             index=False,
             float_format="%.17g",
         )
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    pd.DataFrame(
-        {
-            "Shotnumber": range(1, SHOTS + 1),
-            "Bin #": [1 + k // 2 for k in range(SHOTS)],
-            "U_Motor Position Alias:motor": [1.0 + k // 2 for k in range(SHOTS)],
-        }
-    ).to_csv(analysis / "s1.txt", sep="\t", index=False)
+    write_sfile(
+        scan,
+        pd.DataFrame(
+            {
+                "Shotnumber": range(1, SHOTS + 1),
+                "Bin #": [1 + k // 2 for k in range(SHOTS)],
+                "U_Motor Position Alias:motor": [1.0 + k // 2 for k in range(SHOTS)],
+            }
+        ),
+    )
     return scan
 
 

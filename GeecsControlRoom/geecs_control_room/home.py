@@ -74,7 +74,8 @@ SCANNER_TIMEOUT_S = 2.5
 SAVE_TIMEOUT_S, DIFF_TIMEOUT_S = 65.0, 12.0
 #: The baseline's diffs read every saved PV live: once per process per period, however many tabs poll.
 BASELINE_TTL_S = 10.0
-#: The manager's words as the strip's kit states (others: unknown).
+#: The manager's words as the strip's kit states (others: unknown), for a scanner
+#: whose status carries no ``run_word`` / ``run_kit`` yet (the strip relays those).
 _RUN_STATE = {
     "running": "running",
     "paused": "paused",
@@ -252,16 +253,20 @@ async def strip(scanner: Optional[httpx.AsyncClient]) -> dict[str, Any]:
         status, progress = (r.raise_for_status().json() for r in answers)
     except (httpx.HTTPError, ValueError):
         return {"scanner": "unreachable", "run": "unknown", "kit": "unknown"}
+    keep = ("scan_number", "shots_done", "planned_total", "state")
+    tail = {k: progress.get(k) for k in keep}
+    if "run_word" in status and "run_kit" in status:
+        # the scanner's own word and colour, so the strip and the scanner page agree
+        return {"scanner": "ok", "run": status["run_word"], "kit": status["run_kit"]} | tail  # fmt: skip
+    # An older scanner (a rolling deploy: the scanner goes first) sends no run word:
+    # derive it as before. Delete this branch once every scanner sends run_word.
     if not status.get("connected"):
         run = "queue server unreachable"
     else:
         run = (
             status.get("re_state") or "unknown"
         )  # the manager's word; progress lags a pause
-    keep = ("scan_number", "shots_done", "planned_total", "state")
-    return {"scanner": "ok", "run": run, "kit": _RUN_STATE.get(run, "unknown")} | {
-        k: progress.get(k) for k in keep
-    }
+    return {"scanner": "ok", "run": run, "kit": _RUN_STATE.get(run, "unknown")} | tail
 
 
 class SaveBody(BaseModel):

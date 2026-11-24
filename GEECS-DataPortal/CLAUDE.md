@@ -70,7 +70,9 @@ extending this package.
   2026-09-15): the Plot tab's "send plot to this scan's log entry"
   button, `geecs_portal/logbook_send.py`.  It writes to **the logbook's
   own service**, over that service's public API — create the scan's
-  entry, upload the PNG, append the image paragraph — and to nothing
+  entry (the body is GEECS-Schemas' `EntryCreate`, the model the
+  logbook's route validates), upload the PNG, append the image
+  paragraph — and to nothing
   else: not the scans tree, not the analysis tree, not portal state.
   The image comes from exactly one of two sources: `image`, the Plot
   tab's data URL, or `path` (GEECS-MCP arc, 2026-10), an analysis
@@ -152,7 +154,10 @@ watch on this day, started and stopped here, shown with its last look and
 its jobs (marked `· watch`). The portal never starts a worker:
   one that does not answer is the 503 above, and the worker's unit (or a
   second terminal on a laptop) is what runs it. Tests: `tests/test_batch.py` (a fake worker over an
-  httpx transport).
+  httpx transport) and `tests/test_worker_contract.py` (the worker's own
+  app in process behind `WorkerLink`: the bodies the day page sends, the
+  fields it reads; geecs-analysis-worker is in the optional `contract`
+  group, `poetry install --with dev,contract`).
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
   imports `tiled` directly and never talks to the catalog server except
@@ -303,6 +308,8 @@ tests/
   test_logbook_link.py   # the run page's link to the logbook service; /log is not served here
   test_logbook_send.py   # the send: the conversation (fake logbook over an
                          #   httpx transport) and the route's gate ladder
+  test_logbook_contract.py  # the send against the logbook's own app (contract group)
+  test_worker_contract.py   # the batch routes against the worker's own app (contract group)
   test_page.py       # on the kit: status words, the theme's glue
 ```
 

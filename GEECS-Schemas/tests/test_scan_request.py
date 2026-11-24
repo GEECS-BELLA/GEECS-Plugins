@@ -180,7 +180,6 @@ class TestScanRequest:
     def test_noscan_minimal(self):
         request = ScanRequest.model_validate({"mode": "noscan", "shots_per_step": 100})
         assert request.axes == []
-        assert not request.background
 
     def test_background_telemetry_inherits_by_default(self):
         # None = inherit the experiment default (ExperimentDefaults).

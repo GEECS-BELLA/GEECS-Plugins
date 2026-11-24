@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from geecs_data_utils.testing import make_scan_folder
 
 DAY = date(2026, 9, 11)
 
@@ -65,9 +66,7 @@ def make_run(tmp_path: Path):
         scans = tmp_path / "Undulator" / "Y2026" / "09-Sep" / day_folder / "scans"
         scans.mkdir(parents=True, exist_ok=True)
         for n in range(1, count + 1):
-            folder = scans / f"Scan{n:03d}"
-            folder.mkdir()
-            (folder / f"ScanInfoScan{n:03d}.ini").write_text(SUCCESS_INI.format(n=n))
+            make_scan_folder(scans / f"Scan{n:03d}", scan_info=SUCCESS_INI.format(n=n))
         return tmp_path
 
     return build
@@ -79,15 +78,19 @@ def share(tmp_path: Path) -> Path:
     scans = tmp_path / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
     scans.mkdir(parents=True)
 
-    ok = scans / "Scan001"
-    (ok / "UC_Amp4_IR_input").mkdir(parents=True)
-    (ok / "ScanInfoScan001.ini").write_text(SUCCESS_INI.format(n=1))
-    (ok / "ScanDataScan001.txt").write_text("shotnumber\n1\n")
+    ok = make_scan_folder(
+        scans / "Scan001",
+        devices=["UC_Amp4_IR_input"],
+        scan_info=SUCCESS_INI.format(n=1),
+        scan_data="shotnumber\n1\n",
+    )
     (ok / "scan.log").write_text(SCAN_LOG.format(n=1))
 
-    bad = scans / "Scan006"
-    (bad / "UC_Amp4_IR_input").mkdir(parents=True)
-    (bad / "ScanInfoScan006.ini").write_text(FAILED_INI.format(n=6))
+    bad = make_scan_folder(
+        scans / "Scan006",
+        devices=["UC_Amp4_IR_input"],
+        scan_info=FAILED_INI.format(n=6),
+    )
     (bad / "scan.log").write_text(SCAN_LOG.format(n=6))
 
     # Development churn: a folder with only a log, no ScanInfo at all.
@@ -96,9 +99,9 @@ def share(tmp_path: Path) -> Path:
     (bare / "scan.log").write_text(SCAN_LOG.format(n=31))
 
     # Claimed and written but never finalised — the most common real state.
-    running = scans / "Scan040"
-    running.mkdir()
-    (running / "ScanInfoScan040.ini").write_text(UNFINALISED_INI.format(n=40))
+    running = make_scan_folder(
+        scans / "Scan040", scan_info=UNFINALISED_INI.format(n=40)
+    )
     (running / "scan.log").write_text(SCAN_LOG.format(n=40))
 
     # Not a scan; must be ignored.

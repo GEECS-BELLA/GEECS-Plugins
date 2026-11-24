@@ -45,6 +45,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Optional
 
+from geecs_schemas import PreflightCheckResult, PreflightOutcome
+
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.trajectory import TrajectoryOut
 from geecs_scanner.service.models import (
@@ -61,7 +63,6 @@ from geecs_scanner.service.models import (
     SetBestIn,
     PlanCallOut,
     PreflightOut,
-    PreflightOutcomeOut,
     PreflightQuestionOut,
     ProgressOut,
     QueueOut,
@@ -93,6 +94,7 @@ from geecs_scanner.service.models import (
 )
 from geecs_scanner.service.streams import StreamCache
 from geecs_scanner.service.summaries import exit_word, summarize_item
+from geecs_scanner.service import verdicts
 
 logger = logging.getLogger("geecs_scanner.service")
 
@@ -320,6 +322,10 @@ class ScannerService:
         """One manager poll plus the readiness verdict (never raises)."""
         snap = self.client.status()
         verdict = self.client.readiness()
+        reopening = self.reopening
+        word, kit = verdicts.run_word(snap, verdict, reopening)
+        # A verb that queues refuses a reopen first (_reopen_guard), then judges the poll.
+        guard = verdicts.reopening_refusal() if reopening else None
         return StatusOut(
             connected=snap.connected,
             re_state=snap.re_state,
@@ -334,7 +340,15 @@ class ScannerService:
             experiment=self.experiment,
             identity=self.identity,
             tiled_writer=self.tiled_writer(),
-            reopening=self.reopening,
+            reopening=reopening,
+            run_word=word,
+            run_kit=kit,
+            start_queue_blocker=verdicts.message(
+                guard or verdicts.start_queue_refusal(snap, verdict)
+            ),  # fmt: skip
+            idle_blocker=verdicts.message(
+                guard or verdicts.idle_refusal(snap, verdicts.IDLE_ONLY_ITEMS)
+            ),  # fmt: skip
         )
 
     def trajectory(
@@ -465,18 +479,11 @@ class ScannerService:
         """Console lines newer than *seq*."""
         return self.streams.console_since(seq)
 
-    def scan_log(self, offset: int = 0, folder: Optional[str] = None) -> ScanLogOut:
-        """The latest run's ``scan.log`` from *offset* on (read-only; see :mod:`.scanlog`)."""
+    def scan_log(self, offset: int, folder: str) -> ScanLogOut:
+        """The ``scan.log`` of *folder* from *offset* on (read-only; see :mod:`.scanlog`)."""
         from geecs_scanner.service.scanlog import read_scan_log
 
         progress = self.streams.snapshot()
-        folder = folder or progress.scan_folder
-        if not folder:
-            return ScanLogOut(
-                available=False,
-                detail="no run folder yet — it arrives with the start document",
-                scan_number=progress.scan_number,
-            )
         out = read_scan_log(folder, offset)
         out.scan_number = (
             progress.scan_number if folder == progress.scan_folder else None
@@ -525,7 +532,10 @@ class ScannerService:
                 ],
             )
         outcomes = list(report.outcomes) + [
-            (q.check, "continued", q.message) for q in report.questions
+            PreflightOutcome(
+                check=q.check, result=PreflightCheckResult.CONTINUED, detail=q.message
+            )
+            for q in report.questions
         ]
         from geecs_bluesky.qs_client import build_submission_record
 
@@ -1003,28 +1013,9 @@ class ScannerService:
         import time
 
         with self._lock:
-            snap = self.client.status()
-            if not snap.connected:
-                raise ScannerError("manager_unreachable", snap.detail or "manager not answering")  # fmt: skip
-            if not snap.worker_exists or snap.worker_environment_state != "idle":
-                raise ScannerError(
-                    "policy_refusal",
-                    "a reopen needs the worker environment open and idle; it is "
-                    f"{snap.worker_environment_state or 'closed'} — the readiness unit opens a closed one",
-                    worker_environment_state=snap.worker_environment_state,
-                )
-            if snap.re_state not in (None, "idle") or snap.manager_state != "idle":
-                raise ScannerError(
-                    "policy_refusal",
-                    f"a reopen is idle-only: a plan is {snap.re_state or snap.manager_state}",
-                    re_state=snap.re_state,
-                )
-            if snap.items_in_queue:
-                raise ScannerError(
-                    "policy_refusal",
-                    f"a reopen is idle-only: {snap.items_in_queue} item(s) wait in the queue",
-                    items_in_queue=snap.items_in_queue,
-                )
+            refusal = verdicts.reopen_refusal(self.client.status())
+            if refusal is not None:
+                raise refusal
             logger.info(
                 "reopening the worker environment for %s (%s)",
                 body.operator or "an unnamed caller",
@@ -1091,31 +1082,11 @@ class ScannerService:
         with self._lock:
             self._check_generation(generation)
             snap = self.client.status()
-            if not snap.connected:
-                raise ScannerError("manager_unreachable", snap.detail or "manager not answering")  # fmt: skip
-            verdict = self.client.readiness()
-            if verdict.state != "ready":
-                raise ScannerError(
-                    "policy_refusal",
-                    "the queue cannot start: the worker environment is not ready "
-                    f"({verdict.state})",
-                    readiness=verdict.state,
-                )
-            busy = snap.re_state not in (None, "idle")
-            if busy or snap.manager_state != "idle":
-                raise ScannerError(
-                    "policy_refusal",
-                    "the queue is already going: a plan is "
-                    f"{snap.re_state if busy else snap.manager_state}",
-                    re_state=snap.re_state,
-                    manager_state=snap.manager_state,
-                )
-            if not snap.items_in_queue:
-                raise ScannerError(
-                    "policy_refusal",
-                    "nothing waits in the queue, so there is nothing to start",
-                    items_in_queue=0,
-                )
+            # an unreachable manager is refused before the readiness read, as it always was
+            verdict = self.client.readiness() if snap.connected else None
+            refusal = verdicts.start_queue_refusal(snap, verdict)
+            if refusal is not None:
+                raise refusal
             logger.info(
                 "queue start by %s: %d item(s) waiting",
                 body.operator or "an unnamed caller",
@@ -1208,12 +1179,7 @@ class ScannerService:
     def _refuse_while_reopening(self, *, force: bool = False) -> None:
         """A preflight during a reopen would read the environment closed; say why instead."""
         if force or self.reopening:
-            raise ScannerError(
-                "policy_refusal",
-                "the worker environment is reopening to read a committed configuration "
-                "change; try again in a minute",
-                reopening=True,
-            )
+            raise verdicts.reopening_refusal()
 
     def _run_preflight(self, preset: Any, catalog: Mapping[str, Any]) -> Any:
         fn = self._preflight or _default_preflight()
@@ -1285,24 +1251,9 @@ class ScannerService:
 
     def _require_idle(self, what: str) -> None:
         """Refuse *what* unless the manager answers, nothing runs and nothing waits."""
-        snap = self.client.status()
-        if not snap.connected:
-            raise ScannerError(
-                "manager_unreachable", snap.detail or "manager not answering"
-            )
-        if snap.re_state not in (None, "idle"):
-            raise ScannerError(
-                "policy_refusal",
-                f"{what} is idle-only: a plan is {snap.re_state} — wait for it or stop it first",
-                re_state=snap.re_state,
-            )
-        if snap.items_in_queue:
-            raise ScannerError(
-                "policy_refusal",
-                f"{what} is idle-only: {snap.items_in_queue} item(s) wait in the queue "
-                "and it would run right after them — clear the queue first",
-                items_in_queue=snap.items_in_queue,
-            )
+        refusal = verdicts.idle_refusal(self.client.status(), what)
+        if refusal is not None:
+            raise refusal
 
     def _setups(self) -> dict[str, Any]:
         try:
@@ -1353,10 +1304,7 @@ def _preflight_out(report: Any) -> PreflightOut:
     return PreflightOut(
         refusal=report.refusal,
         questions=[PreflightQuestionOut(**vars(q)) for q in report.questions],
-        outcomes=[
-            PreflightOutcomeOut(check=c, result=r, detail=d)
-            for c, r, d in report.outcomes
-        ],
+        outcomes=list(report.outcomes),
     )
 
 

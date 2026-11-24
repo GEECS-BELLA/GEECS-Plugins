@@ -95,6 +95,7 @@ from geecs_schemas.log_entry import (
     AnalysisPayload,
     Attachment,
     Book,
+    EntryCreate,
     EntryKind,
     EntryPayload,
     EntryStatus,
@@ -317,6 +318,7 @@ __all__ = [
     "DeviceOffset",
     # log_entry
     "LogEntry",
+    "EntryCreate",
     "Attachment",
     "AnalysisPayload",
     "ProblemPayload",

@@ -84,9 +84,10 @@
     }
   },
   "additionalProperties": false,
-  "description": "The device writes that drive the machine through its trigger states.\n\nFor each state (OFF, STANDBY, SCAN, SINGLESHOT, ARMED) list the writes \u2014\npossibly to several devices \u2014 that put the machine into it, **in the\norder they should be sent**.  Edit it when timing hardware or its\nsettings change; make a separate profile for a different operating\ncondition (e.g. laser off).\n\nNotes\n-----\nValues are sent verbatim over the GEECS wire protocol.  Use\n:meth:`writes_for` / :meth:`defines_state` instead of digging the lists \u2014\nthey implement the \"state with no writes is not defined\" rule.\n:attr:`devices` lists every device the profile touches.\n\nFormat v2 removed the v1 ``variants`` overlay (see the module\ndocstring); a before-validator drops an empty v1 block, refuses a\npopulated one, and normalizes ``schema_version`` \u2264 1 to 2.",
+  "description": "The device writes that drive the machine through its trigger states.\n\nFor each state (OFF, STANDBY, SCAN, SINGLESHOT, ARMED) list the writes \u2014\npossibly to several devices \u2014 that put the machine into it, **in the\norder they should be sent**.  Edit it when timing hardware or its\nsettings change; make a separate profile for a different operating\ncondition (e.g. laser off).\n\nNotes\n-----\nValues are sent verbatim over the GEECS wire protocol.  Use\n:meth:`writes_for` / :meth:`defines_state` instead of digging the lists \u2014\nthey implement the \"state with no writes is not defined\" rule.\n:attr:`devices` lists every device the profile touches.\n\nFormat v2 is the only format accepted: ``schema_version`` must be 2 (or\nabsent), and an unknown key such as the removed ``variants`` overlay\nis refused like any other.",
   "properties": {
     "schema_version": {
+      "const": 2,
       "default": 2,
       "description": "Format version of this config file. Leave at 2 \u2014 tools update this automatically when the file format changes.",
       "title": "Schema Version",
