@@ -196,3 +196,19 @@ def test_a_bin_of_moving_axes_averages_index_wise_and_says_so(
     assert _png(_get(client, "tile.png", device=TABLE, strip="bins", index=0))
     one = _get(client, "trace", device=TABLE, strip="shots", index=1).json()
     assert one["note"] == ""
+
+
+def test_overlaid_columns_of_different_quantities_get_no_one_y_title(
+    client: TestClient, outputs: Path
+) -> None:
+    def title(channels: list[int]) -> str:
+        body = _get(
+            client, "trace", device=TABLE, strip="shots", index=1, channel=channels
+        ).json()
+        return body["figure"]["layout"]["yaxis"]["title"]["text"]
+
+    assert title([0]) != ""  # one column: its own label
+    assert title([0, 1]) == ""  # two quantities on one range: the legend names them
+    assert _png(
+        _get(client, "tile.png", device=TABLE, strip="shots", index=1, channel=[0, 1])
+    )

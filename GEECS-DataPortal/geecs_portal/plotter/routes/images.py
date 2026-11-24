@@ -681,15 +681,12 @@ def trace_png(
     axis with no unit at all (a headerless text spectrum) still gets a
     prefix (``1 k``).
     """
-    shown: list[TraceLine] = []
-    why = ""
-    for channel, label, trace in lines:
-        try:
-            shown.append((channel, label, images.windowed(trace, window)))
-        except images.NoImage as reason:
-            why = str(reason)
-    if not shown:
-        raise images.NoImage(why or "no trace")
+    inside = images.windowed_each([trace for _, _, trace in lines], window)
+    shown = [
+        (channel, label, trace)
+        for (channel, label, _), trace in zip(lines, inside)
+        if trace is not None
+    ]
     from matplotlib.figure import Figure
     from matplotlib.ticker import MaxNLocator
 
@@ -706,7 +703,10 @@ def trace_png(
             label=label,
         )
     ax.margins(x=0)
-    trace = shown[0][2]  # the first line's units name the axes
+    trace = shown[0][2]  # the x axis: the first line's (one scope, one time base)
+    # The y ticks carry a unit only when every line has the same one.
+    y_units = {t.y_units for _, _, t in shown}
+    one_y_unit = y_units.pop() if len(y_units) == 1 else None
     if window is not None:
         x = np.concatenate([t.data[:, 0] for _, _, t in shown])
         low, high = window
@@ -725,7 +725,7 @@ def trace_png(
         # so the highest and lowest samples are not drawn on the frame.
         pad = 0.04 * (levels[1] - levels[0])
         ax.set_ylim(levels[0] - pad, levels[1] + pad)
-    for axis, units in ((ax.xaxis, trace.x_units), (ax.yaxis, trace.y_units)):
+    for axis, units in ((ax.xaxis, trace.x_units), (ax.yaxis, one_y_unit)):
         axis.set_major_locator(MaxNLocator(4))
         formatter = tick_formatter(units)
         if formatter is not None:
@@ -767,9 +767,18 @@ def tile_lines(
         if one.note:
             notes.append(one.note)
     if not lines:
-        why = list(dict.fromkeys(one for _, one in finds if isinstance(one, str)))
-        raise images.NoImage("; ".join(why) if why else "no channel picked")
+        raise images.no_channel(finds)
     return lines, list(dict.fromkeys(notes)), missing
+
+
+def y_title(traces: Sequence) -> str:
+    """The y axis' title for overlaid traces: theirs when they agree, else none.
+
+    Two lines of different quantities (an output table's columns) share
+    the axis' range, never one line's label; the legend names each.
+    """
+    titles = {_axis_title(t.y_label, t.y_units) for t in traces}
+    return titles.pop() if len(titles) == 1 else ""
 
 
 def trace_tile_png(
@@ -826,7 +835,7 @@ def trace_view(
         first.data[:, 1],
         name=lines[0][1] if channels_named or len(lines) > 1 else name,
         x_title=_axis_title(first.x_label, first.x_units),
-        y_title=_axis_title(first.y_label, first.y_units),
+        y_title=y_title([trace for _, _, trace in lines]),
         palette=palette,
     )
     figure.data[0].line.color = portal_figures.trace_color(None, lines[0][0], palette)
@@ -844,15 +853,11 @@ def trace_view(
     if len(lines) > 1:
         figure.update_layout(showlegend=True)
     if window is not None:
-        inside = []
-        reason = images.NoImage("no trace")
-        for _, _, trace in lines:
-            try:
-                inside.append(images.windowed(trace, window).data)
-            except images.NoImage as why:
-                reason = why
-        if not inside:
-            raise reason
+        inside = [
+            t.data
+            for t in images.windowed_each([trace for _, _, trace in lines], window)
+            if t is not None
+        ]
         x = np.concatenate([d[:, 0] for d in inside])
         y = np.concatenate([d[:, 1] for d in inside])
         low, high = window

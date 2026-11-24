@@ -97,6 +97,8 @@
         "channels": {
           "description": "The row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named.",
           "items": {
+            "maximum": 15,
+            "minimum": 0,
             "type": "integer"
           },
           "maxItems": 16,
@@ -510,6 +512,8 @@
     "image_channels": {
       "description": "The first row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named.",
       "items": {
+        "maximum": 15,
+        "minimum": 0,
         "type": "integer"
       },
       "maxItems": 16,

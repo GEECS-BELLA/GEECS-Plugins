@@ -69,6 +69,9 @@ def test_days_read_from_yaml_dates_and_strings_alike() -> None:
         {"extra_scans": [{"day": "2026-11-22", "scan": 0}]},
         {"image_channels": []},
         {"image_more": [{"channels": []}]},
+        {"image_channels": [-1]},
+        {"image_more": [{"channels": [16]}]},
+        {"image_channel": "two"},
     ],
 )
 def test_out_of_range_values_are_refused(doc: dict) -> None:
@@ -91,3 +94,7 @@ def test_a_set_naming_both_keeps_the_list() -> None:
         {"image_channel": 2, "image_channels": [0, 1]}
     )
     assert settings.image_channels == [0, 1]
+
+
+def test_an_old_channel_written_as_text_still_reads() -> None:
+    assert PlotterSettings.model_validate({"image_channel": "2"}).image_channels == [2]

@@ -879,9 +879,39 @@ def channel_traces(
     finds = channel_finds(folder, frame, device, rows, channels)
     found = [(ch, one) for ch, one in finds if not isinstance(one, str)]
     if not found:
-        why = list(dict.fromkeys(one for _, one in finds if isinstance(one, str)))
-        raise NoImage("; ".join(why) if why else "no channel picked")
+        raise no_channel(finds)
     return found
+
+
+def no_channel(
+    finds: Sequence[tuple[int, Union[shot_traces.ShotTrace, str]]],
+) -> NoImage:
+    """The refusal of a tile none of whose picked channels has a trace: each reason once."""
+    why = list(dict.fromkeys(one for _, one in finds if isinstance(one, str)))
+    return NoImage("; ".join(why) if why else "no channel picked")
+
+
+def windowed_each(
+    traces: Sequence[Data1DResult], window: Optional[XWindow]
+) -> list[Optional[Data1DResult]]:
+    """Each of a tile's traces inside the x *window*, ``None`` for one with no sample there.
+
+    Raises
+    ------
+    NoImage
+        None of them has a sample in the window (:func:`windowed`'s reason).
+    """
+    out: list[Optional[Data1DResult]] = []
+    why: Optional[NoImage] = None
+    for trace in traces:
+        try:
+            out.append(windowed(trace, window))
+        except NoImage as reason:
+            out.append(None)
+            why = reason
+    if why is not None and all(t is None for t in out):
+        raise why
+    return out
 
 
 #: A trace row's x window: ``(low, high)``, either ``None`` for no limit.
@@ -934,15 +964,14 @@ def trace_levels(
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
             found = channel_traces(folder, frame, device, tile.rows, channels)
+            inside = windowed_each([one.result for _, one in found], window)
         except NoImage:
             return None
         ranges = []
-        for _, one in found:
-            assert one.result is not None
-            try:
-                y = windowed(one.result, window).data[:, 1]
-            except NoImage:
+        for trace in inside:
+            if trace is None:
                 continue
+            y = trace.data[:, 1]
             finite = y[np.isfinite(y)]
             if finite.size:
                 ranges.append((float(finite.min()), float(finite.max())))

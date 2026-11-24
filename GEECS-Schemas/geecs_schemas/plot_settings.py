@@ -19,7 +19,7 @@ still loads, and the portal checks the choices where the page posts them.
 from __future__ import annotations
 
 from datetime import date
-from typing import ClassVar, Literal, Optional
+from typing import Annotated, ClassVar, Literal, Optional
 
 from pydantic import ConfigDict, Field, model_validator
 
@@ -52,6 +52,9 @@ _KEEP_UNKNOWN = ConfigDict(extra="allow")
 #: The highest scope channel a trace row may name (from 0).
 MAX_CHANNEL = 15
 
+#: One scope channel a trace row names.
+Channel = Annotated[int, Field(ge=0, le=MAX_CHANNEL)]
+
 
 def _one_channel_to_list(data: object, old: str, new: str) -> object:
     """A set saved with one channel (*old*: an int) read as the list *new* holding it.
@@ -63,8 +66,8 @@ def _one_channel_to_list(data: object, old: str, new: str) -> object:
     if isinstance(data, dict) and old in data:
         data = dict(data)
         one = data.pop(old)
-        if new not in data and isinstance(one, int) and not isinstance(one, bool):
-            data[new] = [one]
+        if new not in data:
+            data[new] = [one]  # checked as the list's items are
     return data
 
 
@@ -107,7 +110,7 @@ class ImageCamera(SchemaModel):
     )
     cbar: bool = Field(True, description="Draw colour bars.")
     bgsub: bool = Field(True, description="Subtract the set's background scan.")
-    channels: list[int] = Field(
+    channels: list[Channel] = Field(
         default_factory=lambda: [0],
         min_length=1,
         max_length=MAX_CHANNEL + 1,
@@ -247,7 +250,7 @@ class PlotterSettings(VersionedSchemaModel):
     image_bgsub: bool = Field(
         True, description="The first camera subtracts the background."
     )
-    image_channels: list[int] = Field(
+    image_channels: list[Channel] = Field(
         default_factory=lambda: [0],
         min_length=1,
         max_length=MAX_CHANNEL + 1,
