@@ -13,16 +13,20 @@ Before this module the read and the path convention were duplicated in
 ``ScanData.load_scalars`` and twice in ScanAnalysis (``base.py``).
 Consolidate here; the writer-side sites
 (``copy_fresh_sfile_to_analysis``, ``tiled_export``) are deliberately
-out of scope.  Strictly read-only (repo scan-folder invariant).
+out of scope.  Two facts about a scan live here under their own names:
+:func:`run_closed_evidence` (its data is written: a surface shows it
+finished) and :func:`scan_is_settled` (the scanner has stopped writing
+it: analysis may run).  Strictly read-only (repo scan-folder invariant).
 """
 
 from __future__ import annotations
 
 import contextlib
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from geecs_data_utils.scan_info import parse_scan_folder_name
+from geecs_data_utils.scan_info import parse_scan_folder_name, read_scan_info_file
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard for type checkers
     import pandas as pd
@@ -199,6 +203,50 @@ def run_closed_evidence(scan_folder: Path) -> Optional[Path]:
         if candidate.is_file():
             return candidate
     return None
+
+
+#: How long the scanner's own files must sit unchanged before a closed scan is settled (seconds).
+SETTLE_SECONDS = 10.0
+
+#: How long a run that closed with no table waits for one (seconds): the
+#: native scanner writes its table on a thread after the stop document, once
+#: its image stacks finalize (a 15 s timeout), so a table can still come.
+ROWLESS_SETTLE_SECONDS = 60.0
+
+
+def scan_is_settled(scan_folder: Path, *, now: Optional[float] = None) -> bool:
+    """Whether the scanner has stopped writing the scan, so analysis may run over it.
+
+    Settled: the scanner's own files in the scan folder
+    (``ScanInfoScanNNN.ini``, ``ScanDataScanNNN.txt``) have not changed for
+    :data:`SETTLE_SECONDS` and the run closed — its ``ScanData`` table and
+    the analysis s-file both exist, or, for a run with no rows, its
+    ``ScanEndInfo`` is filled and nothing has changed for
+    :data:`ROWLESS_SETTLE_SECONDS`.  Of what analysis writes, only the
+    s-file's existence is read — never its time or contents, and analysis
+    never deletes it — so an analysis run never unsettles a scan.  Not
+    :func:`run_closed_evidence`, which says the data is written (a surface
+    shows the scan finished) while the files may still be changing.
+    Read-only.
+    """
+    folder = Path(scan_folder)
+    table = scan_data_txt_path_for(folder)
+    info = folder / f"ScanInfo{folder.name}.ini"
+    stamps: dict[Path, float] = {}
+    for path in (table, info):
+        with contextlib.suppress(OSError):
+            stamps[path] = path.stat().st_mtime
+    if not stamps:
+        return False
+    age = (time.time() if now is None else now) - max(stamps.values())
+    if table in stamps:
+        try:
+            has_sfile = sfile_path_for_scan(folder).is_file()
+        except ValueError:  # not a canonical scans/ScanNNN folder: no s-file to read
+            has_sfile = False
+        return has_sfile and age >= SETTLE_SECONDS
+    end_info = (read_scan_info_file(info).get("ScanEndInfo") or "").strip()
+    return bool(end_info) and age >= ROWLESS_SETTLE_SECONDS
 
 
 def read_sfile(path: Path) -> "pd.DataFrame":

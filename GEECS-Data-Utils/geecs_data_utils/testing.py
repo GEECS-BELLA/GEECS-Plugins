@@ -101,16 +101,17 @@ def make_scan_folder(
 def write_closed(folder: Path, *, age: float = 60.0) -> None:
     """What the scanner leaves at the end of a run: the table, then the s-file.
 
-    The s-file's mtime is set *age* seconds in the past, so the run reads as
-    closed and settled.
+    Both are dated *age* seconds in the past, so the run reads as closed
+    and, with the default, settled.
     """
-    n = int(folder.name[len("Scan") :])
-    (folder / f"ScanDataScan{n:03d}.txt").write_text("Shotnumber\n1\n")
+    table = scan_data_txt_path_for(folder)
+    table.write_text("Shotnumber\n1\n")
     sfile = sfile_path_for_scan(folder)
     sfile.parent.mkdir(parents=True, exist_ok=True)
     sfile.write_text("Shotnumber\n1\n")
     then = time.time() - age
-    os.utime(sfile, (then, then))
+    for path in (table, sfile):
+        os.utime(path, (then, then))
 
 
 def imaq_struct(width: int, height: int, border: int = 0, pixel_type: int = 0) -> bytes:
