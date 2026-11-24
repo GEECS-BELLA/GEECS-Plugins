@@ -44,25 +44,6 @@ def test_a_scan_without_conditions_lists_none(client: TestClient, camera: Path) 
     assert 'id="conditions"' not in post(client, scan=1, page="images", device=CAM)
 
 
-def test_the_conditions_route(client: TestClient, share: Path) -> None:
-    label_scan(share, target=[2, 2, 2, 2], door=[1, 1, 1, 1])
-    body = client.get("/api/conditions", params={"day": "2026-10-02", "scan": 1})
-    assert body.status_code == 200
-    assert body.headers["cache-control"] == "no-cache"
-    by = {c["column"]: c for c in body.json()["conditions"]}
-    assert by["target"]["label"] == "nothing" and not by["target"]["mixed"]
-    assert by["door"] == {
-        "column": "door",
-        "label": "shut",
-        "mixed": False,
-        "detail": "",
-        "counts": {"shut": 4},
-        "unknown": 0,
-    }
-    empty = client.get("/api/conditions", params={"day": "2026-10-02", "scan": 2})
-    assert empty.json() == {"conditions": []}
-
-
 def test_the_copied_grid_carries_the_condition_lines(
     client: TestClient, share: Path, camera: Path
 ) -> None:

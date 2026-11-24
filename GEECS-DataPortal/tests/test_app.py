@@ -356,43 +356,6 @@ class TestAnalysisApi:
         payload = _client(catalog).get("/api/run/uid-007/columns").json()
         assert payload["default_x"] == "mono"
 
-    def test_frame_returns_series_and_shot_key(self):
-        payload = (
-            _client().get("/api/run/uid-002/frame?cols=cam-MaxCounts&x=mono").json()
-        )
-        assert payload["series"]["cam-MaxCounts"] == [10.0, 12.5, 11.0]
-        assert payload["series"]["mono"] == [4.0, 5.0, 6.0]
-        assert payload["shot"] == [1.0, 2.0, 3.0]  # 1-based scan_event_index
-        assert payload["pass"] == 3 and payload["total"] == 3
-        assert "scan_frame" in payload["code"]
-
-    def test_frame_applies_filters(self):
-        payload = (
-            _client()
-            .get(
-                "/api/run/uid-002/frame",
-                params={"cols": "cam-MaxCounts", "filters": self._FILTERS},
-            )
-            .json()
-        )
-        assert payload["series"]["cam-MaxCounts"] == [12.5, 11.0]
-        assert payload["pass"] == 2 and payload["total"] == 3
-        assert "apply_filters" in payload["code"]
-
-    def test_filters_that_empty_the_frame_are_not_a_404(self):
-        response = _client().get(
-            "/api/run/uid-002/frame",
-            params={
-                "cols": "cam-MaxCounts",
-                "filters": '{"groups":[{"conditions":'
-                '[{"column":"cam-MaxCounts","low":-2.0,"high":-1.0}]}]}',
-            },
-        )
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["series"]["cam-MaxCounts"] == []
-        assert payload["pass"] == 0
-
     def test_binned_hand_computed_identity_bins(self):
         payload = (
             _client()
@@ -419,17 +382,9 @@ class TestAnalysisApi:
         assert response.status_code == 404
         assert "bin column" in response.json()["detail"]
 
-    def test_filter_count(self):
-        payload = (
-            _client()
-            .get("/api/run/uid-002/filter-count", params={"filters": self._FILTERS})
-            .json()
-        )
-        assert payload == {"pass": 2, "total": 3}
-
     def test_bad_filters_json_is_400(self):
         response = _client().get(
-            "/api/run/uid-002/frame",
+            "/api/run/uid-002/binned",
             params={"cols": "cam-MaxCounts", "filters": "{not json"},
         )
         assert response.status_code == 400
@@ -437,10 +392,11 @@ class TestAnalysisApi:
 
     def test_unknown_filter_column_is_400(self):
         response = _client().get(
-            "/api/run/uid-002/filter-count",
+            "/api/run/uid-002/binned",
             params={
+                "cols": "cam-MaxCounts",
                 "filters": '{"groups":[{"conditions":'
-                '[{"column":"nope","low":0,"high":1}]}]}'
+                '[{"column":"nope","low":0,"high":1}]}]}',
             },
         )
         assert response.status_code == 400
@@ -461,12 +417,15 @@ class TestAnalysisApi:
         assert response.status_code == 400
 
     def test_unknown_column_is_404(self):
-        response = _client().get("/api/run/uid-002/frame?cols=nope")
+        response = _client().get(
+            "/api/run/uid-002/binned",
+            params={"cols": "nope", "bincfg": '{"bin_col":"mono"}'},
+        )
         assert response.status_code == 404
 
     def test_more_than_four_y_columns_is_400(self):
         query = "&".join(f"cols=c{i}" for i in range(5))
-        response = _client().get(f"/api/run/uid-002/frame?{query}")
+        response = _client().get(f"/api/run/uid-002/binned?{query}")
         assert response.status_code == 400
         assert "at most 4" in response.json()["detail"]
 
@@ -476,9 +435,7 @@ class TestAnalysisApi:
         # them until the next portal release.
         for path in (
             "columns",
-            "frame?cols=cam-MaxCounts",
             'binned?cols=cam-MaxCounts&bincfg={"bin_col":"mono"}',
-            "filter-count",
         ):
             response = _client().get(f"/api/run/uid-002/{path}")
             assert response.status_code == 200, path
@@ -490,18 +447,6 @@ class TestAnalysisApi:
 
     def test_api_unknown_run_is_404(self):
         assert _client().get("/api/run/nope/columns").status_code == 404
-
-    def test_nan_values_serialize_as_null(self):
-        # cam-dead is all-NaN and unplottable, but a partial-NaN column
-        # must serialize NaN as null (valid JSON), never bare NaN.
-        catalog = FakeCatalog()
-        detail = _detail(7)
-        detail.data.loc[1, "cam-MaxCounts"] = float("nan")
-        catalog.details["uid-007"] = detail
-        response = _client(catalog).get("/api/run/uid-007/frame?cols=cam-MaxCounts")
-        assert response.status_code == 200
-        assert b"NaN" not in response.content
-        assert response.json()["series"]["cam-MaxCounts"] == [10.0, None, 11.0]
 
     def test_wrong_typed_bincfg_fields_are_400_not_500(self):
         # BinningConfig is a plain dataclass: type/arity discipline
@@ -548,32 +493,6 @@ class TestAnalysisApi:
         )
         assert response.status_code == 400
 
-    def test_na_shot_key_serializes_as_null(self):
-        # A union row the event side missed carries pd.NA in the Int64
-        # shot key — it must serialize as null, never the string "<NA>".
-        catalog = FakeCatalog()
-        detail = _detail(7)
-        detail.data["scan_event_index"] = pd.array([1, pd.NA, 3], dtype="Int64")
-        catalog.details["uid-007"] = detail
-        response = _client(catalog).get("/api/run/uid-007/frame?cols=cam-MaxCounts")
-        assert response.status_code == 200
-        assert b"<NA>" not in response.content
-        assert response.json()["shot"] == [1.0, None, 3.0]
-
-    def test_union_shot_key_coalesces_from_shotnumber(self):
-        # An s-file-only union row has no event index but does have a
-        # Shotnumber — the shot axis must coalesce to it, not go null
-        # (Plotly silently drops null-x points from the default plot).
-        catalog = FakeCatalog()
-        detail = _detail(7)
-        detail.data["scan_event_index"] = pd.array([1, 2, pd.NA], dtype="Int64")
-        detail.data["Shotnumber"] = [1.0, 2.0, 4.0]
-        catalog.details["uid-007"] = detail
-        payload = (
-            _client(catalog).get("/api/run/uid-007/frame?cols=cam-MaxCounts").json()
-        )
-        assert payload["shot"] == [1.0, 2.0, 4.0]
-
     def test_binned_counts_are_integers(self):
         payload = (
             _client()
@@ -618,36 +537,6 @@ class TestAnalysisApi:
 class TestServerFigures:
     """0.10.0: the /api responses carry the server-authored figure."""
 
-    def test_frame_figure_is_wired_and_pretty_named(self):
-        payload = (
-            _client().get("/api/run/uid-002/frame?cols=cam-MaxCounts&x=mono").json()
-        )
-        fig = payload["figure"]
-        assert [t["yaxis"] for t in fig["data"]] == ["y"]
-        assert fig["data"][0]["x"] == [4.0, 5.0, 6.0]
-        assert fig["data"][0]["y"] == [10.0, 12.5, 11.0]
-        # Run-provenance names prettify (device : variable).
-        assert fig["data"][0]["name"] == "cam : MaxCounts"
-        assert fig["layout"]["xaxis"]["title"]["text"] == "mono"
-        assert fig["layout"]["showlegend"] is False  # single trace
-
-    def test_frame_without_cols_serves_no_figure(self):
-        payload = _client().get("/api/run/uid-002/frame").json()
-        assert "figure" not in payload
-
-    def test_display_param_reaches_the_figure_and_the_code(self):
-        payload = (
-            _client()
-            .get(
-                "/api/run/uid-002/frame",
-                params={"cols": "cam-MaxCounts", "display": '{"logy":true}'},
-            )
-            .json()
-        )
-        assert payload["figure"]["layout"]["yaxis"]["type"] == "log"
-        assert "shots_figure" in payload["code"]
-        assert "'logy': True" in payload["code"]
-
     def test_display_layout_passthrough_stays_out_of_the_server_figure(self):
         # display.layout is the CLIENT-side escape hatch — the server
         # accepts the key (a shared link carries the whole display
@@ -655,9 +544,10 @@ class TestServerFigures:
         payload = (
             _client()
             .get(
-                "/api/run/uid-002/frame",
+                "/api/run/uid-002/binned",
                 params={
                     "cols": "cam-MaxCounts",
+                    "bincfg": '{"bin_col":"mono"}',
                     "display": '{"layout":{"yaxis":{"tickformat":".2e"}}}',
                 },
             )
@@ -682,8 +572,12 @@ class TestServerFigures:
             '{"layout":"x"}',
         ):
             response = client.get(
-                "/api/run/uid-002/frame",
-                params={"cols": "cam-MaxCounts", "display": display},
+                "/api/run/uid-002/binned",
+                params={
+                    "cols": "cam-MaxCounts",
+                    "bincfg": '{"bin_col":"mono"}',
+                    "display": display,
+                },
             )
             assert response.status_code == 400, display
             assert "display" in response.json()["detail"]
@@ -692,20 +586,16 @@ class TestServerFigures:
         payload = (
             _client()
             .get(
-                "/api/run/uid-002/frame",
-                params={"cols": "cam-MaxCounts", "display": '{"logy":null}'},
+                "/api/run/uid-002/binned",
+                params={
+                    "cols": "cam-MaxCounts",
+                    "bincfg": '{"bin_col":"mono"}',
+                    "display": '{"logy":null}',
+                },
             )
             .json()
         )
         assert payload["figure"]["layout"]["yaxis"].get("type") != "log"
-
-    def test_no_x_means_the_shot_axis_in_figure_and_code(self):
-        # (An unplottable x 404s at the endpoint — pre-existing; the
-        # figure-level fallback is pinned in test_figures.py.)
-        payload = _client().get("/api/run/uid-002/frame?cols=cam-MaxCounts").json()
-        assert payload["figure"]["data"][0]["x"] == [1.0, 2.0, 3.0]
-        assert payload["figure"]["layout"]["xaxis"]["title"]["text"] == "shot #"
-        assert "x=" not in payload["code"]
 
     def test_binned_x_places_bins_at_per_bin_mean(self):
         # Identity bins on mono (one shot each) — the per-bin mean of
@@ -817,12 +707,6 @@ class TestServerFigures:
         assert fig["layout"]["xaxis"]["title"]["text"] == "mono"
         assert "binned_figure" in payload["code"]
 
-    def test_datetime_snippet_carries_kinds(self):
-        # Without kinds the notebook figure would apply logx/x-ranges
-        # to a date axis the page's figure guards — divergence.
-        payload = _client().get("/api/run/uid-002/frame?cols=ts_cam-MaxCounts").json()
-        assert "kinds={'ts_cam-MaxCounts': 'datetime'}" in payload["code"]
-
 
 class TestPlotTabPolish:
     """W1e: timestamp handling, the ts_ pick flag, day-jump stepping."""
@@ -832,41 +716,6 @@ class TestPlotTabPolish:
         flags = {c["name"]: c["timestamp"] for c in payload["columns"]}
         assert flags["ts_cam-MaxCounts"] is True
         assert flags["cam-MaxCounts"] is False
-
-    def test_frame_serves_timestamps_as_local_datetimes(self):
-        from datetime import datetime
-
-        payload = _client().get("/api/run/uid-002/frame?cols=ts_cam-MaxCounts").json()
-        assert payload["kinds"] == {"ts_cam-MaxCounts": "datetime"}
-        expected = datetime.fromtimestamp(_epoch(9, 30)).isoformat(
-            sep=" ", timespec="milliseconds"
-        )
-        assert payload["series"]["ts_cam-MaxCounts"][0] == expected
-
-    def test_labview_timestamps_shift_by_the_wire_offset(self):
-        from datetime import datetime
-
-        from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
-
-        # An s-file-style acq_timestamp column holds LabVIEW epoch.
-        catalog = FakeCatalog()
-        detail = _detail(7)
-        detail.data["cam acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
-        catalog.details["uid-007"] = detail
-        payload = (
-            _client(catalog)
-            .get("/api/run/uid-007/frame", params={"cols": "cam acq_timestamp"})
-            .json()
-        )
-        assert payload["kinds"] == {"cam acq_timestamp": "datetime"}
-        expected = datetime.fromtimestamp(_LV + 1.0 - LABVIEW_EPOCH_OFFSET).isoformat(
-            sep=" ", timespec="milliseconds"
-        )
-        assert payload["series"]["cam acq_timestamp"][0] == expected
-
-    def test_plain_columns_carry_no_kind(self):
-        payload = _client().get("/api/run/uid-002/frame?cols=cam-MaxCounts").json()
-        assert payload["kinds"] == {}
 
     def test_jump_prefers_the_same_scan_number(self):
         client = _client(FakeCatalog(), default_experiment="Undulator")
@@ -911,21 +760,6 @@ class TestPlotTabPolish:
         assert "Scan 002" in response.text  # the sibling run is offered
         assert "/run/jump/" in response.text  # day steppers stay in-tab
         assert "prefer=1" in response.text  # carry this run's number
-
-    def test_frame_code_snippet_mirrors_the_datetime_conversion(self):
-        payload = _client().get("/api/run/uid-002/frame?cols=ts_cam-MaxCounts").json()
-        assert "LABVIEW_EPOCH_OFFSET" not in payload["code"]  # unix: no shift
-        assert "datetime.fromtimestamp" in payload["code"]
-        catalog = FakeCatalog()
-        detail = _detail(7)
-        detail.data["cam acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
-        catalog.details["uid-007"] = detail
-        labview = (
-            _client(catalog)
-            .get("/api/run/uid-007/frame", params={"cols": "cam acq_timestamp"})
-            .json()
-        )
-        assert "- LABVIEW_EPOCH_OFFSET" in labview["code"]
 
     def test_plot_config_suite_is_on(self):
         # The free-suite pin: wheel zoom, draw tools, spike lines are
@@ -1221,14 +1055,10 @@ class TestBrowsingApi:
             "/api/run/{uid}/device",
             "/api/run/jump/{day}",
             "/api/run/{uid}/columns",
-            "/api/run/{uid}/frame",
             "/api/run/{uid}/binned",
-            "/api/run/{uid}/filter-count",
-            "/api/run/{uid}/bin-images",
             "/api/run/{uid}/analysis",
             "/run/{uid}/artifact",
             "/run/{uid}/image.png",
-            "/run/{uid}/bin-image.png",
             "/run/{uid}/plot.png",
         ):
             assert route in paths, route
