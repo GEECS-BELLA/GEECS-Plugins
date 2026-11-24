@@ -163,19 +163,12 @@ function api(path, params) {
 // ---------------- the analysis tab (ScanAnalysis runs) ----------------
 const ANALYSIS_ENABLED = {{ analysis_enabled | tojson }};
 const SHOT = {{ shot | tojson }};
-const AUTHOR_KEY = "geecs-portal:author";
-/** localStorage, treated as a convenience that may not be there. */
-function remembered(key) {
-  try { return localStorage.getItem(key) || ""; } catch (err) { return ""; }
-}
-function remember(key, value) {
-  try { localStorage.setItem(key, value); } catch (err) { /* private window */ }
-}
 
 // ---------------- the configurator's embedded editor ----------------
 // The configurator owns the document and its save (the operator as git
 // author, its tier, its dry run — this portal's /api/analysis/validate);
-// this page passes the operator (the logbook dialog's remembered name), a
+// this page passes the operator (the name remembered in this browser, shared
+// with every surface: theme-boot.js's GeecsOperator), a
 // shot number for the preview, and the preview itself: the unsaved recipe
 // drawn on this scan through /api/analysis/preview, as a run draws it, and
 // each of its summaries over the scan's first shots. Its scripts load on the
@@ -196,14 +189,14 @@ function cfgToolbar() {
   CFG_TOOLBAR = document.createElement("span");
   CFG_TOOLBAR.className = "row";
   CFG_TOOLBAR.innerHTML = `<label class="dim" title="the preview reads this shot of the recipe's own device">shot <input class="btn sm" type="number" id="cfgshot" min="1" style="width:5rem"></label>
-    <label class="dim" title="the git author of a save (remembered in this browser, as the logbook's)">name <input class="btn sm" id="cfgname" autocomplete="name" placeholder="your name" style="width:9rem"></label>`;
+    <label class="dim" title="the git author of a save (remembered in this browser, as on every surface)">name <input class="btn sm" id="cfgname" autocomplete="name" placeholder="your name" style="width:9rem"></label>`;
   CFG_TOOLBAR.querySelector("#cfgshot").value = String(SHOT);
-  CFG_TOOLBAR.querySelector("#cfgname").value = remembered(AUTHOR_KEY);
+  CFG_TOOLBAR.querySelector("#cfgname").value = window.GeecsOperator.get();
   return CFG_TOOLBAR;
 }
 function cfgOperator() {
   const name = (document.getElementById("cfgname") || {}).value || "";
-  if (name.trim()) remember(AUTHOR_KEY, name.trim());
+  if (name.trim()) window.GeecsOperator.set(name);
   return name.trim();
 }
 // One preview request: a PNG as an object URL, or the portal's refusal as an Error.

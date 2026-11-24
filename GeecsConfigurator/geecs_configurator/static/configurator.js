@@ -7,11 +7,12 @@
   "use strict";
   var body = document.body, root = body.dataset.root || "", kind = body.dataset.kind, id = body.dataset.id;
   var query = "?experiment=" + encodeURIComponent(body.dataset.experiment || "");
-  var OPERATOR_KEY = "geecs.configurator.operator", operator = document.getElementById("operator");
-  // The operator, typed once and remembered in this browser; a host passes its own (data-operator).
+  var operator = document.getElementById("operator");
+  // The operator, typed once and remembered in this browser under the name every surface shares
+  // (theme-boot.js's GeecsOperator); a host passes its own (data-operator).
   if (operator) {
-    try { operator.value = body.dataset.operator || localStorage.getItem(OPERATOR_KEY) || ""; } catch (e) { /* no storage: type it */ }
-    operator.addEventListener("change", function () { try { localStorage.setItem(OPERATOR_KEY, operator.value.trim()); } catch (e) { /* not remembered */ } });
+    operator.value = body.dataset.operator || window.GeecsOperator.get();
+    operator.addEventListener("change", function () { window.GeecsOperator.set(operator.value); });
   }
   //: What the setups surface (setups.js) asks of this page: the operator, and whether the form holds an unsaved edit.
   window.GeecsConfiguratorPage = { operator: function () { return operator ? operator.value.trim() : ""; }, ready: function () { return false; }, dirty: function () { return false; } };
@@ -146,7 +147,7 @@
   }
   function who() {
     var name = operator.value.trim();
-    if (name) { try { localStorage.setItem(OPERATOR_KEY, name); } catch (e) { /* not remembered */ } }
+    if (name) window.GeecsOperator.set(name);
     return name;
   }
   var ctx = {

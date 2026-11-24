@@ -89,19 +89,19 @@
 <script>
 // "Plot these scans": the rows this list shows now become the Plot page's
 // scans, saved into the viewer's own settings set (the name the Plot page
-// keeps in this browser; asked once when it has none), then the page opens.
+// keeps in this browser, else the operator's name every surface shares;
+// asked once when it has neither), then the page opens.
 (function () {
-  const OWN_KEY = "geecs-portal:set", AUTHOR_KEY = "geecs-portal:author";
+  const OWN_KEY = "geecs-portal:set";
   const SET_NAME = /^[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?$/;
   const folded = (n) => n.trim().split(/\s+/).join(" ").toLowerCase();
   const MAX_OVERLAY = {{ max_overlay | tojson }}, DAY = {{ day.isoformat() | tojson }};
   function viewer() {
-    try {
-      for (const key of [OWN_KEY, AUTHOR_KEY]) {
-        const n = folded(localStorage.getItem(key) || "");
-        if (SET_NAME.test(n)) return n;
-      }
-    } catch (_) { /* no storage: asked */ }
+    let own = "";
+    try { own = localStorage.getItem(OWN_KEY) || ""; } catch (_) { /* no storage: asked */ }
+    for (const n of [folded(own), folded(window.GeecsOperator.get())]) {
+      if (SET_NAME.test(n)) return n;
+    }
     const typed = folded(window.prompt("Your name (your own settings set on the Plot page):") || "");
     if (!SET_NAME.test(typed)) return "";
     try { localStorage.setItem(OWN_KEY, typed); } catch (_) { /* asked again next time */ }

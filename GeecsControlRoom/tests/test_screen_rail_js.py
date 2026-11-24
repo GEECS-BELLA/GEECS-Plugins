@@ -73,7 +73,7 @@ const puts = [];
 const fetch = async (url, init) => { puts.push({ url, body: JSON.parse(init.body) }); return { json: async () => ({ outcome: "accepted", journalId: puts.length }) }; };
 const document = { getElementById: (id) => ids[id] || null, activeElement: null };
 function Option(text, value) { return { text, textContent: text, value }; }
-const window = { GeecsCameraRules: C, GeecsDeviceRules: D, GeecsScreenRules: S };
+const window = { GeecsCameraRules: C, GeecsDeviceRules: D, GeecsScreenRules: S, GeecsOperator: { get: () => "ann", set() {} } };
 const ctx = vm.createContext({ window, document, fetch, console, Option, CSS: { escape: (s) => s }, setTimeout, Date });
 for (const f of ["device_writes.js", "device_rail.js"]) vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx);
 const writes = {};
@@ -208,7 +208,7 @@ const hare = { watch(pvs, fn) { for (const pv of pvs) { (watchers[pv] = watchers
   meta: (pv) => META[pv] || {}, onStatus(fn) { this.status = fn; } };
 const tell = (pv) => (watchers[pv] || []).forEach((fn) => fn(pv, FRAMES[pv], META[pv]));
 let onView = null;
-const window = { GeecsCameraRules: C, GeecsDeviceRules: D, GeecsScreenRules: S, GeecsHare: { fromPage: () => hare },
+const window = { GeecsCameraRules: C, GeecsDeviceRules: D, GeecsScreenRules: S, GeecsOperator: { get: () => "ann", set() {} }, GeecsHare: { fromPage: () => hare },
   GeecsPoller: { makePoller: (o) => { onView = onView || o.onView; return { tick() {} }; } } };
 const fetch = async (url, init) => { FRAMES["dev:x:SP"] = { value: JSON.parse(init.body).value, connected: true }; return { json: async () => ({ outcome: "accepted", journalId: 1 }) }; };
 function Option(text, value) { return { text, textContent: text, value }; }

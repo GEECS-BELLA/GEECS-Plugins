@@ -285,9 +285,10 @@ resolves a variable to a device.
 
 ## What is not here yet
 
-The operator registry and ownership (arc PR 5: `operators.yaml`,
-`geecs.operator` in theme-boot, the `denied` banner for a foreign running
-item). (The Caddy front door was dropped on 2026-09-13; a site's own
+The operator registry and ownership (arc PR 5: `operators.yaml`, the
+`denied` banner for a foreign running item). The typed name itself is
+remembered through theme-boot's `GeecsOperator`, one key every surface
+shares. (The Caddy front door was dropped on 2026-09-13; a site's own
 front door now names the surfaces, the scanner at `/<experiment>/scanner`:
 `docs/platform/site_profile.md`, "A front door".) GEECS-Console itself was deleted (#869; tag `geecs-console-v0.32.1-final`).
 
