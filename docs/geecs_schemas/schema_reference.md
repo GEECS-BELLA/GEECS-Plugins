@@ -1105,6 +1105,7 @@ Every control of the Plot and Images pages, each with its default.
 | `image_zmin` | `float (optional)` | no | None | The fixed z scale's black. |
 | `image_zmax` | `float (optional)` | no | None | The fixed z scale's white. |
 | `image_cbar` | `bool` | no | True | Draw colour bars. |
+| `image_axes` | `bool` | no | False | The first camera draws a calibrated output (a magspec image) on its physical axes (momentum, angle) as charge density; off: pixels. |
 | `image_bg` | `ScanRef (optional)` | no | None | The background scan, whose average comes off each shot; empty: none. |
 | `image_bgsub` | `bool` | no | True | The first camera subtracts the background. |
 | `image_channels` | `list[int]` | no | [0] | The first row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named. |
@@ -1170,6 +1171,7 @@ A camera stacked under the first on the Images page, and how its row looks.
 | `hits` | `str` | no | 'none' | The X-ray-hit filter applied to each shot. |
 | `centre` | `float (optional)` | no | None | Centre each shot on its peak above this threshold (1 or more: counts; below 1: a fraction of the peak); empty: not centred. |
 | `cbar` | `bool` | no | True | Draw colour bars. |
+| `axes` | `bool` | no | False | Draw a calibrated output (a magspec image) on its physical axes (momentum, angle) as charge density; off: pixels and raw values. |
 | `bgsub` | `bool` | no | True | Subtract the set's background scan. |
 | `channels` | `list[int]` | no | [0] | The row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named. |
 | `xmin` | `float (optional)` | no | None | A trace row's x window, low side; empty: no limit. |

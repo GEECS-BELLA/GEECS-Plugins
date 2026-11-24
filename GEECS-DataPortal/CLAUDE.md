@@ -1159,6 +1159,19 @@ recipe is offered on one (`/api/run/{uid}/device`). A recipe may read one
 Analysis tab lists it applicable where that output folder exists, and its
 previews resolve the shot through `_image_folder`, which checks such a name
 against the scan's analysis folder by the same reader.
+**Physical axes** (the author, 2026-11-24): an image output with axis
+tables (`images.calibrated_device`: a magspec's `-interpSpec` momentum and
+`-interpDiv` angle siblings, `geecs_data_utils.io.magspec`) offers
+"pixels | GeV/c · mrad" on its row (`image_axes` / `ImageCamera.axes`,
+`axes@N`). On its axes a tile is charge density, pC/mrad/(GeV/c)
+(`images.calibrated_tile`: each shot's image on its own axes, cleaned as a
+camera's, then `magspec.charge_density`; a bin's shots averaged index-wise
+with their axes, `magspec.average_shots`; a shot missing a table left out),
+drawn by matplotlib with titled axes and, with a bar, a titled colour bar
+(`routes.images._calibrated_png`), the big view the same at full size;
+the shared scale is in that unit, and the row's one bar names it.
+`tile.png`, `levels` and every URL carry `axes=true`; on any other device
+it is ignored. The ROI stays in pixels (the axes crop with it).
 `plotter/static/images.js` draws the **big view**: the tile
 clicked (or stepped to with ‹ › along its camera's row; a click on another
 row moves it to that camera) at full size: the tile's own picture

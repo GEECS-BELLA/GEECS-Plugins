@@ -109,6 +109,13 @@ class ImageCamera(SchemaModel):
         ),
     )
     cbar: bool = Field(True, description="Draw colour bars.")
+    axes: bool = Field(
+        False,
+        description=(
+            "Draw a calibrated output (a magspec image) on its physical axes "
+            "(momentum, angle) as charge density; off: pixels and raw values."
+        ),
+    )
     bgsub: bool = Field(True, description="Subtract the set's background scan.")
     channels: list[Channel] = Field(
         default_factory=lambda: [0],
@@ -243,6 +250,13 @@ class PlotterSettings(VersionedSchemaModel):
     image_zmin: Optional[float] = Field(None, description="The fixed z scale's black.")
     image_zmax: Optional[float] = Field(None, description="The fixed z scale's white.")
     image_cbar: bool = Field(True, description="Draw colour bars.")
+    image_axes: bool = Field(
+        False,
+        description=(
+            "The first camera draws a calibrated output (a magspec image) on its "
+            "physical axes (momentum, angle) as charge density; off: pixels."
+        ),
+    )
     image_bg: Optional[ScanRef] = Field(
         None,
         description="The background scan, whose average comes off each shot; empty: none.",

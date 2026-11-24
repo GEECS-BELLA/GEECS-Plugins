@@ -37,7 +37,7 @@ from geecs_data_utils.data.row_filters import RowFilters, filter_mask
 from geecs_analysis.image_prep import HIT_FILTERS, ImagePrep
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec, background_frame
 from geecs_data_utils.frames import Frame
-from geecs_data_utils.io import analysis_outputs, shot_images, shot_traces
+from geecs_data_utils.io import analysis_outputs, magspec, shot_images, shot_traces
 from geecs_data_utils.io.array1d import Data1DResult
 from geecs_data_utils.data.scan_merge import (
     MERGED_BIN_COLUMN,
@@ -81,6 +81,11 @@ CMAPS = (
     "coolwarm",
     "gray_r",
 )
+
+#: A calibrated output's density unit, as the row's one colour bar names it:
+#: a magspec image (aC per pixel) over its momentum (GeV/c) and angle (mrad)
+#: tables. Each tile's own bar names the unit its files give.
+CALIBRATED_UNIT = "pC/mrad/(GeV/c)"
 
 #: A region of interest, ``(x0, y0, x1, y1)`` in pixels, the end excluded.
 Roi = tuple[int, int, int, int]
@@ -612,6 +617,26 @@ def tile_array(
     NoImage
         No shot of the tile has an image; the reason why.
     """
+    found = shot_images.average_scan_rows(
+        _parts(folder, frame, rows),
+        device,
+        prepare=_preparer(device, prep, background),
+    )
+    if found.array is None:
+        raise NoImage(found.reason or found.kind)
+    return found.array
+
+
+def _preparer(
+    device: str, prep: ImagePrep, background: Optional[Background]
+) -> Optional[Callable[[np.ndarray], np.ndarray]]:
+    """What each shot goes through first: the background off, then *prep*; ``None``: nothing.
+
+    Raises
+    ------
+    NoImage
+        The background scan has no image of *device*, or one unusable.
+    """
     back = background_array(background, device) if background is not None else None
     # By array index: neither the image nor the average carries coordinates.
     by_index = BackgroundFrameSpec(source="background", alignment="samples")
@@ -634,14 +659,7 @@ def tile_array(
             image = np.array(less.data)  # a frame's samples are read-only
         return prep.apply(image)
 
-    found = shot_images.average_scan_rows(
-        _parts(folder, frame, rows),
-        device,
-        prepare=prepare if (prep.active or back is not None) else None,
-    )
-    if found.array is None:
-        raise NoImage(found.reason or found.kind)
-    return found.array
+    return prepare if (prep.active or back is not None) else None
 
 
 _kept: OrderedDict[tuple, object] = OrderedDict()
@@ -653,6 +671,8 @@ def _size(value: object) -> int:
     """The bytes a kept value holds: pixels, a trace's samples, or a reason (0)."""
     if isinstance(value, np.ndarray):
         return value.nbytes
+    if isinstance(value, Frame):
+        return value.data.nbytes
     if isinstance(value, Data1DResult):
         return value.data.nbytes
     if isinstance(value, shot_traces.ShotTrace) and value.result is not None:
@@ -755,6 +775,140 @@ def kept_tile_array(
     found = _remembered(key, compute)
     assert isinstance(found, np.ndarray)
     return found
+
+
+def calibrated_device(folder: Path, device: str) -> bool:
+    """Whether *device* is an image output with physical axes (a magspec's).
+
+    ``geecs_data_utils.io.magspec.magspec_series``: an analysis output
+    whose sibling ``-interpSpec`` and ``-interpDiv`` folders carry each
+    shot's momentum and angle.
+    """
+    return (
+        analysis_outputs.is_output_name(device)
+        and magspec.magspec_series(folder, device) is not None
+    )
+
+
+def calibrated_tile(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
+) -> Frame:
+    """The tile as charge density on its physical axes: one shot, or its shots' mean.
+
+    Each shot is its image with its own momentum and angle
+    (``magspec.magspec_shot``), cleaned as :func:`tile_array` cleans a
+    camera's (the background is in the image's own counts), then made
+    charge density (``magspec.charge_density``: ``pC/mrad/(GeV/c)``). A
+    bin is its shots' mean, pixel by pixel with their axes averaged
+    (``magspec.average_shots``). A shot missing any of its three files, or
+    whose files are malformed, is left out, never a neighbour's.
+
+    Raises
+    ------
+    NoImage
+        No shot of the tile has its image and both axes; the reason why.
+    """
+    prepare = _preparer(device, prep, background)
+    shots: list[Frame] = []
+    reason = "no shots"
+    for part in _parts(folder, frame, rows):
+        series = magspec.magspec_series(part.scan_folder, device)
+        if series is None:
+            reason = f"{device} has no momentum and angle tables in this scan"
+            continue
+        for row in part.rows:
+            found = _calibrated_shot(part, row, device, series, prepare)
+            if isinstance(found, str):
+                reason = found
+            else:
+                shots.append(found)
+    if not shots:
+        raise NoImage(reason)
+    try:
+        return magspec.average_shots(shots)
+    except ValueError as why:
+        raise NoImage(str(why)) from None
+
+
+def _calibrated_shot(
+    part: ScanRows,
+    row: int,
+    device: str,
+    series: tuple,
+    prepare: Optional[Callable[[np.ndarray], np.ndarray]],
+) -> Union[Frame, str]:
+    """One row of *part* as charge density on its own axes, or why it has none."""
+    if part.frame is not None and not 1 <= row <= len(part.frame):
+        return f"no shot {row} in this scan"
+    number = shot_images.row_file_shot(part.frame, row) or row
+    try:
+        shot = magspec.magspec_shot(part.scan_folder, device, number, series=series)
+        if shot is None:
+            return f"shot {number} lacks its image or an axis table"
+        charge = shot.frame
+        if prepare is not None:
+            charge = charge.replace(data=prepare(np.array(charge.data)))
+        return magspec.charge_density(charge)
+    except ValueError as why:
+        return str(why)
+
+
+def kept_calibrated_tile(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
+) -> Frame:
+    """:func:`calibrated_tile`, remembered as :func:`kept_tile_array` remembers.
+
+    The key is the image folder's time (each axis table is written with its
+    image), the table's length and the clean-ups.
+
+    Raises
+    ------
+    NoImage
+        As :func:`calibrated_tile`.
+    """
+    stamp = _source_stamp(folder, device)
+    args = (folder, frame, device, rows, prep, background)
+    if stamp is None:
+        return calibrated_tile(*args)
+    key = (
+        "calibrated",
+        _source_key(folder),
+        device,
+        rows,
+        len(frame),
+        stamp,
+        prep,
+        background,
+        _background_stamp(background, device),
+    )
+    found = _remembered(key, lambda: calibrated_tile(*args))
+    assert isinstance(found, Frame)
+    return found
+
+
+def crop_frame(image: Frame, roi: Optional[Roi]) -> Frame:
+    """:func:`crop` of a frame: its pixels and its axes together.
+
+    Raises
+    ------
+    NoImage
+        The region lies wholly outside the image.
+    """
+    if roi is None:
+        return image
+    crop(image.data, roi)  # the refusal, for a region off the image
+    x0, y0, x1, y1 = roi
+    return image.crop((slice(y0, y1), slice(x0, x1)))
 
 
 def _keep(key: tuple, value: object) -> None:
@@ -1021,8 +1175,11 @@ def shared_levels(
     roi: Optional[Roi] = None,
     prep: ImagePrep = ImagePrep(),
     background: Optional[Background] = None,
+    calibrated: bool = False,
 ) -> tuple[float, float, int]:
     """One black and one white for *tiles*: the darkest and brightest pixel.
+
+    *calibrated*: of each tile as charge density (:func:`calibrated_tile`).
 
     Over each tile's ROI; the brightest tile sets white, so none of them
     saturates. Reads every tile given, a few at a time: the page gives the
@@ -1044,9 +1201,18 @@ def shared_levels(
 
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
-            pixels = crop(
-                kept_tile_array(folder, frame, device, tile.rows, prep, background), roi
-            )
+            if calibrated:
+                pixels = crop_frame(
+                    kept_calibrated_tile(
+                        folder, frame, device, tile.rows, prep, background
+                    ),
+                    roi,
+                ).data
+            else:
+                pixels = crop(
+                    kept_tile_array(folder, frame, device, tile.rows, prep, background),
+                    roi,
+                )
         except NoImage:
             return None
         return window_levels(pixels, 0.0, 100.0)  # its darkest and brightest

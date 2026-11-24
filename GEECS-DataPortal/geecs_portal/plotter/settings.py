@@ -271,6 +271,7 @@ FORM_FIELDS = {
     "zmin": "image_zmin",
     "zmax": "image_zmax",
     "cbar": "image_cbar",
+    "axes": "image_axes",
     "bg": "image_bg",
     "bgsub": "image_bgsub",
     "channel": "image_channels",
@@ -309,6 +310,7 @@ _BOOLEANS = (
     "y2_alias",
     "y3_alias",
     "image_cbar",
+    "image_axes",
     "image_bgsub",
 )
 
@@ -360,7 +362,7 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
 #: A stacked camera's field: the first camera's form name, ``@`` and its
 #: place (2 for the second): ``cmap@2``, ``roi@3``.
 _CAMERA_FIELD = re.compile(
-    rf"(device|devf|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|channel|xmin|xmax|roi)@([2-{MAX_CAMERAS}])"
+    rf"(device|devf|cmap|zscale|zmin|zmax|hits|centre|cbar|axes|bgsub|channel|xmin|xmax|roi)@([2-{MAX_CAMERAS}])"
 )
 
 

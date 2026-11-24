@@ -440,6 +440,7 @@
       let shared = null;  // [black, white] for the shared z scale, once read
       const display = () => {
         const query = new URLSearchParams({ cmap: own("cmap") });
+        if (strip.dataset.axes === "true") query.set("axes", "true");  // physical axes
         if (strip.dataset.roi) query.set("roi", strip.dataset.roi);
         const levels = zscale === "fixed" ? [own("zmin"), own("zmax")]
           : zscale === "shared" && shared ? shared.map(String) : null;

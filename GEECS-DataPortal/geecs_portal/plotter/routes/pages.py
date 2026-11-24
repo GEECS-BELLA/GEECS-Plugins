@@ -837,6 +837,7 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
         hits=_choice(settings, "image_hits"),
         centre=settings.image_centre,
         cbar=settings.image_cbar,
+        axes=settings.image_axes,
         bgsub=settings.image_bgsub,
         channels=settings.image_channels,
         xmin=settings.image_xmin,
@@ -905,6 +906,11 @@ def _camera_row(
         ),
         "display_query": "",
         "levels_url": "",
+        # A calibrated output (a magspec image): the row may draw it on its
+        # physical axes (``axes_on``, its unit ``axes_unit``).
+        "calibrated": False,
+        "axes_on": False,
+        "axes_unit": "",
     }
     if device and device not in devices:
         row.update(kept=device, device="", problem=f"{device} is not in this scan")
@@ -935,6 +941,8 @@ def _camera_row(
     if row["problem"]:
         return row
     trace = bool(row["trace"])
+    if not trace:
+        row.update(_axes_choice(folder, device, look.axes))
     row["window"] = _row_window(row) if trace else None
     prep = ImagePrep() if trace else ImagePrep(hits=row["hits"], centre=row["centre"])
     try:
@@ -980,10 +988,22 @@ def _camera_row(
             **({"channel": row["channels"]} if trace else {}),
             **multi_query(page["scans_text"], settings.merge_tolerance, x or ""),
             **window_query(row["window"]),
+            **({"axes": "true"} if row["axes_on"] else {}),
         },
         doseq=True,  # a trace row's channels: channel= once each
     )
     return row
+
+
+def _axes_choice(folder, device: str, wanted: bool) -> dict:
+    """A camera row's physical-axes fields: offered for a calibrated output only."""
+    if not images.calibrated_device(folder, device):
+        return {}
+    return {
+        "calibrated": True,
+        "axes_on": wanted,
+        "axes_unit": images.CALIBRATED_UNIT if wanted else "",
+    }
 
 
 def _row_window(row: dict) -> Optional[tuple]:
@@ -1005,12 +1025,15 @@ def display_query(page: dict) -> str:
     """The display half of a camera row's tile URLs (plotter.js builds the same).
 
     The colour map, the ROI and, on a fixed z scale with both values set,
-    the black and white; a shared z scale's values come from
+    the black and white (with ``axes``, a calibrated output's physical
+    axes and charge density); a shared z scale's values come from
     ``/api/images/levels`` in the browser. A tile that scales itself
     carries its own colour bar (``cbar``) when bars are on; on one scale
     the grid has one bar instead (``api/images/colourbar.png``).
     """
     query = {"cmap": page["cmap"]}
+    if page.get("axes_on"):
+        query["axes"] = "true"  # a calibrated output on its physical axes
     if page["roi"]:
         query["roi"] = page["roi"]
     if page["zscale"] == "fixed" and None not in (page["zmin"], page["zmax"]):

@@ -21,16 +21,21 @@ shared: the momentum axis moves with the dipole field shot to shot. A table
 whose length is not the image's matching dimension is refused, never
 resampled or cut.
 
+:func:`charge_density` turns the charge per pixel into charge per unit of
+each axis (``pC/mrad/(GeV/c)``), and :func:`average_shots` averages shots
+index-wise with their axes, as the analysis core averages a measure whose
+axes are per shot.
+
 Strictly read-only: nothing is created.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Mapping, Optional, Union
+from typing import Mapping, Optional, Sequence, Union
 
 import numpy as np
 import png
@@ -186,6 +191,92 @@ def read_magspec_shot(
         )
     frame = Frame(image, (divergence.axis, spectrum.axis), shot, unit, "Charge")
     return MagspecShot(frame, spectrum, divergence)
+
+
+#: Coulombs per charge unit a magspec image may carry.
+CHARGE_UNITS: Mapping[str, float] = MappingProxyType(
+    {"aC": 1e-18, "fC": 1e-15, "pC": 1e-12, "nC": 1e-9}
+)
+
+
+def _per(unit: str) -> str:
+    """*unit* as a divisor: ``mrad`` stays, ``GeV/c`` becomes ``(GeV/c)``."""
+    return f"({unit})" if "/" in unit else unit
+
+
+def pixel_widths(axis: Axis) -> np.ndarray:
+    """Each sample's width along *axis*: the spacing to its neighbours, positive.
+
+    Raises
+    ------
+    ValueError
+        An axis of one sample (no width), or two samples at one coordinate.
+    """
+    if axis.values.size < 2:
+        raise ValueError(f"the {axis.label or 'axis'} axis has one sample: no width")
+    widths = np.abs(np.gradient(axis.values))
+    if not (widths > 0).all():
+        raise ValueError(f"the {axis.label or 'axis'} axis repeats a coordinate")
+    return widths
+
+
+def charge_density(frame: Frame, unit: str = "pC") -> Frame:
+    """A charge-per-pixel image as charge per unit of each axis.
+
+    Each pixel's charge is divided by its widths along the rows' and the
+    columns' axes (:func:`pixel_widths`) and converted to *unit*: an image
+    in aC per pixel on mrad rows and GeV/c columns becomes
+    ``pC/mrad/(GeV/c)``. The axes are kept.
+
+    Raises
+    ------
+    ValueError
+        Not a 2D frame, a charge unit or *unit* not in :data:`CHARGE_UNITS`,
+        or an axis with no width.
+    """
+    if frame.data.ndim != 2:
+        raise ValueError("a charge density is of an image")
+    if frame.unit not in CHARGE_UNITS or unit not in CHARGE_UNITS:
+        raise ValueError(
+            f"charge units are {', '.join(CHARGE_UNITS)}; got {frame.unit!r} → {unit!r}"
+        )
+    rows, columns = frame.axes
+    area = np.outer(pixel_widths(rows), pixel_widths(columns))
+    scale = CHARGE_UNITS[frame.unit] / CHARGE_UNITS[unit]
+    return replace(
+        frame,
+        data=frame.data * scale / area,
+        unit=f"{unit}/{_per(rows.unit)}/{_per(columns.unit)}",
+        label="Charge density",
+    )
+
+
+def average_shots(frames: Sequence[Frame]) -> Frame:
+    """Shots' images averaged pixel by pixel, and their axes coordinate by coordinate.
+
+    A magspec's momentum axis follows each shot's field, so the shots of a
+    bin differ slightly; they average index-wise, as the analysis core
+    averages a measure whose axes are per shot. One frame is returned as it
+    is. The unit and label are the first frame's.
+
+    Raises
+    ------
+    ValueError
+        No frames, or frames of different shapes.
+    """
+    if not frames:
+        raise ValueError("no shots to average")
+    if len(frames) == 1:
+        return frames[0]
+    first = frames[0]
+    if any(f.data.shape != first.data.shape for f in frames):
+        raise ValueError("the shots' images differ in size")
+    axes = tuple(
+        replace(axis, values=np.mean([f.axes[i].values for f in frames], axis=0))
+        for i, axis in enumerate(first.axes)
+    )
+    data = np.mean([f.data for f in frames], axis=0)
+    return Frame(data, axes, None, first.unit, first.label)
 
 
 def magspec_series(
