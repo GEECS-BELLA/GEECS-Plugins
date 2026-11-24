@@ -570,15 +570,11 @@ def setup_hazards(
             for role in sorted(candidates)
             if roles.get(role)
         ]
-        device = _fold(step.device)
         for rule in policy.hazards:
             named = sorted(r for r in rule.roles if _fold(r) in candidates)
             if not named:
                 continue
-            if device in {_fold(d) for d in rule.devices} or (
-                family_name is not None
-                and _fold(family_name) in {_fold(f) for f in rule.families}
-            ):
+            if rule.asks(step.device, family_name, named[0]):
                 reasons.append(
                     f"the operator policy's hazards name {step.device} {named[0]!r}"
                 )

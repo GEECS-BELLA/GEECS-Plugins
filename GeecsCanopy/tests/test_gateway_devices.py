@@ -5,7 +5,15 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import yaml
 from geecs_core.testing import patch_geecs_db
+from geecs_schemas import (
+    OperatorPolicy,
+    Setup,
+    flatten_setup,
+    load_families,
+    setup_hazards,
+)
 
 from geecs_canopy.gateway import GatewaySource
 from geecs_canopy.journal import Journal
@@ -160,6 +168,35 @@ async def test_a_policy_hazard_demands_the_confirm_and_the_route_says_so(env):
     assert (response.status_code, response.json()["code"]) == (428, "confirm_required")
     response = await put(env, "U_PLC", role="DO.Ch1", value=1, confirm=True)
     assert response.json()["outcome"] == "accepted"
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "{devices: [u_plc], roles: [do_ch1]}",
+        "{families: [plc digital output], roles: [DO.Ch1]}",
+    ],
+)
+async def test_the_gate_and_setup_hazards_agree_on_a_policy_in_another_spelling(
+    env, rule
+):
+    """One rule: Canopy's put gate and the scanner's ``setup_hazards`` both fold the policy's names."""
+    path = env.module.settings.folder / "operator_policy.yaml"
+    text = POLICY.replace("{devices: [U_PLC], roles: [DO.Ch1]}", rule)
+    path.write_text(text)
+    assert (await roles(env, "U_PLC"))[1]["DO.Ch1"].get("confirm") == "hazard"
+    env.hare.meta[PREFIX + "do_ch1:SP"] = {"enumChoices": ["on", "off"]}
+    response = await put(env, "U_PLC", role="DO.Ch1", value=1)
+    assert (response.status_code, response.json()["code"]) == (428, "confirm_required")
+    step = {"do": "set", "device": "U_PLC", "variable": "DO.Ch1", "value": 1}
+    setup = Setup.model_validate({"name": "s", "steps": [step]})
+    found = setup_hazards(
+        flatten_setup(setup, setups={}),
+        policy=OperatorPolicy.model_validate(yaml.safe_load(text)),
+        families=load_families(),
+        db_families=TYPES,
+    )
+    assert [h.index for h in found] == [1]
 
 
 async def test_a_grant_by_db_device_type_permits_and_another_type_does_not(env):
