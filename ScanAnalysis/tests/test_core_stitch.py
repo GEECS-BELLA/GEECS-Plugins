@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
@@ -74,11 +75,10 @@ def build_scan(base_dir: Path, *, native: bool = False, skip=()) -> Path:
 
     ``skip`` lists ``(device, shot)`` files that were never written.
     """
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    scan.mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan001.ini").write_text(
-        '[Scan Info]\nScan No = "1"\nScan Parameter = "U_Motor:Position"\n'
-        'Start = "1"\nEnd = "3"\nStep size = "1"\nShots per step = "2"\n'
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        scan_info='[Scan Info]\nScan No = "1"\nScan Parameter = "U_Motor:Position"\n'
+        'Start = "1"\nEnd = "3"\nStep size = "1"\nShots per step = "2"\n',
     )
     rows = {
         "Shotnumber": list(range(1, SHOTS + 1)),
@@ -102,9 +102,7 @@ def build_scan(base_dir: Path, *, native: bool = False, skip=()) -> Path:
                 else f"Scan001_{device}_{shot:03d}.tsv"
             )
             np.savetxt(folder / name, trace(device, shot), delimiter="\t")
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    pd.DataFrame(rows).to_csv(analysis / "s1.txt", sep="\t", index=False)
+    write_sfile(scan, pd.DataFrame(rows))
     return scan
 
 

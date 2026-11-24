@@ -6,6 +6,10 @@ Bluesky, devices, Xopt or analysis execution. YAML is serialization, not a
 second schema language.
 
 All models inherit `SchemaModel` (`_base.py`), which rejects unknown fields.
+The one exception is a wire request body, which may set `extra="ignore"` so a
+client one field ahead of its server can still write: `EntryCreate` (the
+logbook's create body, `log_entry.py`) is the one, pinned by
+`tests/test_log_entry_create.py`.
 Standalone config documents inherit `VersionedSchemaModel`; nested payloads
 inherit the enclosing document's version. Export public vocabulary from
 `__init__.py`. `SCHEMA_REGISTRY` contains only standalone document kinds,

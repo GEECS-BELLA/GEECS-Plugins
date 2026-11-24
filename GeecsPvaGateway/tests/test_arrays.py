@@ -516,7 +516,7 @@ async def test_a_waveform_stack_carries_its_time_axis_as_attributes(tmp_path):
 def test_config_serves_arrays_minus_the_devicetype_exclusions(monkeypatch) -> None:
     """A MagSpec camera: images + interpSpec/interpDiv served, the axes excluded;
     a scope with only arrays is served; a timing box is not."""
-    from geecs_core.db.geecs_db import GeecsDb
+    from geecs_core.testing import patch_geecs_db
 
     endpoints = {
         "UC_MagCam": ("192.168.8.201", 65001),
@@ -541,19 +541,8 @@ def test_config_serves_arrays_minus_the_devicetype_exclusions(monkeypatch) -> No
         "U_Timing": [{"name": "delay", "variabletype": "numeric", "choices": None}],
     }
     types = {"UC_MagCam": "MagSpecCamera", "U_ICT": "PicoscopeV2", "U_Timing": "DG645"}
-    monkeypatch.setattr(
-        GeecsDb, "get_experiment_devices", classmethod(lambda cls, e, **kw: endpoints)
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_device_variables",
-        classmethod(lambda cls, e, **kw: var_map),
-    )
-    monkeypatch.setattr(
-        GeecsDb, "get_experiment_device_types", classmethod(lambda cls, e, **kw: types)
-    )
-    monkeypatch.setattr(
-        GeecsDb, "get_subscribed_variables", classmethod(lambda cls, e, **kw: {})
+    patch_geecs_db(
+        monkeypatch, devices=endpoints, variables=var_map, types=types, subscribed={}
     )
 
     cfg = PvaGatewayConfig.from_geecs_experiment("TestExp", host="192.168.8.201")

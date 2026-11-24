@@ -63,25 +63,14 @@ VAR_MAP = {
 
 @pytest.fixture
 def fake_db(monkeypatch):
-    from geecs_core.db.geecs_db import GeecsDb
+    from geecs_core.testing import patch_geecs_db
 
-    monkeypatch.setattr(
-        GeecsDb, "get_experiment_devices", classmethod(lambda cls, e, **kw: ENDPOINTS)
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_device_variables",
-        classmethod(lambda cls, e, **kw: VAR_MAP),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_subscribed_variables",
-        classmethod(lambda cls, e, **kw: SUBSCRIBED),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_device_types",
-        classmethod(lambda cls, e, **kw: DEVICETYPES),
+    patch_geecs_db(
+        monkeypatch,
+        devices=ENDPOINTS,
+        variables=VAR_MAP,
+        subscribed=SUBSCRIBED,
+        types=DEVICETYPES,
     )
 
 

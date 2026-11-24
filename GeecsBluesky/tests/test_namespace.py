@@ -351,20 +351,17 @@ class _FakeDb:
 def test_from_experiment_reuses_the_db_runtime_providers() -> None:
     db = _FakeDb()
     ns = GeecsNamespace.from_experiment("TestExp", geecs_db=db)
-    assert (
-        ns.roster.served
-        == {  # GeecsDbServedSetProvider's rule: subscribed ∪ settable
-            "UC_TestCam": {
-                "MeanCounts",
-                "MaxCounts",
-                "exposure",
-                "trigger",
-                "localsavingpath",
-            },
-            "U_S1H": {"Current", "Voltage", "Enable_Output"},
-            "U DG645 ShotControl": {"Trigger.Source", "Trigger.Rate"},
-        }
-    )
+    assert ns.roster.served == {  # served_variables' rule: subscribed ∪ settable
+        "UC_TestCam": {
+            "MeanCounts",
+            "MaxCounts",
+            "exposure",
+            "trigger",
+            "localsavingpath",
+        },
+        "U_S1H": {"Current", "Voltage", "Enable_Output"},
+        "U DG645 ShotControl": {"Trigger.Source", "Trigger.Rate"},
+    }
     assert ns.roster.types["UC_TestCam"] == "Point Grey Camera"
     assert set(ns.devices) == {"UC_TestCam", "U_S1H", "u_dg645_shotcontrol"}
     assert "variables" in db.calls and "subscribed" in db.calls and "types" in db.calls

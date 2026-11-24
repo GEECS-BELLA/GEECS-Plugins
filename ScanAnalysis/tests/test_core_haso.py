@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_data_utils.io.himg import write_himg
 from geecs_data_utils.io.himg_stack import convert_himg_folder
 from geecs_data_utils.shot_files import StackMappingUnavailable
@@ -112,25 +113,26 @@ def recipe(**overrides) -> AnalysisRecipe:
 
 def build_scan(base_dir: Path, *, convert: bool = True) -> Path:
     """A scan of natively named .himg files, with (or without) its stack."""
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    device = scan / DEVICE
-    device.mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan012.ini").write_text(
-        '[Scan Info]\nScan No = "12"\nScan Parameter = "noscan"\n'
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        devices=[DEVICE],
+        scan_info='[Scan Info]\nScan No = "12"\nScan Parameter = "noscan"\n',
     )
+    device = scan / DEVICE
     for shot, stamp in enumerate(STAMPS, start=1):
         write_himg(device / f"{DEVICE}_{stamp:.3f}.himg", _header(), _pixels(shot))
     if convert:
         convert_himg_folder(device)
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    pd.DataFrame(
-        {
-            "Shotnumber": range(1, SHOTS + 1),
-            "Bin #": [1] * SHOTS,
-            f"{DEVICE} acq_timestamp": STAMPS,
-        }
-    ).to_csv(analysis / "s12.txt", sep="\t", index=False)
+    write_sfile(
+        scan,
+        pd.DataFrame(
+            {
+                "Shotnumber": range(1, SHOTS + 1),
+                "Bin #": [1] * SHOTS,
+                f"{DEVICE} acq_timestamp": STAMPS,
+            }
+        ),
+    )
     return scan
 
 

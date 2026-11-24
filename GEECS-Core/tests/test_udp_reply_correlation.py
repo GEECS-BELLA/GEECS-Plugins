@@ -18,45 +18,17 @@ import logging
 import pytest
 
 from geecs_core.exceptions import GeecsConnectionError
-from geecs_core.transport.udp_client import GeecsUdpClient, _Oneshot
+from geecs_core.testing.hand_fed_udp import hand_fed_udp_client, wait_for_command
+from geecs_core.transport.udp_client import GeecsUdpClient
 
 _UDP_LOGGER = "geecs_core.transport.udp_client"
 _DEVICE_ADDR = ("127.0.0.1", 50000)
 
 
-class _FakeTransport:
-    """Records datagrams instead of sending them — no network involved."""
-
-    def __init__(self) -> None:
-        self.sent: list[tuple[bytes, object]] = []
-
-    def sendto(self, data: bytes, addr: object = None) -> None:
-        self.sent.append((data, addr))
-
-    def close(self) -> None:
-        pass
-
-
 @pytest.fixture
 def client() -> GeecsUdpClient:
     """A GeecsUdpClient wired to fake transports (never connect()ed)."""
-    c = GeecsUdpClient("127.0.0.1", 50000, device_name="U_FakeDev")
-    c._cmd_transport = _FakeTransport()  # type: ignore[assignment]
-    c._exe_transport = _FakeTransport()  # type: ignore[assignment]
-    c._cmd_proto = _Oneshot()
-    c._exe_proto = _Oneshot()
-    return c
-
-
-async def _wait_for_send(client: GeecsUdpClient, count: int) -> None:
-    """Spin the loop until the client has sent *count* commands."""
-    transport = client._cmd_transport
-    assert isinstance(transport, _FakeTransport)
-    for _ in range(100):
-        if len(transport.sent) >= count:
-            return
-        await asyncio.sleep(0)
-    raise AssertionError(f"client never sent command #{count}")
+    return hand_fed_udp_client("U_FakeDev", port=50000)
 
 
 class TestUdpReplyCorrelation:
@@ -75,7 +47,7 @@ class TestUdpReplyCorrelation:
 
         # --- Exchange 1: set('A') — ACK arrives, exe reply never does.
         task_a = asyncio.create_task(client.set("A", 1.0))
-        await _wait_for_send(client, 1)
+        await wait_for_command(client, 1)
         client._cmd_proto.datagram_received(b"accepted", _DEVICE_ADDR)
         with pytest.raises(GeecsConnectionError, match="no exe response"):
             await task_a
@@ -83,7 +55,7 @@ class TestUdpReplyCorrelation:
         # --- Exchange 2: set('B') on the same sockets.
         client.exe_timeout = 5.0
         task_b = asyncio.create_task(client.set("B", 2.0))
-        await _wait_for_send(client, 2)
+        await wait_for_command(client, 2)
         client._cmd_proto.datagram_received(b"accepted", _DEVICE_ADDR)
         await asyncio.sleep(0)
 
@@ -113,7 +85,7 @@ class TestUdpReplyCorrelation:
     ) -> None:
         """No regression: a reply naming the in-flight variable still resolves."""
         task = asyncio.create_task(client.get("Position (mm)"))
-        await _wait_for_send(client, 1)
+        await wait_for_command(client, 1)
         client._cmd_proto.datagram_received(b"accepted", _DEVICE_ADDR)
         client._exe_proto.datagram_received(
             b"U_FakeDev>>Position (mm)>>5.0>>no error,", _DEVICE_ADDR
@@ -128,7 +100,7 @@ class TestUdpReplyCorrelation:
         matcher must accept that form too, not just the bare variable name.
         """
         task = asyncio.create_task(client.set("Position (mm)", 7.5))
-        await _wait_for_send(client, 1)
+        await wait_for_command(client, 1)
         client._cmd_proto.datagram_received(b"accepted", _DEVICE_ADDR)
         client._exe_proto.datagram_received(
             b"U_FakeDev>>setPosition (mm)>>7.5>>no error,", _DEVICE_ADDR
@@ -153,7 +125,7 @@ class TestUdpReplyCorrelation:
         """A reply with no attributable variable field must not resolve the future."""
         caplog.set_level(logging.WARNING, logger=_UDP_LOGGER)
         task = asyncio.create_task(client.get("A"))
-        await _wait_for_send(client, 1)
+        await wait_for_command(client, 1)
         client._cmd_proto.datagram_received(b"accepted", _DEVICE_ADDR)
         # Short error form (">>error,msg") carries no variable name.
         client._exe_proto.datagram_received(b">>error,something broke", _DEVICE_ADDR)

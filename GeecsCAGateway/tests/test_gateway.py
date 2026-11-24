@@ -19,6 +19,7 @@ import pytest
 from caproto import AlarmSeverity, AlarmStatus
 from caproto._data import CannotExceedLimits
 from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_core.testing.hand_fed_udp import hand_fed_udp_client, wait_for_command
 
 from geecs_core.db.alarms import AlarmLimits
 from geecs_core.pv_naming import (
@@ -984,6 +985,16 @@ async def test_status_loop_ticks_heartbeat_and_uptime() -> None:
         task.cancel()
 
 
+def test_status_loop_ticks_at_the_named_heartbeat_period() -> None:
+    """The loop's period is the one constant the tick-waiting probe reads."""
+    import inspect
+
+    from geecs_core.pv_naming import GATEWAY_HEARTBEAT_PERIOD_S
+
+    period = inspect.signature(GeecsCaGateway._status_loop).parameters["period_s"]
+    assert period.default == GATEWAY_HEARTBEAT_PERIOD_S
+
+
 async def test_set_connected_updates_pv_severity_and_count() -> None:
     """CONNECTED transitions carry MAJOR severity when down, count when up."""
     from caproto import AlarmSeverity
@@ -1103,41 +1114,6 @@ async def test_get_uses_standard_exe_timeout() -> None:
 _DEVICE_ADDR = ("127.0.0.1", 50000)
 
 
-class _FakeUdpTransport:
-    """Records ``sendto`` instead of sending — no socket involved."""
-
-    def __init__(self) -> None:
-        self.sent: list[tuple[bytes, object]] = []
-
-    def sendto(self, data: bytes, addr: object = None) -> None:
-        self.sent.append((data, addr))
-
-    def close(self) -> None:
-        pass
-
-
-def _hand_fed_udp(device_name: str):
-    """A ``GeecsUdpClient`` whose device replies are injected by the test."""
-    from geecs_core.transport.udp_client import GeecsUdpClient, _Oneshot
-
-    client = GeecsUdpClient("127.0.0.1", 1, device_name=device_name)
-    client._cmd_transport = _FakeUdpTransport()  # type: ignore[assignment]
-    client._exe_transport = _FakeUdpTransport()  # type: ignore[assignment]
-    client._cmd_proto = _Oneshot()
-    client._exe_proto = _Oneshot()
-    return client
-
-
-async def _wait_for_command(client, count: int) -> None:
-    """Spin the loop until the client has sent *count* UDP commands."""
-    transport = client._cmd_transport
-    for _ in range(100):
-        if len(transport.sent) >= count:
-            return
-        await asyncio.sleep(0)
-    raise AssertionError(f"client never sent command #{count}")
-
-
 async def _ack(client) -> None:
     """Play the device's first reply (the command ACK) and let the client arm its exe wait.
 
@@ -1181,13 +1157,13 @@ async def test_acknowledged_set_replying_after_30s_completes_the_put(
     Under the minutes-long ceiling the put is still waiting and completes.
     """
     gw = GeecsCaGateway(_config("127.0.0.1", 1))
-    udp = _hand_fed_udp(DEVICE)
+    udp = hand_fed_udp_client(DEVICE, port=1)
     gw._udp[DEVICE] = udp
     clock = _VirtualClock(asyncio.get_running_loop(), monkeypatch)
     sp = gw.pvdb[f"{DEVICE_PV}:position:SP"]
 
     put = asyncio.create_task(sp.write(-25.0))
-    await _wait_for_command(udp, 1)
+    await wait_for_command(udp, 1)
     await _ack(udp)  # reply 1: the device is alive and took the command
 
     await clock.advance(32.0)  # the old 30 s budget has elapsed ...
@@ -1215,14 +1191,14 @@ async def test_reply_past_the_ceiling_is_the_only_stale_discard(
     from geecs_core.exceptions import GeecsConnectionError
 
     gw = GeecsCaGateway(_config("127.0.0.1", 1), set_timeout_s=30.0)
-    udp = _hand_fed_udp(DEVICE)
+    udp = hand_fed_udp_client(DEVICE, port=1)
     gw._udp[DEVICE] = udp
     clock = _VirtualClock(asyncio.get_running_loop(), monkeypatch)
     sp = gw.pvdb[f"{DEVICE_PV}:position:SP"]
     caplog.set_level(logging.WARNING, logger="geecs_core.transport.udp_client")
 
     put = asyncio.create_task(sp.write(-25.0))
-    await _wait_for_command(udp, 1)
+    await wait_for_command(udp, 1)
     await _ack(udp)
 
     await clock.advance(29.0)  # under the ceiling: the exe future is still armed

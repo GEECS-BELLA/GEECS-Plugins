@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
@@ -147,11 +148,11 @@ def build_day(base_dir: Path, *, dark: bool = True) -> Path:
                 scan1 / DEVICE / f"Scan001_{DEVICE}_{shot:03d}.npy",
                 rng.integers(0, 20, size=(24, 24)).astype(np.uint16),
             )
-    scan2 = ScanPaths.get_scan_folder_path(tag=tag(2), base_directory=base_dir)
-    (scan2 / DEVICE).mkdir(parents=True)  # fixture acquisition
-    (scan2 / "ScanInfoScan002.ini").write_text(
-        '[Scan Info]\nScan No = "2"\nScan Parameter = "U_Motor:Position"\n'
-        'Start = "1"\nEnd = "3"\nStep size = "1"\nShots per step = "2"\n'
+    scan2 = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=tag(2), base_directory=base_dir),
+        devices=[DEVICE],
+        scan_info='[Scan Info]\nScan No = "2"\nScan Parameter = "U_Motor:Position"\n'
+        'Start = "1"\nEnd = "3"\nStep size = "1"\nShots per step = "2"\n',
     )
     yy, xx = np.mgrid[:24, :24]
     for shot in range(1, SHOTS + 1):
@@ -161,15 +162,16 @@ def build_day(base_dir: Path, *, dark: bool = True) -> Path:
             scan2 / DEVICE / f"Scan002_{DEVICE}_{shot:03d}.npy",
             (image + noise).astype(np.uint16),
         )
-    analysis = scan2.parent.parent / "analysis"
-    analysis.mkdir(exist_ok=True)
-    pd.DataFrame(
-        {
-            "Shotnumber": range(1, SHOTS + 1),
-            "Bin #": [1 + i // 2 for i in range(SHOTS)],
-            "U_Motor Position Alias:motor": [1.0 + i // 2 for i in range(SHOTS)],
-        }
-    ).to_csv(analysis / "s2.txt", sep="\t", index=False)
+    write_sfile(
+        scan2,
+        pd.DataFrame(
+            {
+                "Shotnumber": range(1, SHOTS + 1),
+                "Bin #": [1 + i // 2 for i in range(SHOTS)],
+                "U_Motor Position Alias:motor": [1.0 + i // 2 for i in range(SHOTS)],
+            }
+        ),
+    )
     return scan2
 
 

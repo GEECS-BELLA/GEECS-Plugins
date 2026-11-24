@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
+from geecs_data_utils.testing import make_scan_folder
 from geecs_data_utils.folder_catalog import FolderScanCatalog, parse_folder_uid
 from geecs_data_utils.scan_paths import (
     ScanPaths,
@@ -150,10 +151,9 @@ class TestFolderCatalog:
     """The portal's folder catalog names the experiment, not the folder above Y{YYYY}."""
 
     def test_listed_scans_carry_the_experiment_and_load(self, mapped):
-        folder = mapped.base_path.joinpath(*DAY_PARTS, "Scan001")
-        folder.mkdir(parents=True)
-        (folder / "ScanInfoScan001.ini").write_text(
-            '[Scan Info]\nScan No = "1"\nScan Parameter = "Shotnumber"\n'
+        make_scan_folder(
+            mapped.base_path.joinpath(*DAY_PARTS, "Scan001"),
+            scan_info={"Scan No": 1, "Scan Parameter": "Shotnumber"},
         )
         catalog = FolderScanCatalog()
         runs = catalog.list_runs("Flat", date(*DAY))
