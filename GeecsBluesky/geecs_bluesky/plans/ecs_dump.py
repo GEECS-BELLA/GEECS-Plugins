@@ -111,25 +111,24 @@ async def read_settables(
     if not pairs:
         return []
     try:
-        from aioca import FORMAT_CTRL, CANothing, caget
+        from aioca import FORMAT_CTRL, caget
     except ImportError:  # the ca extra missing: the dump is fail-open
         return [None] * len(pairs)
 
-    async def _one(pv: str) -> Any:
-        try:
-            return await caget(pv, format=FORMAT_CTRL, timeout=timeout)
-        except (CANothing, TimeoutError):  # unread: left out of the dump
-            return None
-
     pvs = [pv_name(experiment, device, variable) for device, variable in pairs]
     try:
-        return list(
-            await asyncio.wait_for(
-                asyncio.gather(*(_one(pv) for pv in pvs)), timeout + _BATCH_GRACE_S
-            )
+        # return_exceptions: one PV's failure, whatever it is, leaves that
+        # variable out and never the rest of the batch.
+        results = await asyncio.wait_for(
+            asyncio.gather(
+                *(caget(pv, format=FORMAT_CTRL, timeout=timeout) for pv in pvs),
+                return_exceptions=True,
+            ),
+            timeout + _BATCH_GRACE_S,
         )
     except TimeoutError:  # a batch past its budget reads nothing
         return [None] * len(pairs)
+    return [None if isinstance(r, BaseException) else r for r in results]
 
 
 def ecs_live_dump_enabled(resolver: Any | None) -> bool:

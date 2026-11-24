@@ -529,3 +529,18 @@ def test_make_run_engine_hands_the_switch_to_the_preprocessor():
         p for p in RE.preprocessors if getattr(p, "func", None) is ecs_dump_preprocessor
     ]
     assert dump.keywords["enabled"] is enabled
+
+
+def test_one_pv_failing_any_way_leaves_only_that_variable_out(monkeypatch):
+    import aioca
+
+    async def fake_caget(pv, *, format, timeout):
+        if "bad" in pv:
+            raise ValueError("an undecodable value")  # not CANothing
+        return _reading(3.0)
+
+    monkeypatch.setattr(aioca, "caget", fake_caget)
+    readings = asyncio.run(
+        read_settables("Bella", [("U_S1H", "Current"), ("BAD", "x")], timeout=0.5)
+    )
+    assert readings[0] == 3.0 and readings[1] is None
