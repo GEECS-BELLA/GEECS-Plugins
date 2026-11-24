@@ -260,6 +260,38 @@ def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional
     return _device_companion_column(columns, device, "acq_timestamp")
 
 
+def carries_stamps(values: Any) -> bool:  # Any: any iterable of cells (a pandas column)
+    """Whether an ``acq_timestamp`` column holds any shot stamp at all.
+
+    A stamp is a finite value above zero. A column with none (every row 0,
+    NaN or empty) says nothing about which shot a file belongs to: it is a
+    device that never sets its ``acq_timestamp``, sampled as a plain reading
+    (a run where it was not in scan mode records its constant 0). Every
+    shot-to-file join treats such a column as absent, so the files map by
+    shot number; one positive stamp makes the column real, and its
+    non-positive rows are shots the device missed.
+
+    Parameters
+    ----------
+    values : iterable
+        The column's cells.
+
+    Returns
+    -------
+    bool
+    """
+    import math
+
+    for value in values:
+        try:
+            stamp = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(stamp) and stamp > 0:
+            return True
+    return False
+
+
 def device_valid_column(columns: Sequence[str], device: str) -> Optional[str]:
     """Find *device*'s own ``valid`` companion column, or ``None``.
 

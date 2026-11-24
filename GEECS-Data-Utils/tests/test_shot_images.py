@@ -295,8 +295,19 @@ class TestRowJoins:
 
     @pytest.mark.parametrize("value", [np.nan, 0.0, -1.0])
     def test_a_missed_shot_is_refused(self, value):
-        frame = self._frame(**{"cam-acq_timestamp": [value]})
+        frame = self._frame(**{"cam-acq_timestamp": [value, _LV + 2.0]})
         assert row_acq_timestamp(frame, "cam", 1) == (None, True)
+
+    @pytest.mark.parametrize("value", [np.nan, 0.0, -1.0])
+    def test_a_column_with_no_stamp_on_any_row_is_no_column(self, value):
+        # a device that never sets acq_timestamp, sampled outside scan mode
+        frame = self._frame(**{"cam-acq_timestamp": [value, 0.0, np.nan]})
+        assert row_acq_timestamp(frame, "cam", 1) == (None, False)
+
+    def test_an_invalid_row_is_refused_even_without_stamps(self):
+        frame = self._frame(**{"cam-acq_timestamp": [0.0, 0.0], "cam-valid": [True, False]})
+        assert row_acq_timestamp(frame, "cam", 1) == (None, False)
+        assert row_acq_timestamp(frame, "cam", 2) == (None, True)
 
     def test_a_shot_marked_invalid_is_refused(self):
         frame = self._frame(

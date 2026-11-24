@@ -52,3 +52,17 @@ def test_invalid_source_selection_fails_before_discovery(tmp_path):
         map_shot_files(
             tmp_path, pd.DataFrame({"other": [1]}), device="camera", file_tail=".png"
         )
+
+
+def test_a_stamp_column_with_no_stamp_maps_by_shot_number(tmp_path):
+    directory = tmp_path / "scans" / "Scan030" / "scope"
+    directory.mkdir(parents=True)
+    for shot in (1, 2):
+        (directory / f"Scan030_scope_{shot:03d}.dat").write_bytes(b"x")
+    rows = pd.DataFrame({"Shotnumber": [1, 2], "scope acq_timestamp": [0.0, 0.0]})
+    mapped = map_shot_files(directory, rows, device="scope", file_tail=".dat")
+    assert {shot: path.name for shot, path in mapped.items()} == {
+        1: "Scan030_scope_001.dat",
+        2: "Scan030_scope_002.dat",
+    }
+
