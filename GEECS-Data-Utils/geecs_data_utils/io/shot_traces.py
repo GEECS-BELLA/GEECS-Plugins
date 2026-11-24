@@ -260,7 +260,7 @@ def read_text_table(path: Path) -> Optional[tuple[tuple[str, ...], np.ndarray]]:
     return names, np.asarray(rows, dtype=float)
 
 
-def _axis_name(header: str) -> tuple[str, Optional[str]]:
+def column_name(header: str) -> tuple[str, Optional[str]]:
     """A column header as ``(label, units)``.
 
     ``Charge [fC]`` and ``Charge_fC`` (the units after the last ``_``) both
@@ -290,8 +290,8 @@ def read_table_trace(path: Path, channel: int) -> Optional[Data1DResult]:
     data = values[:, [0, channel + 1]]
     if not np.isfinite(data).all(axis=1).any():
         return None
-    x_label, x_units = _axis_name(names[0])
-    y_label, y_units = _axis_name(names[channel + 1])
+    x_label, x_units = column_name(names[0])
+    y_label, y_units = column_name(names[channel + 1])
     return Data1DResult(
         data=data, x_units=x_units, y_units=y_units, x_label=x_label, y_label=y_label
     )

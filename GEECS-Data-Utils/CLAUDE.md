@@ -153,6 +153,17 @@ geecs_data_utils/
                                #   listings, read-only); the image and trace
                                #   ladders take the name, a text table of 2+
                                #   columns is x then a channel per y column
+                               #   + magspec.py: a magspec output's shot as
+                               #   a Frame with real axes — the PNG (charge
+                               #   per pixel; its "<n> <unit>/count" Comment,
+                               #   else 1 aC/count) joined with its sibling
+                               #   folders <folder>-interpSpec (momentum,
+                               #   one row per column) and <folder>-interpDiv
+                               #   (angle, one row per row), read per shot
+                               #   (the momentum axis moves with the field);
+                               #   a length mismatch is refused, never
+                               #   resampled; read_lineout_table reads the
+                               #   <label>_<unit> tables
                                #   + display_png.py: frame → 8-bit PNG
                                #   through a percentile window, optional
                                #   matplotlib colour map (lazy import; no
