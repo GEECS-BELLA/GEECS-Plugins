@@ -39,6 +39,8 @@ geecs_ca_gateway/
                      #   RESTART control → exit 86 → systemd relaunch = DB resync),
                      #   UDP setter closures; serve() runs caproto's Context
                      #   under the monitor-delivery watchdog
+  circuits.py        # GatewayContext: a circuit whose monitor queue is full
+                     #   is disconnected (one WARNING), never waited on
   watchdog.py        # monitor-delivery watchdog: counting queue swapped into
                      #   caproto's Context, the stall verdict, the ERROR
                      #   evidence block (circuits + every task's await chain),
@@ -115,10 +117,10 @@ One asyncio event loop runs everything:
   hard `os._exit` should the orderly shutdown hang. The signal is read in
   the process, not through a CA client of itself: an empty queue is idle,
   so a quiet gateway never trips it, and a busy healthy one takes updates
-  between every two reads. Its limits are deliberate: a slow (not stopped)
-  client paces delivery without tripping it, since a restart would not cure
-  that; and it runs on the loop it watches, so a loop blocked outright
-  (not parked in an `await`) is not detected.
+  between every two reads. It is the backstop to `circuits.py`
+  (which disconnects a slow or stopped client first); it runs on the loop
+  it watches, so a loop blocked outright (not parked in an `await`) is not
+  detected.
 - **channels/naming**: `channels.py` is the only caproto-typed layer (kept
   swappable per DESIGN.md's per-device-class PVA plan — images already run
   on PVA via `GeecsPvaGateway/`; scalars stay CA). Readback channels deny client
@@ -173,11 +175,17 @@ One asyncio event loop runs everything:
   than raising, so caproto's `except QueueFull` drop never runs. A client
   that stops reading fills its queue and stops monitors for every client;
   if it then disconnects, its delivery task is cancelled with the queue
-  full and the park is permanent. Reproduced in `tests/test_watchdog.py`;
-  the watchdog above recovers by restart. The fix itself (drop or
-  disconnect a circuit whose queue is full, without awaiting) is not here;
-  caproto's own drop path would not do as written (it calls
-  `asyncio.Queue.clear()`, which does not exist).
+  full and the park is permanent. Reproduced in `tests/test_watchdog.py`.
+  The fix is `circuits.py`: `serve()` builds a `GatewayContext`, whose
+  circuits' queue `put` never waits; a full queue aborts that client's
+  socket with one WARNING (dropping silently would leave the client
+  showing stale values as live; caproto's own drop path calls
+  `asyncio.Queue.clear()`, which does not exist). Two caproto cleanup
+  faults it covers: the queue is emptied at the abort (on 3.11 a cancel
+  meeting a completed `get` in `wait_for` is swallowed, leaking the
+  circuit's tasks), and `_on_disconnect` absorbs the `CancelledError` of
+  a delivery task cancelled mid-send (else the circuit is never removed
+  from `context.circuits`). The watchdog stays as the backstop.
 - **Local-IP detection at connect time** — binding UDP to `""` raises
   `EADDRNOTAVAIL` on macOS PPP/VPN links; the client probes the OS route and
   binds explicitly. One device's bind failure must not abort the gateway

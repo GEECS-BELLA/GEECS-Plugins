@@ -29,7 +29,6 @@ from caproto import (
     ChannelString,
     SubscriptionType,
 )
-from caproto.asyncio.server import Context
 
 from geecs_core.exceptions import GeecsConnectionError
 from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
@@ -50,6 +49,7 @@ from .channels import (
 from .config import GatewayConfig, VariableSpec
 from .derived import DerivedChannelSpec, ExpressionEvaluator, derived_pv_name
 from . import watchdog as _watchdog
+from .circuits import GatewayContext
 from .watchdog import (
     WATCHDOG_EXIT_CODE,
     DeliveryWatchdog,
@@ -1188,6 +1188,8 @@ class GeecsCaGateway:
     async def serve(self) -> None:
         """Run the CA server (serves ``self.pvdb``) under the delivery watchdog.
 
+        The context is a ``GatewayContext``: a client that stops reading its
+        monitors is disconnected rather than waited on (``circuits``).
         The caproto context's subscription queue is swapped for a counting
         one before the server starts, and a ``DeliveryWatchdog`` reads it
         every ``watchdog.CHECK_PERIOD_S``. If monitor delivery stalls for
@@ -1200,7 +1202,7 @@ class GeecsCaGateway:
         MonitorDeliveryStalledError
             Monitor delivery stalled; the evidence is already logged.
         """
-        context = Context(self.pvdb)
+        context = GatewayContext(self.pvdb)
         queue = install_counting_queue(context)
         server = asyncio.create_task(context.run(log_pv_names=True), name="ca-context")
         dog = DeliveryWatchdog(

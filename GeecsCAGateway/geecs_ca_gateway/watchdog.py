@@ -23,7 +23,7 @@ so the service manager restarts it.
 
 What it does not cover: a client that reads slowly but not zero keeps the loop
 taking now and then, so delivery is paced for everyone without a stall (a
-restart would not cure it; dropping or disconnecting that circuit would); and a
+restart would not cure it; ``circuits.GatewayCircuit`` disconnects it); and a
 loop blocked outright, since the watchdog runs on the loop it watches. The
 hard-exit timer is armed only after a detection.
 """
@@ -146,8 +146,8 @@ class DeliveryWatchdog:
     then has made progress: a client that reads slowly, but reads, keeps its
     circuit's queue full and paces delivery for every client without ever
     tripping it. That is deliberate: a restart would not cure it (the slow
-    client reconnects and paces again), and its remedy is to drop or
-    disconnect the slow circuit in caproto.
+    client reconnects and paces again), and ``circuits.GatewayCircuit``
+    disconnects the slow circuit instead.
 
     It runs on the event loop it watches, so it sees a loop parked in an
     ``await``; a loop blocked outright never runs it, and is not detected.
