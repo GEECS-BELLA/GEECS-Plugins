@@ -304,7 +304,7 @@ window.PlotTools = (function () {
   // ---- copy the plot, or send it to the scan's logbook entry ----
   const CLIPBOARD_OK = !!(navigator.clipboard && window.ClipboardItem);
   const sendable = data.logbookSend === "true";
-  const AUTHOR_KEY = "geecs-portal:author";
+  // The author is the operator's name every surface shares (theme-boot.js's GeecsOperator).
   // Per scan (day and number), as the scan page keys it, so plots sent
   // from either page join one entry.
   const ENTRY_KEY = `geecs-portal:logentry:${data.day}:${data.scan}`;
@@ -369,13 +369,13 @@ window.PlotTools = (function () {
     sending = gd || host;
     document.getElementById("sl-form").hidden = false;
     document.getElementById("sl-done").hidden = true;
-    document.getElementById("sl-author").value = remembered(AUTHOR_KEY);
+    document.getElementById("sl-author").value = window.GeecsOperator.get();
     document.getElementById("sl-caption").value = sending.dataset.caption || data.caption || "plot";
     const row = document.getElementById("sl-targetrow");
     row.hidden = !remembered(ENTRY_KEY);
     if (!row.hidden) document.getElementById("sl-target").value = "same";
     drawer("send-drawer");
-    document.getElementById(remembered(AUTHOR_KEY) ? "sl-send" : "sl-author").focus();
+    document.getElementById(window.GeecsOperator.get() ? "sl-send" : "sl-author").focus();
   }
   document.getElementById("sl-send")?.addEventListener("click", async () => {
     const author = document.getElementById("sl-author").value.trim();
@@ -412,7 +412,7 @@ window.PlotTools = (function () {
       });
       const answer = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(answer.detail || response.statusText);
-      keep(AUTHOR_KEY, author);
+      window.GeecsOperator.set(author);
       keep(ENTRY_KEY, answer.entry_id);
       document.getElementById("sl-form").hidden = true;
       document.getElementById("sl-done").hidden = false;

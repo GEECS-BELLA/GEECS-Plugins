@@ -66,6 +66,18 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   the palette and density are stamped before first paint. `theme.js` reads
   `window.GEECS_THEME` rather than carrying a copy, and the Python
   constants are pinned to it by test.
+- **One operator name.** `theme-boot.js` also defines
+  `window.GeecsOperator` (`get()` → the name or `""`, `set(name)`): the
+  operator's name remembered in this browser under one key, so a name typed
+  on one surface fills every other on the origin (behind the front door
+  they are one origin; on their own ports each is still its own). It lives
+  in the boot script, not `kit.js`, because that runs before every page
+  script, deferred or inline. Every surface reads and writes the name only
+  through it; what a write sends, and whether a name is required, stay the
+  surface's own. Its `OLD_OPERATOR_KEYS` read-through copies a name from the
+  per-surface keys it replaced while the shared key is unset. Pinned in
+  `tests/test_operator_name.py`: the helper under node, no surface's
+  `localStorage` call naming the shared or an old key, and every page that uses it loading the boot script undeferred.
 
 ## Line plots are Plotly (the maintainer's ruling, 2026-11-05)
 

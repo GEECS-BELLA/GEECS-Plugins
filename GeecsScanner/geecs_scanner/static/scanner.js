@@ -80,11 +80,9 @@
 
   /* ---------------------------------------------------------- operator */
 
-  var OP_KEY = "geecs.operator";
-  try { $("operator").value = window.localStorage.getItem(OP_KEY) || ""; } catch (e) { /* private window */ }
-  $("operator").addEventListener("change", function () {
-    try { window.localStorage.setItem(OP_KEY, $("operator").value.trim()); } catch (e) { /* ignore */ }
-  });
+  // Remembered in this browser under the name every surface shares (theme-boot.js).
+  $("operator").value = window.GeecsOperator.get();
+  $("operator").addEventListener("change", function () { window.GeecsOperator.set($("operator").value); });
   function operator() { return $("operator").value.trim() || null; }
 
   /* ---------------------------------------------------------- chips */

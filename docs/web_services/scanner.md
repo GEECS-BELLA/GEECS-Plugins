@@ -146,7 +146,9 @@ opens this page.
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
   The current form can be saved back as a preset (**Save as preset…**):
   the configurator commits it to the configs repo under the operator's
-  name (fill in the operator field first).
+  name (fill in the operator field first). The operator field is
+  shared with the other GEECS surfaces in this browser, so on a shared
+  machine check it before starting or saving.
 - **Queue** — three sections, each one folding: **Ongoing** (the running
   item), **Waiting** (in execution order, each with **Remove**) and
   **History** (newest first, with the scan number and who started it);

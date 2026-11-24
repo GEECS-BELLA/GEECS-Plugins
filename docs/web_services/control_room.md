@@ -17,7 +17,10 @@ write **once** and shows the module's answer; it never retries on its own.
     Type your name in the header's **Operator** field before writing,
     running an action or saving a preset. Without it nothing is sent and a
     screen widget says `unsent · name yourself in the header first`. The name goes
-    into the journal; the page remembers it in this browser.
+    into the journal; the page remembers it in this browser. The name is
+    shared with the other GEECS surfaces in this browser (a name typed in
+    the scanner, the logbook or the portal fills it here), so on a shared
+    machine check it before a write.
 
 ## The home
 

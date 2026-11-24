@@ -516,7 +516,7 @@ and the `/api/run/{uid}` payload; `kind` on each run listing row) the
 Analysis tab's **edit** opens the document in the configurator's embedded
 editor (`openInConfigurator` in `run.html`: the theme's `form.js`
 from this portal and the configurator's `embed.js`, loaded on the first
-edit; the page is on the kit, so `kit.js` is already there; the operator is the logbook dialog's remembered name; the
+edit; the page is on the kit, so `kit.js` is already there; the operator is the name every surface remembers in the browser (`theme-boot.js`'s `GeecsOperator`); the
 preview the frame and each summary over shots 1–4; a save refreshes the
 analyzer list and, when the Images tab shows that recipe, the shot image). Pinned in
 `tests/test_analysis_configs.py` and the configurator's
@@ -607,8 +607,10 @@ design rules"). The rules that are the portal's own:
   (422), never saved where it is: the page asks the name before a first
   change on a shared link. `/plot/api/settings/{name}` names its target
   in the URL, like Save as, and so takes no owner. The name is kept under
-  its own browser key,
-  first borrowing the logbook author box's name when it fits. A link
+  its own browser key (`geecs-portal:set`, the day page's "Plot these
+  scans" too) and asked once; it is never borrowed from the operator's
+  name every surface shares, which would put a write under whoever typed
+  last and trap the "Change" link. A link
   carries `set=`, which opens that set as
   it is now (ruling 3 of the brief: the portal's old URL-carried plot
   state is retired for this page).
