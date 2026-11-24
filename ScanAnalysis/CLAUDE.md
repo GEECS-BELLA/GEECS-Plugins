@@ -139,9 +139,14 @@ neighbour's file — and an output the scan has no files of raises
 `device` stays a plain name, since it names what the run writes; the schema
 refuses an `analysis:` device, an output folder equal to the input's, a
 `file_tail` (the series picks the files), a capture stack and stitched
-siblings for such an input (`tests/test_core_analysis_input.py`). Its
-`{scan_dir}` is that output folder; a scan background still reads the
-device's raw folder, which such a recipe does not have.
+siblings for such an input, and a `from_scan` background, which is a
+device's raw frames (`tests/test_core_analysis_input.py`). Its `{scan_dir}`
+is that output folder. The producer is outside this run (no recipe writes
+`Scan{NNN}_{stem}_{shot}` files; the `py-*` folders are another pipeline's),
+so nothing orders the two: run before the producer, the task is `no_data`;
+mid-way, it analyses the shots present and logs how many have no file. A
+task queue or watch records either and does not come back, so such a recipe
+is rerun (redo) once its producer has finished.
 
 `core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
 for one explicit run. A measure that reads a recorded column per shot
@@ -694,7 +699,7 @@ In practice:
   into `scans/ScanNNN/<output_name><suffix>/<raw stem>.png|.tsv` by
   `core_sink.write_sibling_outputs`, byte for byte the legacy analyzer's
   per-shot files (a capture-stack frame gets the shot-number stem — the
-  announced shot in scan mode, `core_scan.file_numbers`, as data-utils maps
+  announced shot in scan mode, `core_source.file_numbers`, as data-utils maps
   it back; the FROG sidecar too — where legacy overwrote one file named by
   the stack), whatever `save` says: the scan folder must exist and the suffix
   folder is the one directory created (`mkdir(exist_ok=True)`). A failed

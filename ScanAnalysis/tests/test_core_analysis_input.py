@@ -72,12 +72,13 @@ def test_the_prefix_is_the_readers():
     assert ANALYSIS_OUTPUT_PREFIX == OUTPUT_PREFIX
 
 
-def test_each_shot_maps_to_its_own_file_and_a_missing_one_to_none(tmp_path):
+def test_each_shot_maps_to_its_own_file_and_a_missing_one_to_none(tmp_path, caplog):
     scan = build(tmp_path)
     rows = pd.DataFrame({"Shotnumber": [1, 2, 3, 4]})
     source = prepare_source(line_recipe(), scan, rows)
     assert source.data_dir == scan.parent.parent / "analysis" / scan.name / FOLDER
     assert sorted(source.references) == [1, 2, 4]  # shot 3 was never written
+    assert "1 shot(s) of this scan have no file" in caplog.text  # said, not silent
     assert source.references[4].name == f"Scan003_{FOLDER}_004.txt"
     trace = source.load(2)
     assert trace.shape == (21, 2) and trace[0, 0] == pytest.approx(50.0)

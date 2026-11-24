@@ -349,6 +349,10 @@ def test_an_input_may_name_an_analysis_output():
         ({"output_name": "py-magspec-interpSpec"}, "the folder this recipe writes to"),
         ({"input": {"file_tail": ".txt"}}, "leave file_tail unset"),
         ({"input": {"siblings": ["Other"]}}, "siblings does not apply"),
+        (
+            {"inputs": {"bg": {"from_scan": {"statistic": "median"}}}},
+            "from_scan background",
+        ),
     ],
 )
 def test_an_analysis_output_input_is_refused_in_words(over, words):

@@ -10,7 +10,11 @@ from typing import Mapping
 
 import numpy as np
 import pandas as pd
-from geecs_data_utils.io.analysis_outputs import output_dir, resolve_output
+from geecs_data_utils.io.analysis_outputs import (
+    is_output_name,
+    output_dir,
+    resolve_output,
+)
 from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
 from geecs_data_utils.io.himg_stack import HIMG_SUFFIX
 from geecs_data_utils.io.images import read_imaq_image
@@ -23,7 +27,6 @@ from geecs_data_utils.io.scan_stack import (
 )
 from geecs_data_utils.shot_files import StackMappingUnavailable, map_shot_files
 from geecs_data_utils.tiled_schema import announced_shots
-from geecs_schemas.analysis import is_analysis_output
 
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 
@@ -216,7 +219,7 @@ def source_directory(recipe: ScanRecipe | AnalysisDocument, scan_folder: Path) -
     if not folder.is_dir():
         raise FileNotFoundError(f"Scan folder does not exist: {folder}")
     file_device = _resolved(recipe).folder
-    if is_analysis_output(file_device):
+    if is_output_name(file_device):
         directory = output_dir(folder, file_device)
         if directory is None:
             raise ValueError("Input must name one analysis output folder")
@@ -243,7 +246,7 @@ def prepare_source(
     """
     spec = _resolved(recipe)
     device_dir = source_directory(spec, scan_folder)
-    if is_analysis_output(spec.folder):
+    if is_output_name(spec.folder):
         return RecipeShotSource(
             device_dir,
             output_references(spec.folder, scan_folder, rows),
@@ -312,9 +315,12 @@ def output_references(
     A shot's file is its series' file of that shot's number — the shot, or
     in a scan-mode run the shot it announced (:func:`file_numbers`), as the
     earlier analysis named it — and only when it exists: a shot that earlier
-    run did not write is missing, never a neighbour's file. One listing of
-    the analysis folder and one of the output folder; nothing is created.
-    An output this scan has none of raises :class:`OutputUnavailable`.
+    run did not write is missing, never a neighbour's file, and the count of
+    such shots is logged (a producer still writing, or one that skips shots:
+    the run maps what is there, so rerun it once the producer is done). One
+    listing of the analysis folder and two of the output folder (resolving
+    the series, then its files); nothing is created. An output this scan
+    has none of raises :class:`OutputUnavailable`.
     """
     series = resolve_output(Path(scan_folder), name)
     if series is None:
@@ -334,6 +340,13 @@ def output_references(
         path = series.shot_file(number)
         if path.name in present:
             references[shot] = path
+    missing = int(pd.to_numeric(rows["Shotnumber"], errors="coerce").notna().sum()) - len(references)  # fmt: skip
+    if missing:
+        logger.warning(
+            "%s: %d shot(s) of this scan have no file there; they are not analysed",
+            name,
+            missing,
+        )
     return references
 
 

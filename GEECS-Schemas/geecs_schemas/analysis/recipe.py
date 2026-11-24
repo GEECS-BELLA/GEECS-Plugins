@@ -753,7 +753,8 @@ class AnalysisRecipe(VersionedSchemaModel):
         ``device`` names what the run writes (its s-file columns and output
         folder), so it is never an ``analysis:`` name, and the output folder
         is never the one the input reads. The files are the output's own
-        per-shot files: no capture stack, no file tail, no stitched siblings.
+        per-shot files: no capture stack, no file tail, no stitched siblings,
+        and no ``from_scan`` background (it is a device's raw frames).
         """
         if is_analysis_output(self.device):
             raise ValueError(
@@ -786,6 +787,12 @@ class AnalysisRecipe(VersionedSchemaModel):
             )
         if self.sibling_folders:
             raise ValueError("input.siblings does not apply to an analysis output")
+        scanned = sorted(k for k, v in self.inputs.items() if v.from_scan is not None)
+        if scanned:
+            raise ValueError(
+                f"inputs {', '.join(scanned)}: a from_scan background is taken from a "
+                "device's raw frames, which an analysis output input has none of"
+            )
         return self
 
     @model_validator(mode="after")

@@ -74,7 +74,8 @@ Things to check in the preview:
   folder holds several series. In the new-recipe form, type that name in the
   device box. The device stays a plain name of your own: it names the
   columns and the folder the run writes. A shot that analysis did not write
-  is skipped.
+  is skipped, so run (or rerun) the recipe after that analysis has finished
+  writing its files.
 
 ## 3. Run it on the scan
 
