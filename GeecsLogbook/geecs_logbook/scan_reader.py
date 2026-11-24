@@ -15,7 +15,7 @@ change — and the portal's folder catalog reads the same facts the same way:
 - ``geecs_data_utils.scan_info`` — the ``ScanNNN`` name, the ``[Scan Info]``
   parse and its typed record, and the outcome from ``ScanEndInfo`` plus
   the run-closed evidence (``classify_end_info``).
-- ``folder_catalog.scan_start_time`` — when the scan ran: the portal's
+- ``scan_info.scan_start_time`` — when the scan ran: the portal's
   ladder, so a scan shows one start time on both surfaces.
 
 Read-only by construction
@@ -33,6 +33,7 @@ invariant is pinned by ``tests/test_scan_reader.py``.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -51,7 +52,6 @@ from geecs_data_utils.data.sfile import (
     sfile_column,
     sfile_path_for_scan,
 )
-from geecs_data_utils.folder_catalog import scan_start_time
 from geecs_data_utils.scan_info import (
     ScanInfoRecord,
     classify_end_info,
@@ -59,6 +59,7 @@ from geecs_data_utils.scan_info import (
     parse_scan_folder_name,
     read_scan_info_sections,
     scan_log_variables,
+    scan_start_time,
 )
 from geecs_data_utils.scan_paths import experiment_dir_present
 
@@ -228,10 +229,8 @@ def read_scan(
         contents.ini_path,
         contents.ini_mtime,
         contents.ini_size,
-        contents.log_path,
         contents.devices,
         _run_closed(scan_folder, contents, sfiles),
-        str(sfile) if sfile else None,
     )
     if contents.ini_path and contents.ini_mtime is None:
         # The listing found the file but could not stat it — a flaky share.
@@ -241,6 +240,9 @@ def read_scan(
     else:
         summary = _read_scan_cached(*args)
     update: dict = {"sfile": str(sfile) if sfile else None}
+    update["started"], update["started_approximate"] = _started(
+        scan_folder, sfile, contents
+    )
     if summary.scan_log_variables:
         # The values live in the s-file, written at the run's close and in
         # place — so they are keyed on that file, not on the ini, and copied
@@ -311,13 +313,68 @@ def first_row(path: Path) -> Optional[dict[str, str]]:
     return dict(zip(header, first + ("",) * (len(header) - len(first))))
 
 
-def _sfile_head(path: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """An s-file's header and first row through the shared cache; empty when unreadable."""
-    try:
-        info = os.stat(path)
-        return _sfile_head_cached(path, info.st_mtime, info.st_size)
-    except OSError:
-        return (), ()
+def _started(
+    scan_folder: Path, sfile: Optional[Path], contents: ScanContents
+) -> tuple[Optional[datetime], bool]:
+    """When the scan started, by ``scan_info.scan_start_time``, and whether approximately.
+
+    Outside the ini-keyed summary on purpose: the s-file is written in
+    place at the close, so its rung is keyed on the file's own
+    ``(mtime, size)`` and a read that raced the write is replaced by the
+    next request's.  One stat per request for a scan with an s-file.
+    """
+    day = _DAY_DIR.match(scan_folder.parent.parent.name)
+    if not day:
+        return None, False
+    yy, mm, dd = (int(g) for g in day.groups())
+    sfile_key: tuple = (None, None, None)
+    if sfile is not None:
+        with contextlib.suppress(OSError):
+            info = sfile.stat()
+            sfile_key = (str(sfile), info.st_mtime, info.st_size)
+    # A listing that found the ini but could not stat it: read uncached, as
+    # read_scan does, rather than pin the flaky state.
+    ladder = (
+        _started_cached.__wrapped__
+        if contents.ini_path and contents.ini_mtime is None
+        else _started_cached
+    )
+    return ladder(
+        date(2000 + yy, mm, dd),
+        *sfile_key,
+        contents.log_path,
+        contents.ini_path,
+        contents.ini_mtime,
+    )
+
+
+@lru_cache(maxsize=_CACHE_SIZE)
+def _started_cached(
+    day: date,
+    sfile: Optional[str],
+    sfile_mtime: Optional[float],
+    sfile_size: Optional[int],
+    log_path: Optional[str],
+    ini_path: Optional[str],
+    ini_mtime: Optional[float],
+) -> tuple[Optional[datetime], bool]:
+    """Memoise the ladder on every file it reads (the s-file through its own cache)."""
+    header: tuple[str, ...] = ()
+    first: tuple[str, ...] = ()
+    if sfile is not None and sfile_mtime is not None and sfile_size is not None:
+        with contextlib.suppress(OSError):
+            header, first = _sfile_head_cached(sfile, sfile_mtime, sfile_size)
+    found = scan_start_time(
+        day,
+        header,
+        first,
+        Path(log_path) if log_path else None,
+        Path(ini_path) if ini_path else None,
+        ini_mtime,
+    )
+    if found is None:
+        return None, False
+    return datetime.fromtimestamp(found[0]), found[1]
 
 
 @lru_cache(maxsize=_CACHE_SIZE)
@@ -336,10 +393,8 @@ def _read_scan_cached(
     ini_path: Optional[str],
     ini_mtime: Optional[float],
     ini_size: Optional[int],
-    log_path: Optional[str],
     devices: tuple[str, ...],
     closed: bool,
-    sfile: Optional[str],
 ) -> ScanSummary:
     """Memoise :func:`_summarize` on the ScanInfo file's identity.
 
@@ -356,9 +411,7 @@ def _read_scan_cached(
     for the same reason: Master Control ends a scan by writing its
     s-files, never by rewriting the ini.
     """
-    return _summarize(
-        folder, number, ini_path, ini_mtime, ini_size, log_path, devices, closed, sfile
-    )
+    return _summarize(folder, number, ini_path, ini_mtime, ini_size, devices, closed)
 
 
 def _summarize(
@@ -367,10 +420,8 @@ def _summarize(
     ini_path: Optional[str],
     ini_mtime: Optional[float],
     ini_size: Optional[int],
-    log_path: Optional[str],
     devices: tuple[str, ...],
     closed: bool,
-    sfile: Optional[str],
 ) -> ScanSummary:
     """Build a summary from an already-listed scan folder, uncached."""
     sections = read_scan_info_sections(ini_path) if ini_path else {}
@@ -378,27 +429,8 @@ def _summarize(
     record = ScanInfoRecord.from_ini(info)
     status = classify_end_info(record.end_info, closed=closed)
 
-    started: Optional[datetime] = None
-    approximate = False
-    day = _DAY_DIR.match(Path(folder).parent.parent.name)
-    if day:
-        yy, mm, dd = (int(g) for g in day.groups())
-        header, first = _sfile_head(sfile) if sfile else ((), ())
-        found = scan_start_time(
-            date(2000 + yy, mm, dd),
-            header,
-            first,
-            Path(log_path) if log_path else None,
-            Path(ini_path) if ini_path else None,
-            ini_mtime,
-        )
-        if found:
-            started, approximate = datetime.fromtimestamp(found[0]), found[1]
-
     return ScanSummary(
         number=number,
-        started=started,
-        started_approximate=approximate,
         parameter=record.parameter,
         start=record.start,
         end=record.end,

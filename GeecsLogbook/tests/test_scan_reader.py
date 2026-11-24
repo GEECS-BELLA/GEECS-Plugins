@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from datetime import date, datetime
 from pathlib import Path
 
 from geecs_data_utils.folder_catalog import FolderScanCatalog
-from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+from geecs_data_utils.scan_info import LABVIEW_EPOCH_OFFSET
 
 from geecs_logbook.scan_reader import read_day, read_scan
 
@@ -305,6 +307,32 @@ class TestStartTime:
         assert scan.started == datetime(2026, 9, 11, 9, 42, 7)
         assert scan.started_approximate is False
 
+    def test_a_first_row_written_after_a_read_dates_the_scan(self, make_run) -> None:
+        """The s-file rung follows the file, not the ini-keyed summary.
+
+        Master Control writes the s-file in place at the close and never
+        touches the ini again: a day read while the s-file held only its
+        header must not pin the ini's time once the first row lands.
+        """
+        root = make_run(1)
+        day_dir = next(root.rglob("26_0911"))
+        ini = day_dir / "scans" / "Scan001" / "ScanInfoScan001.ini"
+        written = datetime(2026, 9, 11, 10, 30).timestamp()
+        os.utime(ini, (written, written))
+        (day_dir / "analysis").mkdir()
+        sfile = day_dir / "analysis" / "s1.txt"
+        sfile.write_text("Shotnumber\tDateTime Timestamp\n")
+
+        before = read_day(DAY, "Undulator", base_directory=root).scans[0]
+        assert before.started == datetime(2026, 9, 11, 10, 30)
+        assert before.started_approximate is True
+
+        shot = datetime(2026, 9, 11, 9, 42, 7).timestamp() + LABVIEW_EPOCH_OFFSET
+        sfile.write_text(f"Shotnumber\tDateTime Timestamp\n1\t{shot}\n")
+        after = read_day(DAY, "Undulator", base_directory=root).scans[0]
+        assert after.started == datetime(2026, 9, 11, 9, 42, 7)
+        assert after.started_approximate is False
+
     def test_no_sources_means_no_claim(self, tmp_path: Path) -> None:
         """With neither log nor ScanInfo, the time is absent, not invented."""
         scans = tmp_path / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
@@ -313,3 +341,20 @@ class TestStartTime:
         scan = read_day(DAY, "Undulator", base_directory=tmp_path).scans[0]
         assert scan.started is None
         assert scan.started_approximate is False
+
+
+def test_the_app_loads_without_the_hdf5_and_image_stack() -> None:
+    """The logbook reads scan folders; it never loads h5py or imageio."""
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, geecs_logbook.app; "
+            "print(sorted({'h5py', 'imageio'} & set(sys.modules)))",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip().splitlines()[-1] == "[]"

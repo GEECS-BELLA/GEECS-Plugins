@@ -66,7 +66,7 @@ class ScanSummary(BaseModel):
     number : int
         The scan number, i.e. ``NNN`` in ``ScanNNN``.
     started : datetime or None
-        When the scan ran, by ``folder_catalog.scan_start_time`` (the
+        When the scan ran, by ``scan_info.scan_start_time`` (the
         portal's rule): the s-file's first LabVIEW ``DateTime Timestamp``,
         else ``scan.log``'s first record, else the ``ScanInfo`` file's own
         mtime — approximate, and flagged by ``started_approximate`` — each

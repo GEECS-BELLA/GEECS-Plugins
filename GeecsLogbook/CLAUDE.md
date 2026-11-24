@@ -57,7 +57,7 @@ owns scan folders — one surface to fix when a format changes:
 | An s-file's columns / first row | `data.sfile.read_sfile_head`, `sfile_column` (bare or LabVIEW `Alias:`), `header_for_variable` | a local split or a full `read_sfile` |
 | A `ScanNNN` folder's number | `scan_info.parse_scan_folder_name(name)` | a local regex |
 | A scan's outcome | `scan_info.classify_end_info(end_info, closed=…)` | a local classifier |
-| When a scan ran | `folder_catalog.scan_start_time` (the portal's rule: first shot's `DateTime Timestamp`, else `scan.log`, else the ini mtime, each on the folder's day) | the folder's `st_mtime` |
+| When a scan ran | `scan_info.scan_start_time` (the portal's rule: first shot's `DateTime Timestamp`, else `scan.log`, else the ini mtime, each on the folder's day) | the folder's `st_mtime` |
 
 The folder's mtime is **not** a start time: any later pass that writes into
 the folder (the analysis task queue's `analysis_status/`, for one) moves it,
@@ -362,7 +362,8 @@ which ScanAnalysis appends its scalars to, then `ScanDataScanNNN.txt`; the
 portal's catalog uses the same order). The s-file is written in place at the run's close,
 so the two-line read is cached on the file's `(mtime, size)` and copied
 onto the ini-keyed summary, never into it: a read that raced the write is
-replaced by the next request's. `ScanSummary.values_state` says why values
+replaced by the next request's. The start time's s-file rung follows the
+same rule (`scan_reader._started`). `ScanSummary.values_state` says why values
 are missing: "recording" (no s-file, not finalised), "no_sfile" (finished
 without one), "no_shots" (a header and no row); a listed name with no
 column → "not recorded" (background telemetry off, or a member the probe

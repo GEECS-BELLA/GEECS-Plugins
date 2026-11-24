@@ -27,7 +27,6 @@ scan-folder invariant).
 
 from __future__ import annotations
 
-import contextlib
 import copy
 import logging
 import os
@@ -36,19 +35,17 @@ import time
 from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional
 
 from geecs_data_utils.data.sfile import sfile_column, sfile_head_for_scan
-from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
 from geecs_data_utils.scan_info import (
     ScanInfoRecord,
     classify_end_info,
-    finite_float,
     parse_scan_folder_name,
     read_scan_info_file,
     scan_folder_name,
+    scan_start_time,
 )
-from geecs_data_utils.scan_log_loader import first_log_timestamp
 from geecs_data_utils.scan_paths import (
     ScanPaths,
     current_paths_config,
@@ -71,9 +68,6 @@ FOLDER_UID_PREFIX = "folder:"
 
 #: Finished scans remembered per catalog (a year of busy days is ~10k).
 _FINISHED_CACHE_SIZE = 16384
-
-#: The s-file column Master Control stamps each shot's wall time into.
-_DATETIME_COLUMN = "DateTime Timestamp"
 
 #: :func:`~geecs_data_utils.scan_info.classify_end_info`'s outcome in the
 #: stop document's ``exit_status`` words — the vocabulary every Tiled run
@@ -132,48 +126,6 @@ def parse_folder_uid(uid: str) -> Optional[tuple[str, date, int]]:
         return parts[0], date.fromisoformat(parts[1]), int(parts[2])
     except ValueError:
         return None
-
-
-def _on_day(epoch: Optional[float], day: date) -> bool:
-    if epoch is None:
-        return False
-    try:
-        return datetime.fromtimestamp(epoch).date() == day
-    except (OverflowError, OSError, ValueError):
-        return False
-
-
-def scan_start_time(
-    day: date,
-    header: Sequence[str],
-    first: Sequence[str],
-    log_path: Optional[Path],
-    ini_path: Optional[Path],
-    ini_mtime: Optional[float] = None,
-) -> Optional[tuple[float, bool]]:
-    """When a scan started, as ``(epoch, approximate)``, or ``None``.
-
-    The rule: the s-file's first ``DateTime Timestamp`` (LabVIEW), else
-    ``scan.log``'s first record, else the ScanInfo ini's mtime (flagged
-    approximate), each taken only when it falls on the scan folder's *day*.
-    *ini_mtime* saves a stat when the caller's listing already has it.
-    """
-    if _DATETIME_COLUMN in header:
-        index = list(header).index(_DATETIME_COLUMN)
-        raw = finite_float(first[index]) if index < len(first) else None
-        if raw is not None and raw > LABVIEW_EPOCH_OFFSET:
-            epoch = raw - LABVIEW_EPOCH_OFFSET
-            if _on_day(epoch, day):
-                return epoch, False
-    logged = first_log_timestamp(log_path) if log_path else None
-    if logged is not None and _on_day(logged.timestamp(), day):
-        return logged.timestamp(), False
-    if ini_mtime is None and ini_path is not None:
-        with contextlib.suppress(OSError):
-            ini_mtime = ini_path.stat().st_mtime
-    if ini_mtime is not None and _on_day(ini_mtime, day):
-        return ini_mtime, True
-    return None
 
 
 def _scan_variable_column(parameter: str, header: list[str]) -> str:
