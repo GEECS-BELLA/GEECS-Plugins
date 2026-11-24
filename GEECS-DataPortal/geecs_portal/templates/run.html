@@ -322,7 +322,7 @@ function stepBin(id, delta) {
   const a = ANALYSIS_BODY.analyzers.find(x => x.id === id);
   const row = document.querySelector(`#analysisList .arow[data-row="${CSS.escape(id)}"]`);
   if (!a || !row) return;
-  row.outerHTML = renderAnalyzer(a, ANALYSIS_BODY.running !== null);
+  row.outerHTML = renderAnalyzer(a, ANALYSIS_BODY.running !== null || ANALYSIS_BODY.settled === false);
 }
 
 //: An analysis job's state as the kit's status word.
@@ -390,7 +390,7 @@ function renderFreshness(job, artifacts) {
   return `<p class="note">files may predate this run${esc(when)}</p>`;
 }
 
-function renderAnalyzer(a, anyRunning) {
+function renderAnalyzer(a, blocked) {
   const job = a.job;
   const state = job ? job.state : "";
   const active = state === "running" || state === "queued";
@@ -407,7 +407,7 @@ function renderAnalyzer(a, anyRunning) {
   // into JS-in-attribute source (a quote in the id would end the
   // attribute — the #765 review's dead-button finding).
   const edit = CONFIGURATOR ? `<button class="btn sm" data-id="${escAttr(a.id)}" data-kind="${escAttr(a.kind)}" onclick="openInConfigurator(this.dataset.id, this.dataset.kind)" title="edit this document in the configurator (a recipe: with a preview of the unsaved draft on this scan)">edit</button> ` : "";
-  const button = `${edit}<button class="btn sm" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}${a.destructive ? "…" : ""}</button>`;
+  const button = `${edit}<button class="btn sm" ${blocked ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}${a.destructive ? "…" : ""}</button>`;
   // the data device only when it says something the recipe id does not
   const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";
   const when = job && job.finished ? `<span class="note">${new Date(job.finished * 1000).toLocaleTimeString()}</span>` : "";
@@ -438,6 +438,11 @@ function renderAnalysis(body, force) {
   const list = document.getElementById("analysisList");
   if (!list) return;
   const anyRunning = body.running !== null;
+  // A scan the scanner may still be writing (not settled) runs nothing yet;
+  // the tab looks again every few seconds until it settles.
+  const recording = body.settled === false;
+  const blocked = anyRunning || recording;
+  const nextPoll = () => anyRunning ? nextPollDelay() : 5000;
   const key = JSON.stringify(body);
   ANALYSIS_BODY = body;
   const shape = withoutProgress(body);
@@ -448,7 +453,7 @@ function renderAnalysis(body, force) {
     if (key !== ANALYSIS_LAST) patchProgress(body);
     ANALYSIS_LAST = key;
     clearTimeout(ANALYSIS_TIMER);
-    ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), nextPollDelay()) : null;
+    ANALYSIS_TIMER = blocked ? setTimeout(() => refreshAnalysis(false), nextPoll()) : null;
     return;
   }
   ANALYSIS_LAST = key;
@@ -459,16 +464,17 @@ function renderAnalysis(body, force) {
   }
   const applicable = body.analyzers.filter(a => a.applicable);
   const others = body.analyzers.filter(a => !a.applicable);
-  let html = applicable.map(a => renderAnalyzer(a, anyRunning)).join("");
+  let html = recording ? `<p class="note">The scan is still being recorded: analysis opens once the scanner's files have settled.</p>` : "";
+  html += applicable.map(a => renderAnalyzer(a, blocked)).join("");
   if (!applicable.length) html += paneState("empty", "No analyzer names a device present in this scan");
   if (others.length) {
     const wasOpen = ANALYSIS_OPEN["__others__"] ? " open" : "";
-    html += `<details class="others"${wasOpen} ontoggle="ANALYSIS_OPEN['__others__']=this.open"><summary>${others.length} other analyzer${others.length === 1 ? "" : "s"} (device not in this scan)</summary>${others.map(a => renderAnalyzer(a, anyRunning)).join("")}</details>`;
+    html += `<details class="others"${wasOpen} ontoggle="ANALYSIS_OPEN['__others__']=this.open"><summary>${others.length} other analyzer${others.length === 1 ? "" : "s"} (device not in this scan)</summary>${others.map(a => renderAnalyzer(a, blocked)).join("")}</details>`;
   }
   list.innerHTML = html;
-  // Poll while anything is active; stop as soon as the run settles.
+  // Poll while anything is active or the scan is recording; stop once neither is.
   clearTimeout(ANALYSIS_TIMER);
-  ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), nextPollDelay()) : null;
+  ANALYSIS_TIMER = blocked ? setTimeout(() => refreshAnalysis(false), nextPoll()) : null;
 }
 
 function refreshAnalysis(force) {

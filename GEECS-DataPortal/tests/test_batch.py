@@ -142,4 +142,4 @@ def test_the_drawer_has_the_ticks_and_the_watch():
     page = client.get(f"/day/{TEST_DAY.isoformat()}").text
     assert 'id="batch-members-box"' in page and "Active analyzers" in page
     assert 'id="watch-start"' in page and 'id="watch-stop"' in page
-    assert "once the scan has finished" in page  # the help says when it runs
+    assert "once the scan has settled" in page  # the help says when it runs

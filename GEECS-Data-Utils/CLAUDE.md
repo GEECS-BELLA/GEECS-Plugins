@@ -264,6 +264,20 @@ and calendar use it). Pinned by `tests/test_data_root_experiment.py`.
 
 `ScanPaths` validates this convention and raises if the path doesn't conform.
 
+Two facts about a scan, in `data/sfile.py`, never to be swapped:
+
+- **Data written** — `run_closed_evidence`: `ScanDataScanNNN.txt` or the
+  analysis s-file exists. The portal and the logbook show the scan
+  finished on it.
+- **Settled for analysis** — `scan_is_settled`: the scanner's own files in
+  the scan folder (`ScanInfoScanNNN.ini`, `ScanDataScanNNN.txt`) have sat
+  unchanged for `SETTLE_SECONDS` (10 s) and the run closed — the table
+  exists, or, for a run with no rows, `ScanEndInfo` is filled and nothing
+  changed for `ROWLESS_SETTLE_SECONDS` (60 s, past the native scanner's
+  threaded table write). It never reads the s-file or the analysis tree,
+  because analysis writes there. The analysis worker plans on it, and the
+  portal's Analysis tab runs nothing before it.
+
 ## Scalar output files
 
 `scalar_files` owns generated-scalar normalization and persistence shared by

@@ -481,11 +481,13 @@ claims, heartbeats and status records are the queue's own and a finished
 task (done, no_data, failed) is skipped by the next job unless it asks to
 redo (`rerun_completed` covers `no_data` too — often a typo in the job,
 which a redo after the fix must reach). A cancel stops before the next
-task. A scan is analysed only once its s-file exists and has sat
-unchanged for `SETTLE_SECONDS` (`scan_is_settled`): the `ScanData` table
-appears mid-write, and a task run over a half-written s-file would be
-recorded done and never looked at again; the rest are still recording and
-left out (`open_scans`). Jobs run in order on one
+task. A scan is analysed only once it is settled
+(`geecs_data_utils.data.sfile.scan_is_settled`, read off the scanner's own
+files in the scan folder and never the s-file analysis merges into, so an
+analysis run never reopens a scan and a closed run with no rows still
+settles): a task run over a half-written table would be recorded done and
+never looked at again; the rest are still recording and left out
+(`open_scans`). Jobs run in order on one
 thread; the job list is in memory and the status records are the durable
 result. A job may name a subset of the group's analyzers (`analyzers`, by
 task id) and a `from_scan`. A **watch** (`Worker.watch(WatchSpec)`, the

@@ -19,7 +19,7 @@ from geecs_analysis_worker.app import create_worker_app
 # The fixtures below (FakeAnalyzer, build_day, make_worker) are a copy of
 # ScanAnalysis/tests/test_worker.py's (write_closed is shared, from
 # geecs_data_utils.testing): a change to what a closed scan is
-# (scan_analysis.worker.jobs.scan_is_settled) changes both.
+# (geecs_data_utils.data.sfile.scan_is_settled) changes both.
 
 
 class FakeAnalyzer:

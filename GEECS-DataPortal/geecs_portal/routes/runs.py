@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
+from geecs_data_utils.data.sfile import scan_is_settled
 from geecs_data_utils.io import shot_images
 
 from geecs_portal import analysis_runs
@@ -67,7 +68,9 @@ def run_analysis_list(
     reads the s-file alone, so it applies to every scan (a missing
     input column is the run's ``no_data``, naming the column). Every loadable
     diagnostic is listed regardless, so a device-less one is still
-    reachable; the tab collapses the inapplicable ones.
+    reachable; the tab collapses the inapplicable ones.  ``settled`` is
+    :func:`~geecs_data_utils.data.sfile.scan_is_settled`: until it is true
+    the scanner may still be writing, and a run is refused.
     """
     portal.analysis_available()
     detail, folder, analysis_folder, tag = portal.analysis_context(uid, day)
@@ -111,6 +114,7 @@ def run_analysis_list(
         {
             "analyzers": analyzers,
             "running": running.analyzer_id if running is not None else None,
+            "settled": scan_is_settled(folder),
             # The number the start endpoint's confirm check compares
             # against (parsed from the resolved folder, like the run's
             # tag) — the page asks for this one, never a guess.
@@ -134,7 +138,9 @@ def run_analysis_start(
     diagnostic 404 · folder unresolvable 404 · a destructive kind
     without ``confirm=<this scan's number>`` 400 (the tab asks for
     it; the gate is here so no client runs a delete unasked) · a job
-    already running for this scan 409 (its record in the body).
+    already running for this scan 409 (its record in the body) · a scan
+    not yet settled (``scan_is_settled``: the scanner may still be
+    writing it) 409.
     Build + run + cleanup happen on the worker thread, so everything
     past this point — config errors included — lands in the record
     as ``failed``.
@@ -143,7 +149,13 @@ def run_analysis_start(
     info = portal.processing_infos().get(analyzer)
     if info is None:
         raise HTTPException(status_code=404, detail=f"no diagnostic: {analyzer!r}")
-    _, _, analysis_folder, tag = portal.analysis_context(uid, day)
+    _, folder, analysis_folder, tag = portal.analysis_context(uid, day)
+    if not scan_is_settled(folder):
+        raise HTTPException(
+            status_code=409,
+            detail="the scan is still being recorded: analysis opens once "
+            "the scanner's files have settled",
+        )
     if info.destructive and confirm.strip() != str(tag.number):
         raise HTTPException(
             status_code=400,

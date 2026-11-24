@@ -17,7 +17,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from geecs_data_utils.data.sfile import scan_data_txt_path_for
 from geecs_data_utils.scan_info import analysis_folder_for
+from geecs_data_utils.testing import write_closed
 from geecs_portal import analysis_runs
 from geecs_portal.app import create_app
 from test_app import FakeCatalog, _detail
@@ -30,7 +32,7 @@ logger = logging.getLogger("fake.analyzer")
 
 @pytest.fixture()
 def scan_folder(tmp_path) -> Path:
-    """A Scan002 folder with a ``cam`` device dir (data files irrelevant here)."""
+    """A settled Scan002 folder with a ``cam`` device dir (data files irrelevant here)."""
     # Dated the day AFTER test_app.TEST_DAY (the start doc's time) on
     # purpose: the run's tag must come from the folder, never the doc.
     folder = (
@@ -38,6 +40,7 @@ def scan_folder(tmp_path) -> Path:
     )
     (folder / "cam").mkdir(parents=True)
     (folder / "cam" / "Scan002_cam_001.png").write_bytes(b"not-a-real-png")
+    write_closed(folder)
     return folder
 
 
@@ -751,6 +754,24 @@ class TestRun:
         )
         FakeAnalyzer.instances[-1].release.set()
         assert _wait(client)["state"] == "done"
+
+    def test_a_scan_still_being_recorded_runs_nothing(self, scan_folder, configs_tree):
+        pytest.importorskip("scan_analysis")
+        # the scanner's table just rewritten: not settled for analysis
+        scan_data_txt_path_for(scan_folder).write_text("Shotnumber\n1\n2\n")
+        client = _client(scan_folder, configs_tree)
+        assert client.get("/api/run/uid-002/analysis").json()["settled"] is False
+        refused = client.post(
+            "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"}
+        )
+        assert refused.status_code == 409
+        assert "still being recorded" in refused.json()["detail"]
+        assert FakeAnalyzer.instances == []
+
+    def test_a_settled_scan_lists_settled(self, scan_folder, configs_tree):
+        pytest.importorskip("scan_analysis")
+        client = _client(scan_folder, configs_tree)
+        assert client.get("/api/run/uid-002/analysis").json()["settled"] is True
 
     @pytest.mark.parametrize("analyzer", ["UC_Nope", "UC_Legacy"])
     def test_unknown_or_unloadable_diagnostic_404(

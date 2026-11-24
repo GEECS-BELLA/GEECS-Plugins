@@ -454,7 +454,12 @@ a time behind a stepper, the bin cap applied after classification);
 `POST
 /api/run/{uid}/analysis?analyzer=<id>` starts a run (202 + record;
 feature off / extra missing / unknown diagnostic / folder unresolvable
-→ 404; a job already active for the scan → 409 with its record);
+→ 404; a job already active for the scan → 409 with its record; a scan
+not yet settled — `geecs_data_utils.data.sfile.scan_is_settled`, the
+analysis worker's own rule, not the "finished" chip's data-written
+evidence — → 409); the listing carries `settled`, and until it is true
+the tab says the scan is still being recorded, disables every run button
+and looks again every 5 s;
 the **Analysis tab** (0.17.0) renders that listing: badge per state, run /
 re-run (disabled while any run is active for the scan), error + captured
 log on failure, artifacts inline (raster) or as download links, the
