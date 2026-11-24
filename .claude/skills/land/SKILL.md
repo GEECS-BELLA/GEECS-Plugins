@@ -153,12 +153,13 @@ correctness round, lens 1 alone):
 > file it duplicates / the better home. Say "no surviving findings"
 > if that is the honest result — do not pad.
 
-For a **cleanup PR** (a merge of duplicates, a deletion, a tidy: a diff
-that claims behaviour is unchanged), append these probes to the brief.
-Each one found a defect more than once in the 2026-11 integration-map
-batches (#1413), where every constituent PR had at least one finding:
+For a **cleanup PR** (a merge of duplicates, a deletion, a tidy, or any
+PR from a cleanup batch), append these probes to the brief. Each one
+found a defect in the 2026-11 integration-map batches (#1413), where
+every constituent PR had at least one finding:
 
-> This diff claims to change no behaviour. Also check:
+> This diff claims to change no behaviour beyond what its body
+> declares. Also check:
 >
 > - **Lost coverage.** For each deleted test, name the live code it
 >   exercised and the test that still covers it. Deleting a duplicate
