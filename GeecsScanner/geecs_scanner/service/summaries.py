@@ -23,14 +23,18 @@ from typing import Any, Optional
 _NOT_SCANS = ("mv", "apply_setup")
 
 #: Manager ``exit_status`` → (the word a chip shows, the kit state it wears).
+#: Red is for failures. A run ended early is amber: ``stopped`` (``RE.stop()``,
+#: the scanner's Stop, whose documents say success) and ``aborted``
+#: (``RE.abort()``) keep the run engine's two words, as the portal and the
+#: logbook show an aborted run.
 EXIT_WORDS: dict[str, tuple[str, str]] = {
     "completed": ("ok", "ok"),
     "success": ("ok", "ok"),
     "failed": ("failed", "failed"),
     "fail": ("failed", "failed"),
-    "stopped": ("stopped", "failed"),
-    "aborted": ("stopped", "failed"),
-    "abort": ("stopped", "failed"),
+    "stopped": ("stopped", "degraded"),
+    "aborted": ("aborted", "degraded"),
+    "abort": ("aborted", "degraded"),
     "halted": ("halted", "failed"),
     "unknown": ("unknown", "unknown"),
 }
@@ -60,7 +64,6 @@ class ItemSummary:
     native_image_save: Optional[bool] = None
     preset: Optional[str] = None
     description: str = ""
-    background: bool = False
     detectors: list[str] = field(default_factory=list)
 
 
@@ -123,7 +126,6 @@ def summarize_item(item: dict) -> ItemSummary:  # noqa: C901, PLR0912, PLR0915
         ),
         preset=geecs.get("preset"),
         description=str(md.get("description") or "").strip(),
-        background=bool(md.get("background")),
         detectors=detectors,
     )
     sps = _int(kwargs.get("shots_per_step"))
@@ -210,8 +212,6 @@ def summarize_item(item: dict) -> ItemSummary:  # noqa: C901, PLR0912, PLR0915
         summary.text += f" · {summary.acquisition}"
     if summary.native_image_save is False and name not in _NOT_SCANS:
         summary.text += " · no LabVIEW files"
-    if summary.background:
-        summary.text = "background · " + summary.text
     if summary.description:
         summary.text += f' — "{summary.description}"'
 

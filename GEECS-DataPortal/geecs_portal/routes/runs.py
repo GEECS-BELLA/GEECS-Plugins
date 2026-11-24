@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
+from geecs_data_utils.data.sfile import scan_is_settled
 from geecs_data_utils.io import shot_images
 
 from geecs_portal import analysis_runs
@@ -67,7 +68,10 @@ def run_analysis_list(
     reads the s-file alone, so it applies to every scan (a missing
     input column is the run's ``no_data``, naming the column). Every loadable
     diagnostic is listed regardless, so a device-less one is still
-    reachable; the tab collapses the inapplicable ones.
+    reachable; the tab collapses the inapplicable ones.  ``settled`` is
+    :func:`~geecs_data_utils.data.sfile.scan_is_settled`, whether the
+    analysis worker would pick the scan up now; a run here is never
+    refused on it.
     """
     portal.analysis_available()
     detail, folder, analysis_folder, tag = portal.analysis_context(uid, day)
@@ -111,6 +115,7 @@ def run_analysis_list(
         {
             "analyzers": analyzers,
             "running": running.analyzer_id if running is not None else None,
+            "settled": scan_is_settled(folder),
             # The number the start endpoint's confirm check compares
             # against (parsed from the resolved folder, like the run's
             # tag) — the page asks for this one, never a guess.

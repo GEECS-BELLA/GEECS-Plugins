@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_data_utils.data.sfile import sfile_path_for_scan
+from geecs_data_utils.testing import write_closed
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.worker import Worker
 
@@ -17,9 +16,10 @@ from geecs_analysis_worker import __main__ as command
 from geecs_analysis_worker.app import create_worker_app
 
 
-# The fixtures below (FakeAnalyzer, write_closed, build_day, make_worker) are
-# a copy of ScanAnalysis/tests/test_worker.py's: a change to what a closed
-# scan is (scan_analysis.worker.jobs.scan_is_settled) changes both.
+# The fixtures below (FakeAnalyzer, build_day, make_worker) are a copy of
+# ScanAnalysis/tests/test_worker.py's (write_closed is shared, from
+# geecs_data_utils.testing): a change to what a closed scan is
+# (geecs_data_utils.data.sfile.scan_is_settled) changes both.
 
 
 class FakeAnalyzer:
@@ -45,17 +45,6 @@ class FakeAnalyzer:
 
     def cleanup(self):
         pass
-
-
-def write_closed(folder: Path, *, age: float = 60.0) -> None:
-    """What the scanner leaves at the end of a run: the table, then the s-file."""
-    n = int(folder.name[len("Scan") :])
-    (folder / f"ScanDataScan{n:03d}.txt").write_text("Shotnumber\n1\n")
-    sfile = sfile_path_for_scan(folder)
-    sfile.parent.mkdir(parents=True, exist_ok=True)  # fixture acquisition
-    sfile.write_text("Shotnumber\n1\n")
-    then = time.time() - age
-    os.utime(sfile, (then, then))
 
 
 def build_day(base: Path, closed=(1, 2), open_=(3,)) -> None:

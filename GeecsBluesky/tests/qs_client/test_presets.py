@@ -97,7 +97,6 @@ def test_expand_builds_the_stock_plan_item() -> None:
     assert item.kwargs["trigger_profile"] == "HTU-Normal"
     assert item.kwargs["md"] == {
         "description": "emq1 sweep",
-        "background": False,
         "geecs": {"submission": {"client": "c"}, "preset": "emq1"},
     }
 
@@ -149,7 +148,6 @@ def test_run_level_field_in_plan_kwargs_is_refused_not_merged(
 def test_count_preset_and_pair_spelled_variables() -> None:
     preset = _preset(
         trigger_profile=None,
-        background=True,
         plan=sweep_call("U_S1H:Current", [0, 0.5, 1.0]),
     )
     item = expand_preset(preset)
@@ -160,7 +158,6 @@ def test_count_preset_and_pair_spelled_variables() -> None:
         "relative": False,
     }
     assert "trigger_profile" not in item.kwargs
-    assert item.kwargs["md"]["background"] is True
 
 
 def test_expand_refuses_no_plan_and_unknown_plan() -> None:

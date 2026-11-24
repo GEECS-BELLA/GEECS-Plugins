@@ -82,6 +82,23 @@ class HazardRule(_Scope):
 
     roles: list[AnyRoleName] = Field(min_length=1, description="The roles a write confirms.")  # fmt: skip
 
+    def asks(self, device: str, family: str | None, role: str) -> bool:
+        """Whether this rule names ``role`` of ``device``, by name or by its family (``None``: unknown).
+
+        Every name is compared by the GEECS normalization (whatever its case,
+        and whatever separator stands between words: ``.``, space, ``-`` or
+        ``_``), because a device binds whatever that spelling: a rule naming
+        ``u_plc`` ``do_ch1`` asks about ``U_PLC`` ``DO.Ch1``, while ``doch1``
+        names another role. It fails toward asking.
+        """
+        from geecs_schemas.epics import _normalised as fold
+
+        if fold(role) not in {fold(r) for r in self.roles}:
+            return False
+        if fold(device) in {fold(d) for d in self.devices}:
+            return True
+        return family is not None and fold(family) in {fold(f) for f in self.families}
+
 
 class OperatorPolicy(VersionedSchemaModel):
     """Which operators may write what (``<experiment>/operator_policy.yaml``); default deny.
@@ -107,8 +124,8 @@ class OperatorPolicy(VersionedSchemaModel):
         )
 
     def hazardous(self, device: str, family: str, role: str) -> bool:
-        """Whether a hazard rule makes this role of this device need the confirm."""
-        return any(h.covers(device, family) and role in h.roles for h in self.hazards)
+        """Whether a hazard rule makes this role of this device need the confirm (names folded: :meth:`HazardRule.asks`)."""
+        return any(h.asks(device, family, role) for h in self.hazards)
 
 
 Scalar = Union[float, int, bool, str]

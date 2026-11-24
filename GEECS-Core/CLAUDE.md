@@ -4,7 +4,8 @@ The GEECS access **library**: UDP/TCP wire protocol (`transport/`, including
 `scan_mode` — Master Control's scan-mode device protocol, client side),
 experiment MySQL DB (`db/`), PV naming contract (`pv_naming`), the one
 `GeecsError` tree (`exceptions`), the wire-protocol test doubles
-(`testing/`: `FakeGeecsServer` and the scan-mode `FakeScanModeGroup`), and
+(`testing/`: `FakeGeecsServer` and the scan-mode `FakeScanModeGroup`, plus
+the shared test fakes `patch_geecs_db` and `hand_fed_udp_client`), and
 the entry-level synchronous `GeecsDevice` client (`client/`).
 
 **Read `DESIGN.md` before adding anything here.** It carries the three

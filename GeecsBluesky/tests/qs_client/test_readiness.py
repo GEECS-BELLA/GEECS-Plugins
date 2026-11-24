@@ -2,7 +2,7 @@
 
 Pure, hermetic — no ``bluesky-queueserver-api`` needed for the verdict
 itself; the client wrappers are exercised through the same fake manager
-API shape ``test_queue_client.py`` uses.
+API ``geecs_bluesky.qs_client.testing.FakeManagerAPI``.
 """
 
 from __future__ import annotations
@@ -10,14 +10,13 @@ from __future__ import annotations
 
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.qs_client.client import (
-    QserverConfig,
     QueueStatus,
     StubQueueClient,
-    ZmqQueueClient,
     queue_status_from_manager,
     readiness_from_reads,
     readiness_verdict,
 )
+from geecs_bluesky.qs_client.testing import FakeManagerAPI, client_over
 
 UP = QueueStatus(
     connected=True, re_state="idle", manager_state="idle", worker_exists=True
@@ -171,69 +170,50 @@ def test_stub_readiness_is_unreachable_naming_the_config():
     assert "[qserver]" in verdict.detail
 
 
-class _Api:
-    def __init__(self, *, status, plans=None, plans_error=None):
-        self._status = status
-        self._plans = plans
-        self._plans_error = plans_error
-        self.calls = []
-
-    def status(self):
-        self.calls.append("status")
-        return self._status
-
-    def plans_allowed(self, **kw):
-        self.calls.append("plans_allowed")
-        if self._plans_error:
-            raise self._plans_error
-        return {"success": True, "plans_allowed": self._plans}
-
-
-def _client(api) -> ZmqQueueClient:
-    client = ZmqQueueClient(QserverConfig("tcp://x:1", "tcp://x:2", "x:3"))
-    client._api = api
-    return client
+def _api(*, status, plans=None, plans_error=None) -> FakeManagerAPI:
+    api = FakeManagerAPI()
+    api.status_payloads = [status]
+    api.plans, api.plans_error = plans, plans_error
+    return api
 
 
 class TestZmqReadiness:
     def test_ready_reads_status_then_plans(self):
-        api = _Api(
+        api = _api(
             status={"worker_environment_exists": True, "manager_state": "idle"},
             plans=PLANS,
         )
-        assert _client(api).readiness(SCAN_PLAN).ready
-        assert api.calls == ["status", "plans_allowed"]
+        assert client_over(api).readiness(SCAN_PLAN).ready
+        assert api.calls == [("status",), ("plans_allowed",)]
 
     def test_closed_environment_skips_the_plan_read(self):
-        api = _Api(status={"worker_environment_exists": False, "manager_state": "idle"})
-        verdict = _client(api).readiness(SCAN_PLAN)
+        api = _api(status={"worker_environment_exists": False, "manager_state": "idle"})
+        verdict = client_over(api).readiness(SCAN_PLAN)
         assert verdict.state == "environment_closed"
-        assert api.calls == ["status"]
+        assert api.calls == [("status",)]
 
     def test_opening_environment_reads_as_opening(self):
-        api = _Api(
+        api = _api(
             status={
                 "worker_environment_exists": False,
                 "manager_state": "creating_environment",
                 "worker_environment_state": "initializing",
             }
         )
-        verdict = _client(api).readiness(SCAN_PLAN)
+        verdict = client_over(api).readiness(SCAN_PLAN)
         assert verdict.state == "environment_opening"
-        assert api.calls == ["status"]
+        assert api.calls == [("status",)]
 
     def test_plan_read_failure_is_unknown_not_ready(self):
-        api = _Api(
+        api = _api(
             status={"worker_environment_exists": True, "manager_state": "idle"},
             plans_error=RuntimeError("boom"),
         )
-        verdict = _client(api).readiness(SCAN_PLAN)
+        verdict = client_over(api).readiness(SCAN_PLAN)
         assert not verdict.ready and verdict.state == "plans_unknown"
 
     def test_status_failure_is_unreachable(self):
-        class _Down:
-            def status(self):
-                raise RuntimeError("no route")
-
-        verdict = _client(_Down()).readiness(SCAN_PLAN)
+        down = FakeManagerAPI()
+        down.raise_on_status = RuntimeError("no route")
+        verdict = client_over(down).readiness(SCAN_PLAN)
         assert verdict.state == "unreachable" and "no route" in verdict.detail

@@ -75,7 +75,7 @@
       <td class="scanf-cond" hidden></td>
       <td>{{ run.description }}</td>
       <td class="num">{{ run.shots if run.shots is not none else "" }}</td>
-      <td><span class="chip" data-state="{{ run.exit_status | run_state }}">{{ run.exit_status or "unknown" }}</span></td>
+      <td><span class="chip" data-state="{{ run.exit_status | run_state }}">{{ run.exit_status | run_word }}</span></td>
     </tr>
     {% endfor %}
     </tbody>
@@ -89,18 +89,18 @@
 <script>
 // "Plot these scans": the rows this list shows now become the Plot page's
 // scans, saved into the viewer's own settings set (the name the Plot page
-// keeps in this browser; asked once when it has none), then the page opens.
+// keeps in this browser; asked once when it has none — never borrowed from
+// the operator's name, which a write here would put another person's set
+// under), then the page opens.
 (function () {
-  const OWN_KEY = "geecs-portal:set", AUTHOR_KEY = "geecs-portal:author";
+  const OWN_KEY = "geecs-portal:set";
   const SET_NAME = /^[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?$/;
   const folded = (n) => n.trim().split(/\s+/).join(" ").toLowerCase();
   const MAX_OVERLAY = {{ max_overlay | tojson }}, DAY = {{ day.isoformat() | tojson }};
   function viewer() {
     try {
-      for (const key of [OWN_KEY, AUTHOR_KEY]) {
-        const n = folded(localStorage.getItem(key) || "");
-        if (SET_NAME.test(n)) return n;
-      }
+      const n = folded(localStorage.getItem(OWN_KEY) || "");
+      if (SET_NAME.test(n)) return n;
     } catch (_) { /* no storage: asked */ }
     const typed = folded(window.prompt("Your name (your own settings set on the Plot page):") || "");
     if (!SET_NAME.test(typed)) return "";
@@ -259,7 +259,7 @@
     </div>
     <p class="err" id="batch-err" hidden></p>
     <h3>Watch for new scans</h3>
-    <p class="dim">Like the old LiveWatch: the worker looks at this day every few seconds and analyzes each scan with the ticked analyzers <b>once the scan has finished</b> (its s-file has appeared). Scans already analyzed are skipped; nothing is redone. It keeps going when this page or the portal closes, until you stop it. One watch at a time: starting one replaces the last.</p>
+    <p class="dim">Like the old LiveWatch: the worker looks at this day every few seconds and analyzes each scan with the ticked analyzers <b>once the scan has settled</b> (the scanner has closed it and its files have sat still for a few seconds). Scans already analyzed are skipped; nothing is redone. It keeps going when this page or the portal closes, until you stop it. One watch at a time: starting one replaces the last.</p>
     <div class="row">
       <label class="dim">from scan <input id="watch-from" type="number" min="0" placeholder="first" title="only scans numbered this or higher; empty: every scan of the day"></label>
       <button class="btn" type="button" id="watch-start" onclick="watchStart()" disabled>Start watching</button>

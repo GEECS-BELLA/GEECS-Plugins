@@ -1,8 +1,9 @@
 """Pin ``scripts/qserver_probe.py``'s verdict — a running manager is not a ready one (#793).
 
 The probe's 0MQ calls need ``bluesky-queueserver``; the reduction from the
-manager's replies to ready / notready / down is pure and pinned here from
-the root env without it.
+manager's replies to ready / notready / unknown / down is pure — it is
+``geecs_bluesky.qs_client.readiness_verdict``'s, mapped to exit codes — and
+pinned here from the root env without it.
 """
 
 from __future__ import annotations
@@ -65,10 +66,50 @@ def test_closed_environment_is_not_ready_even_though_the_manager_answers() -> No
     assert code == 5
     assert line.startswith("notready ")
     assert (
-        "CLOSED" in line
+        "environment is closed" in line
         and "allowed plans" in line
         and "qserver environment open" in line
     )
+
+
+def test_an_opening_environment_is_not_ready_and_says_not_to_restart() -> None:
+    """The readiness unit is importing the profile: not ready yet, never 'closed'."""
+    status = _status(
+        manager_state="creating_environment",
+        worker_environment_exists=False,
+        worker_environment_state="initializing",
+        re_state=None,
+    )
+    code, line = summarize(status, None, "primary")
+    assert code == 5
+    assert line.startswith("notready ")
+    assert "being opened" in line and "do not restart" in line
+    assert "is closed" not in line
+
+
+def test_a_probe_python_without_geecs_bluesky_is_unknown_never_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No hand-copied rule to fall back on: without the library, readiness is unknown."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "geecs_bluesky.qs_client.client", None)
+    code, line = summarize(_status(), FIVE_PLANS, "primary")
+    assert code == 6
+    assert line.startswith("unknown geecs_bluesky does not import")
+
+
+def test_the_verdict_is_readiness_verdicts_own_sentence() -> None:
+    """One definition of ready: the probe carries the library's detail verbatim."""
+    from geecs_bluesky.qs_client.client import (
+        queue_status_from_manager,
+        readiness_verdict,
+    )
+
+    status = _status(worker_environment_exists=False, worker_environment_state="closed")
+    _code, line = summarize(status, None, "primary")
+    expected = readiness_verdict(queue_status_from_manager(status), None).detail
+    assert expected in line
 
 
 def test_open_environment_with_zero_plans_is_not_ready() -> None:

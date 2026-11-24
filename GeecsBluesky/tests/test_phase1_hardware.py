@@ -320,7 +320,7 @@ def test_preset_through_the_manager_on_hardware() -> None:  # noqa: PLR0915
     print(
         f"\npreflight: {report.outcomes}, questions {[q.check for q in report.questions]}"
     )
-    assert all(result == "passed" for _, result, _ in report.outcomes), report.outcomes
+    assert all(o.result == "passed" for o in report.outcomes), report.outcomes
     assert not report.questions, report.questions
     motor_reference = scan_variable_reference(SWEEP, catalog)
 

@@ -11,7 +11,6 @@
 (function () {
   "use strict";
   const C = window.GeecsCameraRules, S = window.GeecsScreenRules, D = window.GeecsDeviceRules;
-  const OP_KEY = "geecs-control-room-operator";
   const $ = (id) => document.getElementById(id);
 
   // page: GeecsDevicePage; changed(): the controls redrawn (disabled while a list runs, enabled after);
@@ -19,8 +18,8 @@
   // `confirmed`: the caller's own dialog, naming these writes and their hazards, was answered (the camera ROI's).
   function make(page, changed, refused = () => {}) {
     const opInput = $("operator"), dialog = $("hazard-dialog");
-    try { opInput.value = localStorage.getItem(OP_KEY) || ""; } catch (_) { /* no storage */ }
-    opInput.addEventListener("change", () => { try { localStorage.setItem(OP_KEY, opInput.value.trim()); } catch (_) { /* no storage */ } });
+    opInput.value = window.GeecsOperator.get(); // the name every surface shares (theme-boot.js)
+    opInput.addEventListener("change", () => window.GeecsOperator.set(opInput.value));
     const sayIn = (out) => (word, text, detail) => { if (!out) return; out.dataset.state = S.outcomeState(word); out.textContent = text; out.title = detail || ""; };
     const hazardsOf = (pairs) => C.hazards(pairs, Object.fromEntries(pairs.map(([role, , axis]) => [role, page.entry(role, axis)])));
     const named = (role, axis) => (axis ? `${axis} · ${role}` : role);

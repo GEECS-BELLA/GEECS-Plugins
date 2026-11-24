@@ -80,11 +80,9 @@
 
   /* ---------------------------------------------------------- operator */
 
-  var OP_KEY = "geecs.operator";
-  try { $("operator").value = window.localStorage.getItem(OP_KEY) || ""; } catch (e) { /* private window */ }
-  $("operator").addEventListener("change", function () {
-    try { window.localStorage.setItem(OP_KEY, $("operator").value.trim()); } catch (e) { /* ignore */ }
-  });
+  // Remembered in this browser under the name every surface shares (theme-boot.js).
+  $("operator").value = window.GeecsOperator.get();
+  $("operator").addEventListener("change", function () { window.GeecsOperator.set($("operator").value); });
   function operator() { return $("operator").value.trim() || null; }
 
   /* ---------------------------------------------------------- chips */
@@ -148,29 +146,28 @@
     var st = S.status;
     if (!st) return;
     var running = st.re_state === "running" || st.re_state === "paused";
-    var runWord = st.re_state === "paused" ? K.paused : K.running;
     if (st.reopening) {
       // the configurator's apply: the worker re-reads the configs; a Start waits for it
       setChip($("chip-manager"), K.running, "manager", "the worker environment is reopening (a committed configuration change)");
-      setChip($("now-chip"), K.running, "reopening");
     } else if (!st.connected) {
       setChip($("chip-manager"), K.failed, "manager", st.detail || "not answering");
-      setChip($("now-chip"), K.failed, "unreachable");
     } else if (st.readiness !== "ready") {
       setChip($("chip-manager"), K.degraded, "manager", st.readiness_detail || st.readiness);
-      setChip($("now-chip"), running ? runWord : K.degraded, running ? st.re_state : st.readiness);
     } else {
       setChip($("chip-manager"), K.ok, "manager", "RE Manager answers; " + st.readiness_detail);
-      if (running) setChip($("now-chip"), runWord, st.re_state);
-      else setChip($("now-chip"), K.unknown, "idle");
     }
+    // The run word and its state are the server's (the Control Room's strip relays the same pair).
+    // A scanner that sends neither (older than this page) shows unknown, never a guess.
+    var runKit = st.run_kit || K.unknown, runWord = st.run_word || "unknown";
+    setChip($("now-chip"), runKit, runWord);
     renderWriterChip(st.tiled_writer);
     $("btn-pause").disabled = st.re_state !== "running";
     $("btn-pause").hidden = st.re_state === "paused";
     $("btn-resume").hidden = st.re_state !== "paused";
     $("btn-stop").disabled = !running;
     $("btn-clear").disabled = !(st.items_in_queue > 0);
-    var startable = startQueueBlocker(st);
+    // Why the verb would refuse now, worded by the verb itself; null when it would run.
+    var startable = verdict(st, "start_queue_blocker");
     $("btn-start-queue").disabled = !!startable;
     $("btn-start-queue").title = startable || "run the waiting items, front first";
     renderIdleGates();
@@ -529,7 +526,7 @@
   // embedded editor, with this page's operator; the configurator commits it as theirs. The form here is not
   // reloaded: a save says to load the preset again.
   var CONFIGURATOR = (document.body.dataset.configurator || "").replace(/\/$/, "");
-  var PRESET_FIELDS = ["description", "trigger_profile", "background", "native_image_save", "background_telemetry", "devices"];
+  var PRESET_FIELDS = ["description", "trigger_profile", "native_image_save", "background_telemetry", "devices"];
   if ($("btn-edit-preset")) $("btn-edit-preset").addEventListener("click", function () {
     if (!S.loadedName) return;
     if (!window.GeecsConfigurator) { showError("The configurator's editor did not load from " + CONFIGURATOR + "."); return; }
@@ -568,7 +565,6 @@
     S.formableNote = S.formable ? "" : "Retired or unsupported preset plan: " + plan.name;
     setMode(shape || "", true);
     setAcq(kw.acquisition || "strict");
-    $("background").checked = !!doc.background;
     if (shape === "sweep") {
       try { composer.load(kw.sweep); }
       catch (e) { S.formable = false; S.formableNote = "Cannot load Sweep preset: " + e.message; showError(S.formableNote); }
@@ -637,7 +633,6 @@
     });
     var count = mode === "count";
     $("sweep-composer").hidden = mode !== "sweep";
-    $("count-options").hidden = !count;
     $("optimizer-form").hidden = mode !== "optimize";
     $("acq").hidden = mode === "optimize";
     if (mode === "optimize") setAcq("strict");
@@ -646,11 +641,12 @@
     $("shots-hint").textContent = count ? "num — the shots of the count" : "shots_per_step";
     // the lower half is named for what it holds, so "this changes with the mode"
     // is legible without switching modes to find out
-    $("plan-eyebrow").textContent = count ? "Count · options"
+    $("plan-eyebrow").textContent = count ? "Count"
       : mode === "sweep" ? "Sweep · trajectory"
       : mode === "optimize" ? "Optimize · optimizer"
       : "This plan";
     $("plan-empty").hidden = !!mode;   // at boot no mode is pressed: say so, don't show a bare rule
+    $("count-note").hidden = !count;
     if (!silent) recalc();
   }
   function setAcq(acq) {
@@ -749,7 +745,6 @@
     else delete kwargs.shot_period;
     return {name: S.presetName || "adhoc", description: $("desc").value.trim(), trigger_profile: $("trig").value || null,
       native_image_save: nativeSave === "" ? null : nativeSave === "true",
-      background: name === "count" && $("background").checked,
       devices: tableDevices(), plan: {name: name, args: [], kwargs: kwargs}};
   }
 
@@ -824,8 +819,8 @@
       targets.appendChild(row);
     });
     var moves = Object.values(o.best_moves);
-    $("btn-set-best").disabled = !st.connected || st.re_state !== "idle" || st.items_in_queue > 0 || !o.finished || o.exit_status !== "success" || o.expired || !!o.invalidated_reason || !moves.length || moves.some(function (v) { return v == null; });
-    $("btn-set-best").title = moves.length ? Object.keys(o.best_moves).map(function (n) { return n + " = " + o.best_moves[n]; }).join(", ") : "No feasible best point";
+    $("btn-set-best").disabled = !idle() || !o.finished || o.exit_status !== "success" || o.expired || !!o.invalidated_reason || !moves.length || moves.some(function (v) { return v == null; });
+    $("btn-set-best").title = idleTitle() || (moves.length ? Object.keys(o.best_moves).map(function (n) { return n + " = " + o.best_moves[n]; }).join(", ") : "No feasible best point");
   }
   $("btn-set-best").addEventListener("click", function () {
     if (!S.optimization) return;
@@ -969,13 +964,6 @@
   });
   // A failed or stopped scan stops the queue (a failed one returns to its
   // front); what waits stays waiting until someone starts it again.
-  function startQueueBlocker(st) {
-    return !st ? "waiting for the manager" : !st.connected ? "manager unreachable"
-      : st.reopening ? "the worker environment is reopening"
-      : st.readiness !== "ready" ? "the worker environment is not ready (" + st.readiness + ")"
-      : st.re_state !== "idle" || (st.manager_state && st.manager_state !== "idle") ? "the queue is already going"
-      : !(st.items_in_queue > 0) ? "nothing waits in the queue" : "";
-  }
   $("do-start-queue").addEventListener("click", function () {
     window.GeecsKit.confirm($("dlg-start-queue")).close();
     verb("/api/queue/start", { operator: operator() }, refreshQueue);
@@ -984,15 +972,20 @@
   /* ------------------------------------------------- idle-only items */
 
   // A move, a setup or a calibration is a queue item that runs by itself
-  // as soon as it is added: allowed only while nothing runs or waits.
+  // as soon as it is added: allowed only while nothing runs or waits. The
+  // server judges it (the status's idle_blocker, the verbs' own refusal).
   function idle() {
-    var st = S.status;
-    return !!(st && st.connected && st.re_state === "idle" && !(st.items_in_queue > 0));
+    return !verdict(S.status, "idle_blocker");
   }
   function idleTitle() {
-    var st = S.status;
-    return !st ? "waiting for the manager" : !st.connected ? "manager unreachable"
-      : st.re_state !== "idle" ? "a plan is " + st.re_state : st.items_in_queue > 0 ? "items wait in the queue" : "";
+    return verdict(S.status, "idle_blocker");
+  }
+  // One verdict field of the status: its blocker sentence, "" when allowed. A
+  // field the status lacks (a scanner older than this page) blocks, never passes.
+  function verdict(st, field) {
+    return !st ? "waiting for the manager"
+      : !(field in st) ? "this scanner sends no verdict for this control; reload the page"
+      : st[field] || "";
   }
   function renderIdleGates() {
     var ok = idle(), why = idleTitle();

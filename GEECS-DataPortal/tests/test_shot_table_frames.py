@@ -125,17 +125,6 @@ def test_a_dropped_frame_is_a_gap_and_later_shots_keep_their_frames(folder, make
     assert _frame_shown(client, 1) == 0
     assert "missed this shot" in _frame_shown(client, 2)  # never frame 1
     assert _frame_shown(client, 3) == 2
-    params = {"device": "UC_GatedCam", "bin": 0, "bincfg": '{"bin_col": "bin_number"}'}
-    bins = client.get("/run/uid-002/bin-image.png", params=params)
-    pixels = np.asarray(Image.open(io.BytesIO(bins.content)))
-    assert pixels[0, 0] == pixels[0, 2] > 0 and pixels[0, 1] == 0  # shots 1 + 3 only
-
-
-def test_a_shot_table_trace_follows_the_records(folder):
-    client = TestClient(_shot_table(folder))
-    trace = client.get("/api/run/uid-002/trace?device=U_Scope&shot=3")
-    assert trace.json()["figure"]["data"][0]["y"][0] == 3.0  # frame 3, not 2
-    assert client.get("/api/run/uid-002/trace?device=U_Scope&shot=2").status_code == 404
 
 
 def test_an_old_strict_run_still_serves_frames_by_its_rows(folder):

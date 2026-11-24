@@ -82,8 +82,9 @@ geecs_bluesky/
                             #   EPICS_CA/PVA_ADDR_LIST from config.ini before libca's context exists
   namespace.py              # GeecsNamespace: every DB device as a long-lived noun;
                             #   capture_streams (the file-plugin rule), add_pseudos, telemetry()
-  db_runtime.py             # the DB providers (served set, device types); the scalar
-                            #   policy lives in geecs_core.db.scalar_policy
+  db_runtime.py             # the DB device-types provider; the scalar policy lives
+                            #   in geecs_core.db.scalar_policy, the served set in
+                            #   geecs_core.db.served_set
   devices/detector.py       # GeecsDetector — the acquirer as a stock StandardDetector
   devices/shot_control.py   # ShotControl — the trigger box: Movable over the profile's
                             #   states, Pausable; CaPutSetter + the writes
@@ -964,7 +965,8 @@ CLI parses Python literals not JSON).
 `qs_client/` is the client seam every GEECS client uses (`QueueClient`,
 `ZmqQueueClient`/`StubQueueClient`, the `[qserver]` config reader,
 `readiness_verdict` — the ONE definition of ready, `run_submit_preflight`
-+ `build_submission_record`).  A client submits a **plan item** by name
++ `build_submission_record`; tests drive it over
+`qs_client.testing.FakeManagerAPI` and `client_over`).  A client submits a **plan item** by name
 (`submit_plan("count", args=[["UC_Amp4_IR_input"], 10],
 kwargs={"trigger_profile": "HTU-NoGas"})`) or a saved preset
 (`submit_preset(preset)` → `presets.expand_preset`: device bindings,

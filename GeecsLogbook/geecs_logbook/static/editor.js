@@ -39,7 +39,6 @@
   /* Where this service's permalinks live, e.g. "/log/entry". Empty on a
      read-only logbook, which has neither the route nor a composer. */
   const ENTRY_BASE = host.dataset.entryBase || "";
-  const AUTHOR_KEY = "geecs.author";
   const SEEDS = (() => {
     const el = document.getElementById("logbook-seeds");
     try { return el ? JSON.parse(el.textContent) : {}; } catch (e) { return {}; }
@@ -47,14 +46,11 @@
 
   // ------------------------------------------------------------ plumbing
 
-  const who = () => { try { return localStorage.getItem(AUTHOR_KEY) || ""; } catch (e) { return ""; } };
-
   /** The day a form writes to: its own date field, its data-day, or the page's. */
   function dayOf(form) {
     const when = form.querySelector(".when");
     return (when && when.value) || form.dataset.day || DAY || "";
   }
-  const remember = (name) => { try { localStorage.setItem(AUTHOR_KEY, name); } catch (e) { /* private window */ } };
 
   async function api(method, path, body) {
     const res = await fetch(API + path, {
@@ -353,7 +349,7 @@
   function authorName(form) {
     const input = form.querySelector(".who");
     const name = input.value.trim();
-    if (name) { remember(name); return name; }
+    if (name) { window.GeecsOperator.set(name); return name; }  // the name every surface shares (theme-boot.js)
     input.focus();
     fail(form, { message: "Enter your name first." });
     return null;
@@ -713,7 +709,7 @@
     form.dataset.mounted = "1";
     const ta = form.querySelector(".ta");
     const whoInput = form.querySelector(".who");
-    if (whoInput && !whoInput.value) whoInput.value = who();
+    if (whoInput && !whoInput.value) whoInput.value = window.GeecsOperator.get();
     buildToolbar(form);
     if (!form.classList.contains("editing") && !form.querySelector("[data-discard]")) {
       const d = document.createElement("button");

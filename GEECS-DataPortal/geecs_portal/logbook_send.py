@@ -4,7 +4,8 @@ The portal is a *view* of a scan and the logbook is a peer service, so a
 plot travels between them the way anything else does: an HTTP call to the
 logbook's public write verbs. Nothing here imports GeecsLogbook (the
 package edge in the root ``CLAUDE.md`` stands) — this module knows three
-URLs and the shapes they take.
+URLs and the shapes they take; the create body is GEECS-Schemas'
+``EntryCreate``, the model the logbook's route validates.
 
 Why the portal sends and not the browser
 ----------------------------------------
@@ -78,6 +79,7 @@ from pathlib import PurePosixPath
 from typing import Optional
 
 import httpx
+from geecs_schemas.log_entry import EntryCreate
 
 logger = logging.getLogger(__name__)
 
@@ -417,14 +419,14 @@ def _create_entry(
     created = _checked(
         http.post(
             f"{base}/api/entries",
-            json={
-                "day": day,
-                "book": "scans",
-                "scan": scan,
-                "author": author,
-                "body_md": opening,
-                "template": "blank",
-            },
+            json=EntryCreate(
+                day=day,
+                book="scans",
+                scan=scan,
+                author=author,
+                body_md=opening,
+                template="blank",
+            ).model_dump(mode="json", exclude_unset=True),
         )
     )
     return str(_field(created, "entry_id"))

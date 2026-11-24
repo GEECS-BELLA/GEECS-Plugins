@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from geecs_data_utils.testing import make_scan_folder
 from PIL import Image
 
 from geecs_portal.plotter import images, multi
@@ -28,18 +29,17 @@ REFS = [(date(2026, 10, 2), 1), (date(2026, 10, 3), 1)]
 def other(camera: Path, share: Path) -> Path:
     """2026-10-03 Scan001: the camera at 100 on both shots, bins at X=2 and 3."""
     day = share / EXPERIMENT / "Y2026" / "10-Oct" / "26_1003"
-    folder = day / "scans" / "Scan001"
-    (folder / CAM).mkdir(parents=True)
-    (folder / "ScanInfoScan001.ini").write_text(
-        "[Scan Info]\n"
+    folder = make_scan_folder(
+        day / "scans" / "Scan001",
+        devices=[CAM],
+        scan_info="[Scan Info]\n"
         'Scan No = "1"\n'
         f'Scan Parameter = "{SCAN_VARIABLE}"\n'
-        'Start = "2"\nEnd = "3"\nStep size = "1"\nShots per step = "1"\n'
+        'Start = "2"\nEnd = "3"\nStep size = "1"\nShots per step = "1"\n',
+        sfile=pd.DataFrame(
+            {"Shotnumber": [1, 2], "Bin #": [1, 2], SCAN_VARIABLE: [2.0, 3.0]}
+        ),
     )
-    (day / "analysis").mkdir()
-    pd.DataFrame(
-        {"Shotnumber": [1, 2], "Bin #": [1, 2], SCAN_VARIABLE: [2.0, 3.0]}
-    ).to_csv(day / "analysis" / "s1.txt", sep="\t", index=False)
     for shot in (1, 2):
         frame = np.full((4, 6), 100, dtype=np.uint16)
         frame[0, 0] = 1000

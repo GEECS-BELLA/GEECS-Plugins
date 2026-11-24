@@ -50,7 +50,9 @@ Both books use the same composer.
 3. Write in markdown. Type `#tag` anywhere to tag the note. Paste or
    drop an image to attach it; paste a table from a spreadsheet and it
    becomes a markdown table.
-4. Enter your name and press **Save**.
+4. Enter your name and press **Save**. The name box starts with the name
+   remembered in this browser, shared with the other GEECS surfaces, so
+   on a shared machine check it is yours.
 
 After saving, a note can be edited or deleted. Every change keeps the
 previous version, and a deleted note is hidden rather than erased, so it

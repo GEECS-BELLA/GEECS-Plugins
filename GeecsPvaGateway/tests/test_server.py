@@ -15,6 +15,7 @@ import threading
 
 import numpy as np
 import pytest
+from geecs_data_utils.testing import forge_imaq_blob, imaq_struct
 from p4p.client.thread import Context
 
 from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
@@ -31,16 +32,10 @@ IMG = (np.arange(4 * 6) % 200).astype("<u2").reshape(4, 6)
 
 
 def _imaq_blob(img: np.ndarray) -> bytes:
-    """Anchored IMAQ flatten wrapper around ``img`` (no border, no padding)."""
+    """Anchored IMAQ flatten wrapper around ``img`` (U16, no border, no padding)."""
     height, width = img.shape
-    sb = bytearray(64)
-    struct.pack_into("<i", sb, 36, 7)  # Grayscale U16
-    struct.pack_into("<i", sb, 40, width)
-    struct.pack_into("<i", sb, 48, height)
-    struct.pack_into("<i", sb, 56, 0)
-    prefixed = struct.pack(">I", len(DEVICE)) + DEVICE
-    wrapper = b"nivissvc.*" + b"LV_ImageDTClassInfo" + b"\x00" * 8 + bytes(sb)
-    return prefixed + wrapper + prefixed + img.tobytes()
+    struct_bytes = imaq_struct(width, height, pixel_type=7)
+    return forge_imaq_blob(img.tobytes(), struct_bytes, device=DEVICE)
 
 
 def _push_frame() -> bytes:

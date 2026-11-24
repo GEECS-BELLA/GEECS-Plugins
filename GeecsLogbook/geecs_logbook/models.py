@@ -66,14 +66,15 @@ class ScanSummary(BaseModel):
     number : int
         The scan number, i.e. ``NNN`` in ``ScanNNN``.
     started : datetime or None
-        When the scan ran, from the first record in its ``scan.log``.
-        Falls back to the ``ScanInfo`` file's own modification time for
-        archive scans that predate ``scan.log`` — approximate, and flagged
-        as such by ``started_approximate``. ``None`` when neither exists.
+        When the scan ran, by ``scan_info.scan_start_time`` (the
+        portal's rule): the s-file's first LabVIEW ``DateTime Timestamp``,
+        else ``scan.log``'s first record, else the ``ScanInfo`` file's own
+        mtime — approximate, and flagged by ``started_approximate`` — each
+        only when it falls on the folder's day. ``None`` when none does.
         Never the scan *folder's* mtime: any later pass that writes into
         the folder moves it, measured over an hour off the real start.
     started_approximate : bool
-        Whether ``started`` is the fallback rather than the log's own
+        Whether ``started`` is the ScanInfo mtime rather than a recorded
         timestamp, so the view can mark it rather than implying precision
         it does not have.
     parameter : str or None
@@ -89,8 +90,6 @@ class ScanSummary(BaseModel):
         ``Plan`` and ``Scanner``, e.g. ``"scan"`` / ``"bluesky"``.
     trigger_profile : str or None
         ``Trigger profile``.
-    background : bool or None
-        ``Background``.
     purpose : str or None
         ``ScanStartInfo`` — the operator's stated reason for the scan,
         captured at submission. This is the one human-authored field the
@@ -142,7 +141,6 @@ class ScanSummary(BaseModel):
     plan: Optional[str] = None
     scanner: Optional[str] = None
     trigger_profile: Optional[str] = None
-    background: Optional[bool] = None
     purpose: Optional[str] = None
     status: ScanStatus = "unknown"
     failure_reason: Optional[str] = None

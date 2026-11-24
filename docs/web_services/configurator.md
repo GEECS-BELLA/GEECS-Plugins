@@ -12,7 +12,9 @@ hand, and nothing is left uncommitted.
 !!! note "Name yourself first"
     Type your name in the header's **Operator** field before saving. It is
     the commit's author. A save without it is refused, and the page
-    remembers the name in this browser.
+    remembers the name in this browser, as the scanner, the portal, the
+    logbook and the Control Room do: behind the front door they share one
+    remembered name.
 
 ## Finding a document
 

@@ -258,3 +258,32 @@ def test_y2_off_on_a_scan_without_its_column_but_kept(
     )
     saved = json.loads((settings_dir / "default.json").read_text())
     assert saved["y2"] == ALIASED
+
+
+@pytest.mark.parametrize(
+    ("source", "function"),
+    [
+        (_PKG / "static" / "plotter.js", "ownName"),
+        (_PKG.parent / "templates" / "day.html", "viewer"),
+    ],
+    ids=["plot page", "day page"],
+)
+def test_the_settings_set_name_reads_its_own_key_only(
+    source: Path, function: str
+) -> None:
+    """The set name is never borrowed from another remembered name.
+
+    A set picked from the operator's name every surface shares would put a
+    write under whoever typed a name last on any surface, and the Plot
+    page's "Change" link would reload straight back into it.
+    """
+    import re
+
+    text = source.read_text()
+    body = re.search(rf"function {function}\(\) \{{\n(.*?)\n  \}}\n", text, re.S)
+    assert body, f"{source.name} no longer defines {function}()"
+    keys = re.findall(r"localStorage\.getItem\(([^)]*)\)", body.group(1))
+    assert keys == ["OWN_KEY"], keys
+    assert 'const OWN_KEY = "geecs-portal:set"' in text
+    for other in ("GeecsOperator", "geecs-portal:author"):
+        assert other not in body.group(1)

@@ -170,8 +170,11 @@ def device_status_pv(experiment: str | None, device: str) -> str:
 #: The CA gateway's own device component — the reserved namespace of its
 #: self-diagnostics (``<experiment>:cagateway:<name>``, PV_CONTRACT §1).
 GATEWAY_DEVICE = "cagateway"
-#: The gateway's 5 s liveness counter.
+#: The gateway's liveness counter, one tick every :data:`GATEWAY_HEARTBEAT_PERIOD_S`.
 GATEWAY_HEARTBEAT = "heartbeat"
+#: Seconds between the gateway's heartbeat ticks: the gateway's status loop
+#: ticks at this period, and a probe that waits for a tick waits this long.
+GATEWAY_HEARTBEAT_PERIOD_S = 5.0
 #: The gateway's count of connected GEECS devices.
 GATEWAY_DEVICES_CONNECTED = "devices_connected"
 #: The gateway's status PVs worth history, which the archiver derives;

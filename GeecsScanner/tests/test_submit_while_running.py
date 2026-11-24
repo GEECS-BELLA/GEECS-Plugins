@@ -17,7 +17,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
-from geecs_bluesky.qs_client.client import QserverConfig, ZmqQueueClient
+from geecs_bluesky.qs_client.testing import client_over
 
 from geecs_scanner.service import StreamCache, ScannerService
 from geecs_scanner.service.demo import DemoResolver, demo_preflight
@@ -72,10 +72,8 @@ class _BusyManagerAPI:
 
 
 def _service_over(api: _BusyManagerAPI) -> ScannerService:
-    client = ZmqQueueClient(QserverConfig("tcp://x:1", "tcp://x:2", "x:3"), user="t")
-    client._api = api
     return ScannerService(
-        client,
+        client_over(api, user="t"),
         DemoResolver(),
         experiment="Demo",
         identity="t",

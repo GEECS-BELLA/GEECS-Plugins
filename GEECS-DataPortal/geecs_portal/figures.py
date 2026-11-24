@@ -1,6 +1,6 @@
 """Server-side figure authoring (plotly.py → the vendored renderer).
 
-The ``/api/run/{uid}`` plot routes' and the Grid's traces and layouts are
+The ``/api/run/{uid}/binned`` route's and the 2-D map's traces and layouts are
 authored HERE, in Python, and served as ready Plotly figure JSON; the Plot
 page (``geecs_portal.plotter.figures``) builds on the same palette,
 serializer, cosmetics and binned trace. A page's job shrinks to
@@ -41,8 +41,6 @@ if TYPE_CHECKING:  # pandas is runtime-optional here (local imports)
 
 import plotly.graph_objects as go
 import plotly.io as pio
-
-from geecs_data_utils.tiled_schema import shot_axis_for_frame
 
 
 #: The notebook trace palette; on a page the traces come from the theme's
@@ -388,9 +386,8 @@ def grid_figures(
 def grid_document(result: GridResult, pretty: dict[str, str], code: str) -> dict:
     """A 2-D map's JSON answer: cells, axes, counts, both figures and *code*.
 
-    One shape for the scan's ``/api/run/{uid}/grid`` and the Plot page's
-    ``/plot/api/map``; the numbers are ``grid_scan``'s, the figures
-    :func:`grid_figures` in the page palette.
+    The Plot page's ``/plot/api/map`` answer; the numbers are
+    ``grid_scan``'s, the figures :func:`grid_figures` in the page palette.
 
     Parameters
     ----------
@@ -438,7 +435,7 @@ def base_layout(palette: Palette) -> dict:
     Every figure starts here. The legend sits horizontally above the plot
     and the x axis reserves room for its title — both were silently lost
     once when this was rebuilt by hand, so ``tests/test_figures.py`` pins
-    what :func:`shots_figure` actually serves, not a constant.
+    what :func:`binned_figure` actually serves, not a constant.
     """
     return {
         "paper_bgcolor": palette.paper,
@@ -618,84 +615,6 @@ def apply_display(
             layout[key] = float(value)
 
 
-def _shot_axis(series: Mapping, y: Sequence[str], shot: Optional[Sequence]) -> Sequence:
-    if shot is not None:
-        return shot
-    if hasattr(series, "columns") and hasattr(series, "index"):
-        return shot_axis_for_frame(series)
-    if "Shotnumber" in series:
-        return series["Shotnumber"]
-    return list(range(1, len(series[y[0]]) + 1))
-
-
-def shots_figure(
-    series: Mapping[str, Sequence],
-    y: Sequence[str],
-    *,
-    x: Optional[str] = None,
-    shot: Optional[Sequence] = None,
-    kinds: Optional[Mapping[str, str]] = None,
-    pretty: Optional[Mapping[str, str]] = None,
-    display: Optional[Mapping] = None,
-    palette: Palette = NOTEBOOK_PALETTE,
-) -> go.Figure:
-    """The per-shot scatter figure — one markers trace per ``y`` column.
-
-    Parameters
-    ----------
-    series : Mapping[str, Sequence]
-        Column name → values.  The ``/api`` frame payload's ``series``
-        dict and a pandas ``DataFrame`` both qualify.
-    y : Sequence[str]
-        The plotted columns, in trace order (max 4 upstream).
-    x : str, optional
-        X column name; absent (or missing from ``series``) falls back
-        to the shot axis.
-    shot : Sequence, optional
-        The shot-number axis; defaults to a ``Shotnumber`` column, else
-        1..n.
-    kinds : Mapping[str, str], optional
-        Column → ``"datetime"`` for columns served as ISO strings.
-    pretty : Mapping[str, str], optional
-        Column → display name for titles and the legend.
-    display : Mapping, optional
-        The URL-carried plot-cosmetics JSON (already type-checked).
-
-    Returns
-    -------
-    plotly.graph_objects.Figure
-        The ``/frame`` payload's figure (its notebook view; the Plot page
-        draws ``geecs_portal.plotter.figures``).
-    """
-    # An unservable X falls back to the shot axis WITH its title — the
-    # figure never claims an axis it did not draw.
-    x = x if x and x in series else None
-    x_values = series[x] if x else _shot_axis(series, y, shot)
-    x_is_date = bool(x) and (kinds or {}).get(x) == "datetime"
-    y_is_date = (kinds or {}).get(y[0]) == "datetime"
-    fig = _bare_figure()
-    for i, name in enumerate(y):
-        fig.add_scatter(
-            x=list(x_values),
-            y=list(series[name]),
-            mode="markers",
-            name=_pretty(pretty, name),
-            marker={
-                "color": trace_color(display, i, palette),
-                "size": marker_size(display),
-            },
-            yaxis="y" if i == 0 else f"y{i + 1}",
-        )
-    layout = base_layout(palette)
-    layout["xaxis"]["title"] = {"text": _pretty(pretty, x) if x else "shot #"}
-    if x_is_date:
-        layout["xaxis"]["type"] = "date"  # ISO strings from the API
-    layout.update(_multi_y_layout(y, pretty, display, palette))
-    apply_display(layout, display, x_is_date=x_is_date, y_is_date=y_is_date)
-    fig.update_layout(layout)
-    return fig
-
-
 def trace_figure(
     x: Sequence,
     y: Sequence,
@@ -834,8 +753,10 @@ def binned_figure(
         with ``bins`` one-to-one.
     x_label : str, optional
         The x-axis title for ``x_values`` (defaults to ``bin_col``).
-    pretty, display
-        As in :func:`shots_figure`.
+    pretty : Mapping[str, str], optional
+        Column → display name for titles and the legend.
+    display : Mapping, optional
+        The URL-carried plot-cosmetics JSON (already type-checked).
 
     Returns
     -------

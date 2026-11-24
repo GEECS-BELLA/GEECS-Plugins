@@ -145,9 +145,9 @@
   const H = window.GeecsHomeRules, R = window.GeecsScreenRules;
   const PRESETS = "/api/home/presets", BASELINE = "/api/home/baseline";
   let presets = [], screens = [], selection = null, drawn = "", runs = {}, runOf = {}, watching = new Set();
-  const opInput = $("operator"), OP_KEY = "geecs-control-room-operator"; // the header's, remembered as on a screen
-  try { opInput.value = localStorage.getItem(OP_KEY) || ""; } catch (_) { /* no storage */ }
-  opInput.addEventListener("change", () => { try { localStorage.setItem(OP_KEY, opInput.value.trim()); } catch (_) { /* no storage */ } });
+  const opInput = $("operator"); // the header's, remembered under the name every surface shares (theme-boot.js)
+  opInput.value = window.GeecsOperator.get();
+  opInput.addEventListener("change", () => window.GeecsOperator.set(opInput.value));
   const json = async (path, body) => {
     const r = await fetch(root + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
     return [r.status, await r.json()];

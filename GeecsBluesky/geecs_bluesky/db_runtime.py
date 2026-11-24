@@ -1,12 +1,10 @@
 """DB-integration runtime: what the GEECS experiment DB says a device records.
 
-Turns the GEECS experiment DB's per-experiment variable policy
-(``expt_device_variable``) into the providers the device namespace builds
-from (``geecs_bluesky.namespace``):
-
-1. **Served-set resolution** — :class:`GeecsDbServedSetProvider`, over
-   :func:`geecs_core.db.served_set.served_variables`.
-2. **Device types** — :class:`GeecsDbDeviceTypes`.
+Turns the GEECS experiment DB into the providers the device namespace
+builds from (``geecs_bluesky.namespace``): the **device types**,
+:class:`GeecsDbDeviceTypes`.  The gateway's served set is
+:func:`geecs_core.db.served_set.served_variables`, read directly by the
+namespace's roster.
 
 The **subscribed scalars** rule (``get='yes'`` — what every device reads
 into its rows and what the run's background telemetry carries) is
@@ -27,82 +25,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from geecs_core.db.served_set import served_variables
-
 logger = logging.getLogger(__name__)
-
-
-#: Variables the gateway synthesizes for every device regardless of the DB
-#: ``get`` flags: the timestamp ladder (``acq_timestamp`` preferred,
-#: ``systimestamp`` fallback) and the per-device ``CONNECTED`` status PV.
-#: No ``expt_device_variable`` row exists for them.
-GATEWAY_SYNTHESIZED_VARIABLES = frozenset(
-    {"acq_timestamp", "systimestamp", "CONNECTED"}
-)
-
-
-@dataclass
-class GeecsDbServedSetProvider:
-    """The gateway's served variable names, per device; ``None`` on DB failure.
-
-    A thin, cached wrapper over
-    :func:`geecs_core.db.served_set.served_variables`.
-
-    Parameters
-    ----------
-    experiment : str
-        GEECS experiment name.
-    enabled_only : bool
-        Restrict to devices enabled in the experiment (default true) —
-        matching the gateway's own config builder.
-    db : type, optional
-        The ``GeecsDb`` class (injectable for tests); imported lazily by
-        default so this module has no hard dependency on the ``ca`` DB stack.
-    """
-
-    experiment: str
-    enabled_only: bool = True
-    db: object | None = None
-    _served: Optional[dict[str, set[str]]] = field(default=None, init=False)
-    _attempted: bool = field(default=False, init=False)
-
-    def _geecs_db(self) -> object:
-        if self.db is not None:
-            return self.db
-        from geecs_core.db.geecs_db import GeecsDb
-
-        self.db = GeecsDb
-        return GeecsDb
-
-    def served_by_device(self) -> dict[str, set[str]] | None:
-        """Return ``{device: {served variables}}``, or ``None`` on DB failure."""
-        if not self._attempted:
-            self._attempted = True
-            try:
-                db = self._geecs_db()
-                only = self.enabled_only
-                subscribed = db.get_subscribed_variables(
-                    self.experiment, enabled_only=only
-                )
-                metadata = db.get_experiment_device_variables(
-                    self.experiment, enabled_only=only
-                )
-                endpoints = db.get_experiment_devices(
-                    self.experiment, enabled_only=only
-                )
-            except Exception:  # noqa: BLE001 — DB read fails open
-                logger.warning(
-                    "Could not read the gateway served set for experiment %r",
-                    self.experiment,
-                    exc_info=True,
-                )
-                return None
-            served = served_variables(metadata, subscribed, devices=endpoints)
-            self._served = {
-                device: {sv.name for sv in variables}
-                for device, variables in served.items()
-            }
-        return self._served
 
 
 @dataclass
