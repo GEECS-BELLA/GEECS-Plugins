@@ -43,6 +43,7 @@ import png
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
 from geecs_data_utils.io import analysis_outputs
 from geecs_data_utils.io.analysis_outputs import OutputSeries
+from geecs_data_utils.io.images import average_frames
 from geecs_data_utils.io.shot_traces import column_name, read_text_table
 
 #: The output folder suffixes that carry the image's two axes.
@@ -75,6 +76,9 @@ class MagspecShot:
     spectrum: LineoutTable
     #: The ``-interpDiv`` table: the angle axis and the divergence profile.
     divergence: LineoutTable
+    #: What one count of the PNG is, in :attr:`frame`'s unit (its Comment, else 1):
+    #: a count-based clean-up (a background in counts) divides by it first.
+    charge_per_count: float = 1.0
 
 
 def read_lineout_table(path: Union[Path, str]) -> LineoutTable:
@@ -140,6 +144,19 @@ def read_charge_image(path: Union[Path, str]) -> tuple[np.ndarray, str]:
         A PNG that is not single-channel greyscale, or one pypng cannot
         decode (truncated or empty: a file its producer is still writing).
     """
+    counts, comment = _read_counts(path)
+    scale, unit = charge_per_count(comment) or DEFAULT_CHARGE_PER_COUNT
+    return counts * scale, unit
+
+
+def _read_counts(path: Union[Path, str]) -> tuple[np.ndarray, Optional[str]]:
+    """A greyscale PNG's counts (float64) and its ``Comment`` text, in one read.
+
+    Raises
+    ------
+    ValueError
+        As :func:`read_charge_image`.
+    """
     raw = Path(path).read_bytes()
     comment = None
     try:
@@ -154,9 +171,7 @@ def read_charge_image(path: Union[Path, str]) -> tuple[np.ndarray, str]:
         raise ValueError(f"{Path(path).name}: not a readable PNG ({exc})") from exc
     if not info.get("greyscale") or info.get("alpha"):
         raise ValueError(f"{Path(path).name}: a magspec image is greyscale")
-    counts = counts.reshape(height, width)
-    scale, unit = charge_per_count(comment) or DEFAULT_CHARGE_PER_COUNT
-    return counts * scale, unit
+    return counts.reshape(height, width), comment
 
 
 def read_magspec_shot(
@@ -175,7 +190,9 @@ def read_magspec_shot(
         table's not its height (nothing is resampled or cut), or either
         table or the image is malformed.
     """
-    image, unit = read_charge_image(image_path)
+    counts, comment = _read_counts(image_path)
+    scale, unit = charge_per_count(comment) or DEFAULT_CHARGE_PER_COUNT
+    image = counts * scale
     spectrum = read_lineout_table(momentum_path)
     divergence = read_lineout_table(angle_path)
     height, width = image.shape
@@ -190,7 +207,7 @@ def read_magspec_shot(
             f"image {height} rows high"
         )
     frame = Frame(image, (divergence.axis, spectrum.axis), shot, unit, "Charge")
-    return MagspecShot(frame, spectrum, divergence)
+    return MagspecShot(frame, spectrum, divergence, scale)
 
 
 #: Coulombs per charge unit a magspec image may carry.
@@ -254,6 +271,9 @@ def charge_density(frame: Frame, unit: str = "pC") -> Frame:
 def average_shots(frames: Sequence[Frame]) -> Frame:
     """Shots' images averaged pixel by pixel, and their axes coordinate by coordinate.
 
+    The pixels through ``io.images.average_frames`` (``nanmean``, the shared
+    frame averager); the axes by plain mean (they are always finite).
+
     A magspec's momentum axis follows each shot's field, so the shots of a
     bin differ slightly; they average index-wise, as the analysis core
     averages a measure whose axes are per shot. One frame is returned as it
@@ -271,11 +291,13 @@ def average_shots(frames: Sequence[Frame]) -> Frame:
     first = frames[0]
     if any(f.data.shape != first.data.shape for f in frames):
         raise ValueError("the shots' images differ in size")
+    data = average_frames([f.data for f in frames], label="magspec shots")
+    if data is None:  # pragma: no cover - the shapes were checked above
+        raise ValueError("the shots' images differ in size")
     axes = tuple(
         replace(axis, values=np.mean([f.axes[i].values for f in frames], axis=0))
         for i, axis in enumerate(first.axes)
     )
-    data = np.mean([f.data for f in frames], axis=0)
     return Frame(data, axes, None, first.unit, first.label)
 
 

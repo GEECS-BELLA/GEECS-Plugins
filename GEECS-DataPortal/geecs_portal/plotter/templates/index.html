@@ -98,9 +98,11 @@
                 <select name="hits{{ c.sfx }}" form="pick" data-submit-on-change aria-label="X-ray hits" title="X-ray hits">
                   {% for value, text in hit_labels.items() %}<option value="{{ value }}"{% if c.hits == value %} selected{% endif %}>{{ 'hits: ' ~ text if value == 'none' else text }}</option>{% endfor %}
                 </select>
+                {% if not c.axes_on %}{# no centring on physical axes: it would move charge off its momentum #}
                 <input name="centre{{ c.sfx }}" form="pick" type="text" inputmode="decimal" class="narrow-number" placeholder="centre: off"
                        value="{{ c.centre if c.centre is not none else '' }}" data-submit-on-change aria-label="Centre on beam: threshold"
                        title="Centre each image on its beam: the centre of mass above this threshold. 1 or more is counts, below 1 a fraction of the peak (0.5 = half max). Empty is off.">
+                {% endif %}
                 <div class="seg" role="group" aria-label="Colour bars" title="Colour bars: one per tile while each scales itself, one for the row on a shared or fixed scale">
                   <button type="button" data-toggle-for="cbar{{ c.sfx }}" data-value="true" aria-pressed="{{ 'true' if c.cbar else 'false' }}">bar</button>
                   <button type="button" data-toggle-for="cbar{{ c.sfx }}" data-value="false" aria-pressed="{{ 'false' if c.cbar else 'true' }}">no bar</button>

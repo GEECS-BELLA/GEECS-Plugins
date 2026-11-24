@@ -10,10 +10,12 @@ reading is GEECS-Data-Utils' ``io.magspec``.
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import png as pypng
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -193,3 +195,67 @@ def test_a_stacked_camera_keeps_its_own_axes_choice() -> None:
     settings = PlotterSettings(image_more=[ImageCamera(device=NAME)])
     after = merged(settings, {"axes@2": "true", "axes": "false"})
     assert after.image_more[0].axes is True and after.image_axes is False
+
+
+def _tables_of(magspec: Path, shot: int) -> list[Path]:
+    out = magspec.parent.parent / "analysis" / "Scan001"
+    return [
+        out / f"py-magspec-{kind}" / f"Scan001_py-magspec-{kind}_{shot:03d}.txt"
+        for kind in ("interpSpec", "interpDiv")
+    ]
+
+
+def test_a_bin_read_before_its_tables_landed_is_read_again(magspec: Path) -> None:
+    frame = pd.DataFrame({"Bin #": [1, 1, 2, 2]})
+    held = [(p, p.read_text()) for p in _tables_of(magspec, 2)]
+    for path, _ in held:
+        path.unlink()  # shot 2's image is there, its tables not yet
+    early = images.kept_calibrated_tile(magspec, frame, NAME, (1, 2))
+    np.testing.assert_allclose(early.data, _density(1))  # shot 2 left out
+    for path, text in held:
+        path.write_text(text)  # the tables land: their folders' times move
+        stamp = path.parent.stat().st_mtime_ns + 10**9
+        os.utime(path.parent, ns=(stamp, stamp))
+    late = images.kept_calibrated_tile(magspec, frame, NAME, (1, 2))
+    np.testing.assert_allclose(late.data, (_density(1) + _density(2)) / 2)
+
+
+def test_clean_ups_work_in_the_pngs_counts(magspec: Path) -> None:
+    """A '10 aC/count' image: one count off is 10 aC off, not 1."""
+    path = magspec.parent.parent / "analysis" / "Scan001" / "py-magspec"
+    image = path / "Scan001_py-magspec_001.png"
+    chunks = list(pypng.Reader(bytes=image.read_bytes()).chunks())
+    chunks.insert(1, (b"tEXt", b"Comment\x0010 aC/count"))
+    out = io.BytesIO()
+    pypng.write_chunks(out, chunks)
+    image.write_bytes(out.getvalue())
+    series = images.magspec.magspec_series(magspec, NAME)
+    part = images.ScanRows(magspec, pd.DataFrame({"Bin #": [1]}), (1,))
+    found = images._calibrated_shot(part, 1, NAME, series, lambda c: c - 1)
+    # (10 counts − 1) × 10 aC = 90 aC per pixel.
+    np.testing.assert_allclose(found.data, 90e-6 / (0.5 * STEP[1]))
+
+
+def test_centring_never_moves_charge_off_its_axes(magspec: Path) -> None:
+    frame = pd.DataFrame({"Bin #": [1, 1, 2, 2]})
+    plain = images.calibrated_tile(magspec, frame, NAME, (1,))
+    centred = images.calibrated_tile(
+        magspec, frame, NAME, (1,), images.ImagePrep(centre=0.5)
+    )
+    np.testing.assert_array_equal(centred.data, plain.data)
+
+
+def test_the_axis_tables_are_listed_once_while_their_folders_hold(
+    magspec: Path, monkeypatch
+) -> None:
+    calls = []
+    real = images.magspec.magspec_series
+    monkeypatch.setattr(
+        images.magspec,
+        "magspec_series",
+        lambda *a: calls.append(a) or real(*a),
+    )
+    images._has_magspec_series.cache_clear()
+    for _ in range(3):
+        assert images.calibrated_device(magspec, NAME)
+    assert len(calls) == 1

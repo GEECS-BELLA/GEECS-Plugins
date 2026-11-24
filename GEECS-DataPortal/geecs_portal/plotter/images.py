@@ -21,6 +21,7 @@ its s-file, or a ScanSet with its merged frame.
 
 from __future__ import annotations
 
+import functools
 import threading
 import time
 from collections import OrderedDict
@@ -777,17 +778,42 @@ def kept_tile_array(
     return found
 
 
+def _axis_outputs(device: str) -> tuple[str, str]:
+    """The sibling outputs that carry *device*'s momentum and angle."""
+    folder = _output_folder(device)
+    return folder + magspec.MOMENTUM_SUFFIX, folder + magspec.ANGLE_SUFFIX
+
+
+def _calibrated_stamp(source: Source, device: str) -> object:
+    """The image's and both axis tables' folder times (``None``: one cannot be read).
+
+    A table landing after its image changes the key, so a bin read in
+    between (that shot left out) is read again.
+    """
+    stamps = tuple(_source_stamp(source, n) for n in (device, *_axis_outputs(device)))
+    return None if None in stamps else stamps
+
+
+@functools.lru_cache(maxsize=256)
+def _has_magspec_series(folder: str, device: str, stamp: object) -> bool:
+    """``magspec_series`` found, remembered while the three folders' times hold."""
+    return magspec.magspec_series(Path(folder), device) is not None
+
+
 def calibrated_device(folder: Path, device: str) -> bool:
     """Whether *device* is an image output with physical axes (a magspec's).
 
     ``geecs_data_utils.io.magspec.magspec_series``: an analysis output
     whose sibling ``-interpSpec`` and ``-interpDiv`` folders carry each
-    shot's momentum and angle.
+    shot's momentum and angle. Three stats per call; the folder listings
+    only when one of the three folders changed.
     """
-    return (
-        analysis_outputs.is_output_name(device)
-        and magspec.magspec_series(folder, device) is not None
-    )
+    if not analysis_outputs.is_output_name(device):
+        return False
+    stamp = _calibrated_stamp(folder, device)
+    if stamp is None:
+        return False
+    return _has_magspec_series(str(folder), device, stamp)
 
 
 def calibrated_tile(
@@ -801,9 +827,10 @@ def calibrated_tile(
     """The tile as charge density on its physical axes: one shot, or its shots' mean.
 
     Each shot is its image with its own momentum and angle
-    (``magspec.magspec_shot``), cleaned as :func:`tile_array` cleans a
-    camera's (the background is in the image's own counts), then made
-    charge density (``magspec.charge_density``: ``pC/mrad/(GeV/c)``). A
+    (``magspec.magspec_shot``), cleaned in its PNG's counts as
+    :func:`tile_array` cleans a camera's (the background, the X-ray-hit
+    filter; never centring, which would move charge off its momentum and
+    angle), then made charge density (``magspec.charge_density``: ``pC/mrad/(GeV/c)``). A
     bin is its shots' mean, pixel by pixel with their axes averaged
     (``magspec.average_shots``). A shot missing any of its three files, or
     whose files are malformed, is left out, never a neighbour's.
@@ -813,7 +840,7 @@ def calibrated_tile(
     NoImage
         No shot of the tile has its image and both axes; the reason why.
     """
-    prepare = _preparer(device, prep, background)
+    prepare = _preparer(device, ImagePrep(hits=prep.hits), background)
     shots: list[Frame] = []
     reason = "no shots"
     for part in _parts(folder, frame, rows):
@@ -852,7 +879,9 @@ def _calibrated_shot(
             return f"shot {number} lacks its image or an axis table"
         charge = shot.frame
         if prepare is not None:
-            charge = charge.replace(data=prepare(np.array(charge.data)))
+            # The background and the hit filter work in counts.
+            counts = np.array(charge.data) / shot.charge_per_count
+            charge = charge.replace(data=prepare(counts) * shot.charge_per_count)
         return magspec.charge_density(charge)
     except ValueError as why:
         return str(why)
@@ -868,15 +897,15 @@ def kept_calibrated_tile(
 ) -> Frame:
     """:func:`calibrated_tile`, remembered as :func:`kept_tile_array` remembers.
 
-    The key is the image folder's time (each axis table is written with its
-    image), the table's length and the clean-ups.
+    The key carries the image's and both axis tables' folder times
+    (:func:`_calibrated_stamp`), the table's length and the clean-ups.
 
     Raises
     ------
     NoImage
         As :func:`calibrated_tile`.
     """
-    stamp = _source_stamp(folder, device)
+    stamp = _calibrated_stamp(folder, device)
     args = (folder, frame, device, rows, prep, background)
     if stamp is None:
         return calibrated_tile(*args)

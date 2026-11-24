@@ -300,3 +300,18 @@ def test_shots_average_pixels_and_axes_index_by_index():
         magspec.average_shots([one, _image([[1.0]], [0.0], [1.0])])
     with pytest.raises(ValueError, match="no shots"):
         magspec.average_shots([])
+
+
+def test_a_shot_keeps_what_one_count_is(tmp_path):
+    image, spec, div = tmp_path / "i.png", tmp_path / "s.txt", tmp_path / "d.txt"
+    _png(image, _pixels(0), comment="10 aC/count")
+    _table(
+        spec,
+        "Momentum_GeV/c\tCharge_fC\tChargeDen_pC/GeV/c",
+        _momentum(0),
+        np.ones(WIDTH),
+    )
+    _table(div, "Angle_mrad\tCharge_fC\tChargeDen_fC/mrad", ANGLE, np.ones(HEIGHT))
+    shot = magspec.read_magspec_shot(image, spec, div)
+    assert shot.charge_per_count == 10.0
+    np.testing.assert_allclose(shot.frame.data, _pixels(0) * 10.0)
