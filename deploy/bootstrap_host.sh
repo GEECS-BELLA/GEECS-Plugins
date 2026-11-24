@@ -294,6 +294,10 @@ if wanted canopy; then require_site_keys GEECS_CANOPY_BIND GEECS_CANOPY_PORT GEE
 if wanted control-room; then require_site_keys GEECS_CONTROL_ROOM_PORT GEECS_CONTROL_ROOM_CANOPY_URL; fi
 if wanted configurator; then require_site_keys GEECS_CONFIGURATOR_PORT; fi
 if wanted analysis-worker; then require_site_keys GEECS_ANALYSIS_WORKER_PORT; fi
+# The interlock server: without the configuration it would run reporting no
+# interlocks, and a blank port or host would exit 2 (and stay down) or listen
+# on every interface; every key must be set before anything runs.
+if wanted interlocks; then require_site_keys GEECS_INTERLOCKS_CONFIG GEECS_INTERLOCKS_STATUS_HOST GEECS_INTERLOCKS_STATUS_PORT GEECS_INTERLOCKS_WEB_HOST GEECS_INTERLOCKS_WEB_PORT GEECS_INTERLOCKS_EXTERNAL_HOST; fi
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
 if [ -z "$ONLY" ] && [ -z "${GEECS_ARCHIVER_HOST:-}" ]; then
@@ -541,7 +545,8 @@ templates_of() { case "$1" in
     archiver) echo "GeecsArchiver/deploy/geecs-archiver.service";;
     canopy) echo "GeecsCanopy/deploy/geecs-canopy.service";; control-room) echo "GeecsControlRoom/deploy/geecs-control-room.service";;
     configurator) echo "GeecsConfigurator/deploy/geecs-configurator.service";;
-    analysis-worker) echo "GeecsAnalysisWorker/deploy/geecs-analysis-worker.service";; esac; }
+    analysis-worker) echo "GeecsAnalysisWorker/deploy/geecs-analysis-worker.service";;
+    interlocks) echo "GEECS-Interlocks/deploy/geecs-interlocks.service";; esac; }
 TEMPLATE_PATHS=()
 # Services whose clone predates the templated units: no unit is rendered or
 # enabled for them (pulling that clone forward is a deploy of that service,

@@ -18,9 +18,10 @@
 # Runtime values come from site.env and THEN @EXPERIMENTS_DIR@/<Instance>.env,
 # which overrides it (keys in deploy/experiments.env.example). The
 # configuration and the ports are read from GEECS_INTERLOCKS_INSTANCE_* keys,
-# names site.env never sets: an instance file without them leaves the port
-# arguments empty and the server exits 2 (not restarted), so an instance never
-# runs on the main experiment's configuration or stream port. The
+# names site.env never sets: an instance file without them leaves the
+# configuration and port arguments empty, and the server refuses to start
+# (exit 2, not restarted), so an instance never runs on the main experiment's
+# configuration or stream port. The
 # non-templated unit is the main experiment's.
 #
 # Upgrade: GEECS-Interlocks/DEPLOYMENT.md.

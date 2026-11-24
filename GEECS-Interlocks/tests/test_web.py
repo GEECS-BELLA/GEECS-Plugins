@@ -184,6 +184,15 @@ class TestActions:
                 assert r.status_code == 400 and "operator" in r.json()["detail"]
         assert eng.monitor.baseline("stage", 0) is None  # nothing was armed
 
+    def test_an_action_not_sent_as_json_is_refused(self, armable):
+        """A cross-origin text/plain POST (no preflight) never reaches the engine."""
+        eng, _, client = armable
+        body = '{"operator": "Ada"}'
+        for path in ("/api/arm", "/api/reload"):
+            r = client.post(path, content=body, headers={"Content-Type": "text/plain"})
+            assert r.status_code == 415
+        assert eng.monitor.baseline("stage", 0) is None
+
     def test_arm_all_records_the_settings_and_logs_who(self, armable, caplog):
         eng, _, client = armable
         caplog.set_level("INFO")
