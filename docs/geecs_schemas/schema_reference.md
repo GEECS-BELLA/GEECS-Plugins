@@ -1106,7 +1106,7 @@ Every control of the Plot and Images pages, each with its default.
 | `image_cbar` | `bool` | no | True | Draw colour bars. |
 | `image_bg` | `ScanRef (optional)` | no | None | The background scan, whose average comes off each shot; empty: none. |
 | `image_bgsub` | `bool` | no | True | The first camera subtracts the background. |
-| `image_channel` | `int` | no | 0 | The first row's scope channel (from 0), for traces. |
+| `image_channels` | `list[int]` | no | [0] | The first row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named. |
 | `image_xmin` | `float (optional)` | no | None | The first trace row's x window, low side; empty: no limit. |
 | `image_xmax` | `float (optional)` | no | None | The first trace row's x window, high side; empty: no limit. |
 | `image_rois` | `dict[str, list[int]]` | no | empty | Each camera's region of interest, [x0, y0, x1, y1] in pixels. |
@@ -1170,7 +1170,7 @@ A camera stacked under the first on the Images page, and how its row looks.
 | `centre` | `float (optional)` | no | None | Centre each shot on its peak above this threshold (1 or more: counts; below 1: a fraction of the peak); empty: not centred. |
 | `cbar` | `bool` | no | True | Draw colour bars. |
 | `bgsub` | `bool` | no | True | Subtract the set's background scan. |
-| `channel` | `int` | no | 0 | The scope channel (from 0), for a device recording traces. |
+| `channels` | `list[int]` | no | [0] | The row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named. |
 | `xmin` | `float (optional)` | no | None | A trace row's x window, low side; empty: no limit. |
 | `xmax` | `float (optional)` | no | None | A trace row's x window, high side; empty: no limit. |
 

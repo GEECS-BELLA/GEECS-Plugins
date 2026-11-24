@@ -29,6 +29,7 @@ from typing import Callable, Optional
 from geecs_analysis.image_prep import HIT_FILTERS
 from geecs_schemas.plot_settings import (
     MAX_CAMERAS,
+    MAX_CHANNEL,
     MAX_FIT_ORDER,
     MAX_IMAGE_COLUMNS,
     MAX_SCALARS,
@@ -44,9 +45,6 @@ from pydantic import ValidationError
 #: The most scans the overlay draws (the main one with its extras): one
 #: colour each, ``--trace-1..8``. The merged view takes any number.
 MAX_OVERLAY_SCANS = 8
-
-#: The highest scope channel a row may name (from 0).
-MAX_CHANNEL = 15
 
 #: The Images page's scan-scalar statistic, one for every picked scalar.
 SCALAR_STATS: tuple[str, ...] = ("mean_std", "median_iqr", "mean_stderr")
@@ -275,7 +273,7 @@ FORM_FIELDS = {
     "cbar": "image_cbar",
     "bg": "image_bg",
     "bgsub": "image_bgsub",
-    "channel": "image_channel",
+    "channel": "image_channels",
     "xmin": "image_xmin",
     "xmax": "image_xmax",
     "scalstat": "image_scalar_stat",
@@ -323,7 +321,6 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
     "y3_fit_order": (0, MAX_FIT_ORDER),
     "image_columns": (1, MAX_IMAGE_COLUMNS),
     "overlay_y": (1, MAX_Y_LISTS),
-    "image_channel": (0, MAX_CHANNEL),
 }
 
 #: The fixed z-scale values: any finite number, or empty for none.
@@ -547,7 +544,26 @@ _PARSERS: dict[str, Callable[[str], object]] = {
     "image_bg": _bg_value,
     "image_tile_max": lambda text: _tile_max_value(text),
     "merge_tolerance": lambda text: _tolerance_value(text),
+    "image_channels": lambda text: channels_value(text),
 }
+
+
+def channels_value(text: str) -> list[int]:
+    """A trace row's channels, ``"0,2,3"``: each once, in order, at least one.
+
+    The form's spelling of ``image_channels`` / ``ImageCamera.channels``
+    (the row's checkboxes), and the routes' ``channel=`` repeated.
+    """
+    picked: list[int] = []
+    for part in filter(None, (p.strip() for p in text.split(","))):
+        number = int(part)
+        if not 0 <= number <= MAX_CHANNEL:
+            raise ValueError(f"a channel is 0 to {MAX_CHANNEL}")
+        if number not in picked:
+            picked.append(number)
+    if not picked:
+        raise ValueError("pick at least one channel")
+    return sorted(picked)
 
 
 def _tolerance_value(text: str) -> Optional[float]:

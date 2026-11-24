@@ -47,13 +47,15 @@
                 {% endcall %}
                 </span>
                 {% if c.trace %}
-                {# A scope's file holds several channels: the row draws one (add
-                   the scope again for another). #}
-                {% if c.channels | length > 1 %}
-                <select name="channel{{ c.sfx }}" form="pick" data-submit-on-change aria-label="Channel" title="Scope channel">
-                  {% for name in c.channels %}<option value="{{ loop.index0 }}"{% if loop.index0 == c.channel %} selected{% endif %}>{{ name or 'channel ' ~ loop.index0 }}</option>{% endfor %}
-                  {% if c.channel >= c.channels | length %}<option value="{{ c.channel }}" selected>channel {{ c.channel }} (not on this scope)</option>{% endif %}
-                </select>
+                {# A scope's file holds several channels: the row overlays the
+                   ones ticked on each tile (plotter.js writes them into the
+                   hidden field and saves; the last one ticked stays). #}
+                {% if c.channel_names | length > 1 %}
+                <span class="channels" role="group" aria-label="Channels" title="Scope channels, overlaid on each tile on one y scale">
+                  <input type="hidden" name="channel{{ c.sfx }}" form="pick" value="{{ c.channels | join(',') }}">
+                  {% for name in c.channel_names %}<label><input type="checkbox" value="{{ loop.index0 }}" data-channel-box{% if loop.index0 in c.channels %} checked{% endif %}> {{ name or 'channel ' ~ loop.index0 }}</label>{% endfor %}
+                  {% for ch in c.channels if ch >= c.channel_names | length %}<label><input type="checkbox" value="{{ ch }}" data-channel-box checked> channel {{ ch }} (not on this scope)</label>{% endfor %}
+                </span>
                 {% endif %}
                 {% else %}
                 <select name="cmap{{ c.sfx }}" form="pick" data-live data-cam="{{ k }}" aria-label="Colour map" title="Colour map">
@@ -114,7 +116,7 @@
                 <button class="btn sm" type="button" data-roi-open="{{ k }}"{% if not c.tiles %} disabled{% endif %}
                         title="{% if c.roi %}{% set r = c.roi.split(',') %}ROI x {{ r[0] }}–{{ r[2] }}, y {{ r[1] }}–{{ r[3] }}{% else %}whole image{% endif %}">ROI{{ '*' if c.roi }}…</button>
                 {% if c.roi %}<button class="btn sm ghost" type="button" data-roi-clear="{{ k }}" title="Back to the whole image">whole</button>{% endif %}
-                {% elif c.channels | length <= 1 %}<span class="hint">{{ c.trace }}s</span>
+                {% elif c.channel_names | length <= 1 %}<span class="hint">{{ c.trace }}s</span>
                 {% endif %}
                 {% if k > 1 %}<span class="spacer"></span>
                 <button class="btn sm ghost" type="submit" form="pick" name="dropcam" value="{{ k }}" aria-label="Remove this camera" title="Remove this camera">✕</button>{% endif %}
@@ -707,7 +709,7 @@
                 {% elif c.tiles %}
                   {# Tiles across: the same rule plotter.js applies when the box changes. #}
                   <div id="strip{{ c.sfx }}" class="strip {{ lay }}{{ ' traces' if c.trace }}" data-cam="{{ c.place }}" data-zscale="{{ c.zscale }}" data-roi="{{ c.roi }}"
-                       data-kind="{{ 'trace' if c.trace else 'image' }}" data-channel="{{ c.channel if c.trace else '' }}"
+                       data-kind="{{ 'trace' if c.trace else 'image' }}" data-channel="{{ c.channels | join(',') if c.trace else '' }}"
                        data-cbar="{{ 'true' if c.cbar else 'false' }}" data-device="{{ c.device }}"
                        data-levels-url="{{ root }}/{{ c.levels_url }}" data-full-url="{{ root }}/{{ c.tiles[0].url }}"
                        style="{% if lay == 'row' %}grid-auto-columns: {% if tile_max %}min({{ tile_max }}px, calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }})){% else %}calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% endif %}{% else %}grid-template-columns: repeat({{ cols }}, minmax(0, {{ (tile_max ~ 'px') if tile_max else '1fr' }})){% endif %}">

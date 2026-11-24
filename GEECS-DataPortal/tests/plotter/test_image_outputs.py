@@ -116,8 +116,11 @@ def test_a_table_output_is_a_trace_row_its_columns_the_channels(
 ) -> None:
     page = post(client, scan=1, page="images", device=TABLE, channel="1")
     assert 'data-kind="trace"' in page
-    assert '<option value="0">Charge_fC</option>' in page
-    assert '<option value="1" selected>ChargeDen_pC/GeV/c</option>' in page
+    assert '<input type="checkbox" value="0" data-channel-box> Charge_fC' in page
+    assert (
+        '<input type="checkbox" value="1" data-channel-box checked> ChargeDen_pC/GeV/c'
+        in page
+    )
     assert _png(
         _get(client, "tile.png", device=TABLE, strip="bins", index=0, channel=1)
     )
@@ -193,3 +196,19 @@ def test_a_bin_of_moving_axes_averages_index_wise_and_says_so(
     assert _png(_get(client, "tile.png", device=TABLE, strip="bins", index=0))
     one = _get(client, "trace", device=TABLE, strip="shots", index=1).json()
     assert one["note"] == ""
+
+
+def test_overlaid_columns_of_different_quantities_get_no_one_y_title(
+    client: TestClient, outputs: Path
+) -> None:
+    def title(channels: list[int]) -> str:
+        body = _get(
+            client, "trace", device=TABLE, strip="shots", index=1, channel=channels
+        ).json()
+        return body["figure"]["layout"]["yaxis"]["title"]["text"]
+
+    assert title([0]) != ""  # one column: its own label
+    assert title([0, 1]) == ""  # two quantities on one range: the legend names them
+    assert _png(
+        _get(client, "tile.png", device=TABLE, strip="shots", index=1, channel=[0, 1])
+    )

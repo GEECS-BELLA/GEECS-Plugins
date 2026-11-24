@@ -1121,9 +1121,18 @@ Copy/Save grid keep working); a bin's tile is its shots' mean **sample by
 sample, only when they share one x axis** (`shot_traces.average_traces`:
 same length, same x values; a bin whose axes differ has no tile and says
 why — nothing is resampled). The row's z scale is its y range (each tile,
-shared over every tile through the same `levels` route, or typed in); its
-channel is `image_channel` / `ImageCamera.channel` (`channel@N`), one per
-row — stack the scope again for another channel. Its **x window** (the
+shared over every tile through the same `levels` route, or typed in).
+**Its channels** (the author, 2026-11-24: `image_channels` /
+`ImageCamera.channels`, `channel@N`, the form's `"0,2,3"` from the row's
+checkboxes, one per channel the file names; a set saved with one
+`channel` opens on it) are **overlaid** on each tile on one axis and one
+y scale (the shared range spans every picked channel), coloured by
+channel number (`C0`, `C1` … in the PNG, `--trace-N` in the big view) so a
+channel keeps its colour on every tile, a small legend past one; a bin
+overlays each channel's own mean (`images.channel_traces`). A shot whose
+file lacks a picked channel draws the others; a tile with none of them
+says why. Every tile, levels and trace URL repeats `channel=` per
+channel; the last checkbox ticked stays ticked. Its **x window** (the
 author, 2026-11-16: `image_xmin` / `image_xmax`, `xmin@N` / `xmax@N`,
 each `None` for no limit on that side) crops every tile
 (`images.windowed` → Data-Utils' `shot_traces.crop_trace`, nothing
