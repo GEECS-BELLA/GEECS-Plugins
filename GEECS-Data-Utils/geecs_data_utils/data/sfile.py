@@ -224,9 +224,11 @@ def scan_is_settled(scan_folder: Path, *, now: Optional[float] = None) -> bool:
     ``ScanEndInfo`` is filled and nothing has changed for
     :data:`ROWLESS_SETTLE_SECONDS`.  Of what analysis writes, only the
     s-file's existence is read — never its time or contents, and analysis
-    never deletes it — so an analysis run never unsettles a scan.  The
-    native writer publishes the s-file by rename, so its existence means it
-    is complete.  Not
+    never deletes it — so an analysis run never unsettles a scan.  For a
+    native scan the s-file's existence means it is complete, because the
+    native writer publishes it by rename; another writer's s-file (LabVIEW
+    Master Control's, ``ScanData.copy_fresh_sfile_to_analysis``) carries no
+    such guarantee.  Not
     :func:`run_closed_evidence`, which says the data is written (a surface
     shows the scan finished) while the files may still be changing.
     Read-only.
