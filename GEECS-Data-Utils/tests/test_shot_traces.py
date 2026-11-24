@@ -95,6 +95,16 @@ def test_a_missed_shot_is_never_a_neighbours_trace(scan_folder):
     assert found.reason == "the device missed this shot"
 
 
+def test_a_scope_with_no_stamp_on_any_row_reads_by_shot_number(scan_folder):
+    # Scans 29-30 of 2026-11-24: the scope outside scan mode, its acq_timestamp 0.0
+    frame = pd.DataFrame(
+        {f"{DEVICE} acq_timestamp": [0.0] * 3, "Shotnumber": [1, 2, 3]}
+    )
+    found = shot_traces.load_row_trace(scan_folder, frame, DEVICE, 2, channel=0)
+    assert found.kind == "native"
+    np.testing.assert_allclose(found.result.data[:, 1], np.full(5, 2) * 0.5 + 1)
+
+
 def test_a_row_past_the_table_is_refused(scan_folder):
     frame = pd.DataFrame({"Shotnumber": [1, 2]})
     assert shot_traces.load_row_trace(scan_folder, frame, DEVICE, 3).result is None
