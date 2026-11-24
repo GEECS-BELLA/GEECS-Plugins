@@ -140,7 +140,8 @@ neighbour's file — and an output the scan has no files of raises
 refuses an `analysis:` device, an output folder equal to the input's, a
 `file_tail` (the series picks the files), a capture stack and stitched
 siblings for such an input, and a `from_scan` background, which is a
-device's raw frames (`tests/test_core_analysis_input.py`). Its `{scan_dir}`
+device's raw frames (pinned in GEECS-Schemas' `tests/test_analysis_recipe.py`;
+the reading in `tests/test_core_analysis_input.py`). Its `{scan_dir}`
 is that output folder. The producer is outside this run (no recipe writes
 `Scan{NNN}_{stem}_{shot}` files; the `py-*` folders are another pipeline's),
 so nothing orders the two: run before the producer, the task is `no_data`;
