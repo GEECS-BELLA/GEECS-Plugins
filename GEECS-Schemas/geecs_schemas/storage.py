@@ -32,6 +32,7 @@ from geecs_schemas.epics.operations import OPERATOR_POLICY_FILENAME
 from geecs_schemas.epics.panel_devices import PANEL_DEVICES_FILENAME
 from geecs_schemas.experiment_defaults import EXPERIMENT_DEFAULTS_FILENAME
 from geecs_schemas.home_layout import HOME_LAYOUT_FILENAME
+from geecs_schemas.interlocks import INTERLOCKS_FOLDER
 from geecs_schemas.optimizer_config import OPTIMIZER_CONFIGS_FOLDER
 from geecs_schemas.plot_settings import PLOT_SETTINGS_FOLDER
 from geecs_schemas.preset import PRESETS_FOLDER
@@ -162,6 +163,7 @@ KIND_STORAGE: dict[str, KindStorage] = {
     "scan_variables": _experiment(SCAN_VARIABLES_FOLDER, SCAN_VARIABLES_FILENAME),
     "trigger_profile": _experiment(TRIGGER_PROFILES_FOLDER, suffixes=YAML_SUFFIXES),
     "experiment_defaults": _experiment("", EXPERIMENT_DEFAULTS_FILENAME),
+    "interlocks": _experiment(INTERLOCKS_FOLDER),
     "derived_channels": _experiment(GATEWAY_CONFIG_FOLDER, DERIVED_CHANNELS_FILENAME),
     "archive_policy": _experiment(ARCHIVER_CONFIG_FOLDER, ARCHIVE_POLICY_FILENAME),
     "shot_offsets": _experiment("", SHOT_OFFSETS_FILENAME),

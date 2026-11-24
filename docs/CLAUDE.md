@@ -15,7 +15,7 @@ Home → Tutorials → Web Services → Acquisition → Analysis → Platform �
 
 **Web Services** is the operator's tab: one task-oriented page per
 browser surface (the GEECS Scanner, the Data Portal, the Logbook, the
-Control Room, the Configurator) under
+Control Room, the Configurator, the Interlocks) under
 `docs/web_services/`, behind a landing page. Each surface's header links
 to its own page there (the Configurator's not yet: its header has no Docs
 link) (`https://geecs-plugins.readthedocs.io/en/latest/web_services/<page>/`),

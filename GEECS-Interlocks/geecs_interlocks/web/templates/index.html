@@ -1,0 +1,107 @@
+{#
+  The interlocks' web client: the verdict (W1), its freshness (W2), the
+  interlocks with an inspector (W3, W4) and the recent events (W5), and two
+  actions on the server, Arm and Reload, each with the operator's name and a
+  confirmation (W6). interlocks.js fills it from /api/stream and marks the
+  page stale when the stream goes quiet; with scripts off the page says it
+  needs them.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interlocks{% if experiment %} — {{ experiment }}{% endif %}</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<style>
+  /* The operator box, as the scanner draws it (tokens only). */
+  .kit .who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+  .kit .who input{font:inherit;font-size:12.5px;height:26px;padding:0 8px;width:11ch;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface);color:var(--ink)}
+</style>
+</head>
+<body class="kit" data-root="{{ root }}" data-stream-hz="{{ stream_hz }}">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">Interlocks <span class="sub">{{ experiment }}{% if configuration %} · {{ configuration }}{% endif %}</span></span>
+    <span class="spacer"></span>
+    <label class="who">operator <input id="operator" placeholder="your name" aria-label="Operator name"></label>
+    <a class="btn ghost sm" href="https://geecs-plugins.readthedocs.io/en/latest/web_services/interlocks/" target="_blank" rel="noopener" title="How to use the interlocks (opens the docs)">Docs</a>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<main class="pane">
+  <noscript><div class="banner" data-state="error"><span>This page needs JavaScript to show the live verdict.</span></div></noscript>
+
+  <div class="row" id="verdict-row">
+    <span class="chip xl" data-state="unknown" id="verdict">Connecting</span>
+    <span id="verdict-detail">waiting for the server</span>
+    <span class="spacer"></span>
+    <span class="dim mono" id="freshness">no update yet</span>
+    <button class="btn sm" type="button" id="btn-arm" title="Record every settings check's current values as the ones to hold">Arm all</button>
+    <button class="btn sm" type="button" id="btn-reload" title="Re-read the running configuration file">Reload</button>
+  </div>
+
+  <div class="banner" id="action" role="status" hidden><span id="action-text"></span></div>
+
+  <div class="banner" data-state="stale" id="stale" hidden>
+    <span id="stale-text">No update from the server. The verdict shown may be out of date.</span>
+  </div>
+
+  <div class="inspector">
+    <div class="list">
+      <div class="tscroll">
+        <table>
+          <thead><tr><th>State</th><th>Interlock</th><th class="num">Value</th><th>Reason</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p class="dim" style="padding: var(--pad)">Click an interlock to inspect it. The link keeps the selection.</p>
+    </div>
+    <div class="detail" id="detail">
+      <p class="dim" id="detail-empty">Pick an interlock to see its trend against the limit and its history.</p>
+      <div id="detail-body" hidden>
+        <div class="row">
+          <span class="eyebrow" id="detail-name"></span>
+          <span class="chip" data-state="unknown" id="detail-state"></span>
+          <span class="dim" id="detail-since"></span>
+          <span class="spacer"></span>
+          <button class="btn sm" type="button" id="btn-arm-one" hidden>Arm this interlock</button>
+        </div>
+        <p class="dim" id="detail-description"></p>
+        <div id="trend" style="height: 220px"></div>
+        <p class="dim" id="trend-note"></p>
+        <span class="eyebrow">History</span>
+        <div class="well mono" id="history"></div>
+      </div>
+    </div>
+  </div>
+
+  <article class="panel">
+    <header><span class="eyebrow">Recent events</span></header>
+    <div class="body"><div class="well mono" id="events">No state changes yet.</div></div>
+  </article>
+</main>
+
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <div class="body">
+    <h4 id="confirm-title">Confirm</h4>
+    <p id="confirm-text"></p>
+    <div class="row">
+      <span class="spacer"></span>
+      <button class="btn ghost" type="button" data-dialog-close autofocus>Cancel</button>
+      <button class="btn" type="button" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ root }}/theme/plotly-cartesian-3.1.1.min.js" defer></script>
+<script src="{{ root }}/theme/plot.js" defer></script>
+<script src="{{ root }}/static/interlocks.js" defer></script>
+</body>
+</html>
