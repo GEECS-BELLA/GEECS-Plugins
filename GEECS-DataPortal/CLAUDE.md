@@ -216,8 +216,8 @@ its jobs (marked `· watch`). The portal never starts a worker:
   tabs read numbers, not figures) — the payload duplication is the
   accepted cost, not an oversight.  Every endpoint response
   carries a `code` field: the notebook snippet that reproduces it
-  exactly, **figure included** — `shots_figure`/`binned_figure` accept
-  the reproduced frame directly (the reproducibility doctrine — never
+  exactly, **figure included** — the snippet calls the same figure
+  function on the reproduced numbers (the reproducibility doctrine — never
   put numerics in an endpoint that a notebook can't import).  All view state is URL-carried (`tab`/`y`/`x`/`view`/
   `filters`/`bincfg`/`display` — filters/bincfg are the
   Pydantic/dataclass models' JSON, `display` the plot-cosmetics JSON,
@@ -229,13 +229,12 @@ its jobs (marked `· watch`). The portal never starts a worker:
   (statelessness; shared caches are a feature).  Cache policy is
   by INPUT, not by URL: the per-shot `image.png` and `plot.png` read
   the event table alone and cache immutable once the run has a stop
-  doc; everything over the union frame (`columns`, `frame`, `binned`,
-  `filter-count`, `bin-images`, `bin-image.png`) is `no-cache`
-  (`_UNION_HEADERS`), because the s-file half of the union GROWS after
-  the run — ScanAnalysis appends its columns hours later (the
-  7-vs-30-columns incident, 2026-09-01).  Every `/api` fetch and
-  bin-image card still carries `v=<portal version>` so an upgrade
-  that changes a payload shape rolls over whatever a cache kept.
+  doc; everything over the union frame (`columns`, `binned`) is
+  `no-cache` (`_UNION_HEADERS`), because the s-file half of the union
+  GROWS after the run — ScanAnalysis appends its columns hours later
+  (the 7-vs-30-columns incident, 2026-09-01).  Every `/api` fetch
+  still carries `v=<portal version>` so an upgrade that changes a
+  payload shape rolls over whatever a cache kept.
 - **Prefix-agnostic URLs.**  The portal works at root and under any
   reverse-proxy mount (OSPREY panel tabs).  Templates never write a
   root-absolute portal URL directly: every href/action/src carries the
@@ -352,32 +351,16 @@ redirect: `?prefer=<scan number>`, all other params carried to the
 target day's matching/newest run; empty day → the day page) ·
 `/api/run/{uid}/columns` (union pick list with provenance, a
 `timestamp` flag on ts_ columns, + default X) ·
-`/api/run/{uid}/frame?cols=&x=&filters=` (per-shot series, filtered;
-timestamp columns arrive as host-local ISO datetimes with a `kinds`
-map — presentation-side conversion the `code` snippet mirrors) ·
 `/api/run/{uid}/binned?cols=&x=&filters=&bincfg=` (centers + asymmetric
 error bands — served RAW, no datetime conversion: a timestamp bin
 column keeps its epoch-second labels, and the `x` pick's per-bin mean
-positions are raw seconds too when X is a timestamp column — datetime
-rendering is per-shot-only, deliberately; `x_centers` come reindexed
-onto the y result's bins so diverging per-column dropna can never
-shift points) ·
-`/api/run/{uid}/filter-count?filters=` (live pass count) ·
-`/api/run/{uid}/bin-images?device=&filters=&bincfg=` (per-bin
-membership: bins/counts/member shots over Data-Utils' `bin_rows` (the
-filter as its `mask`, never a filtered frame — the plotter's own call),
-the same bins as `/binned`; no page reads it since the Images pane
-moved, see the debt below)
+positions are raw seconds too when X is a timestamp column;
+`x_centers` come reindexed onto the y result's bins so diverging
+per-column dropna can never shift points; GEECS-MCP's
+`get_scan_scalars` reads it)
 · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar PNG, kept for
 embedding) · `/run/{uid}/image.png?device=&shot=` (one rendered device
-shot) · `/run/{uid}/bin-image.png?device=&bin=<index>&filters=&bincfg=`
-(one bin's `nanmean`-averaged device image — `bin` is the INDEX in
-`bin-images` order, both endpoints run the same membership call;
-member shots load and average through Data-Utils'
-`shot_images.average_rows` (with `processing`: `load_row_array` per
-shot, processed, then `average_frames`), windowed once after
-averaging; the per-shot refusals are that module's; always `no-cache` — bin membership comes off the union
-frame) · `/health` (catalog probe + version — the fleet-map health check)
+shot) · `/health` (catalog probe + version — the fleet-map health check)
 · **the browsing API** (0.20.0 — the pages' own data as JSON, the
 agent/script surface; served `no-cache`): `/api/day/{iso}?experiment=&filter=`
 (the run table, newest first, the page's filter haystack) ·
@@ -654,19 +637,13 @@ design rules"). The rules that are the portal's own:
   the fits) and imports the rest from `figures.py`: the palettes,
   `page_figure`, the display cosmetics (`apply_display`, `marker_size`,
   `trace_color`) and the binned trace (`add_binned_trace`).
-- **The `/api/run/{uid}/frame` and `/binned` figures have no page now.**
-  The routes stay (the `/api` layer is the data contract: GEECS-MCP's
-  `get_scan_scalars` reads `/binned`'s numbers, scripts read either),
-  and so do their figures and snippets (`figures.shots_figure`,
-  `binned_figure`, `base_layout`, `_multi_y_layout`;
-  `analysis.frame_code`, `binned_code`): they are the notebook view of
-  those payloads, no longer what a page draws. `/columns`' `default_x`
-  and `grid_axes` have no reader in the portal either, nor `/grid`'s
-  figures and snippet (the Plot page's map has its own route,
-  `/plot/api/map`, over the same `figures.grid_document`), nor
-  `/bin-images` and `bin-image.png` since the scan page's Images pane
-  went (the Images page's bins are the strip's own tiles). Deleting any
-  of it is an `/api` change for the owner, not a cleanup.
+- **The `/api/run/{uid}/binned` figure has no page.** The route stays
+  because GEECS-MCP's `get_scan_scalars` reads its numbers; its figure
+  and snippet (`figures.binned_figure`, `analysis.binned_code`) are the
+  notebook view of that payload. `/columns`' `default_x` and
+  `grid_axes` have no reader in the portal either. A scan-page `/api`
+  route no page, script or package calls is deleted, not kept as
+  contract.
 - **Accepted debt, for a later PR of the arc:** the other
   duplicate the move brought in (`scans.display_name` overlaps
   `_pretty_names`; fold toward the plotter's, which a page uses). The
@@ -788,7 +765,7 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   shots), laid out as a grid or one row (`image_layout`, `image_columns`;
   one row spreads that many tiles evenly over the scan, `plotter.js`). The
   ladder, the refusals, the trace check and the per-row average are
-  `geecs_data_utils.io.shot_images` (`average_rows`), the PNG
+  `geecs_data_utils.io.shot_images` (`average_scan_rows`), the PNG
   `io.display_png`. A row that says the device missed its shot, or a
   missing file, gives no image and is left out of its bin's average,
   **never a neighbour's image**. The picker lists every device folder
@@ -954,13 +931,12 @@ cannot tell `(N, H, W)` pixels from `(N, n, 2)` rows**). Anything not a
 readable array stack reads as `"image"`, so a damaged or unfamiliar
 stack degrades to the path the portal has always taken.
 
-For an array device the tab serves a **figure, not a PNG**:
-`shot_images.load_shot_trace` → `ShotTrace` → `figures.trace_figure` →
-`/api/run/{uid}/trace`. The two transports differ on purpose — a 2048²
+For an array device the Images page's big view draws a trace tile as a
+**figure, not a PNG**: `figures.trace_figure` →
+`/plot/api/images/trace`. The two transports differ on purpose — a 2048²
 frame as JSON is absurd, a few thousand trace samples want the hover
 readout — and the split is keyed on the stack, never guessed in the
-template. Everything else is shared: the same shot→frame join, the same
-404s, the same theme-sentinel walk.
+template. The figure takes the same theme-sentinel walk as every other.
 
 Two rules for anyone extending this:
 
@@ -970,8 +946,7 @@ Two rules for anyone extending this:
   `wave_x0`/`wave_dx`; `read_1d_data` owns both facts and hands back the
   trace at its true length. A second copy of that arithmetic here is how
   the two drift.
-- **Nothing resamples a trace.** Each shot carries its own axis; on the
-  scan page's trace route a trace device shows one shot at a time. The
+- **Nothing resamples a trace.** Each shot carries its own axis. The
   Images strip's bin tile (below) is the one average, and it is only
   sample by sample over shots that share one x axis
   (`geecs_data_utils.io.shot_traces.average_traces`), refused otherwise.
@@ -988,8 +963,7 @@ the viewer maps each scan's own axes), `map_filter`, and `map_config`
 (the statistics as `GridConfig` JSON, its column fields ignored;
 checked with `analysis.parse_gridcfg`). `plotter/maps.py` resolves the
 columns and writes the snippet; `/plot/api/map` answers with
-`figures.grid_document`, the one payload shape it shares with the
-scan's `GET /api/run/{uid}/grid` (kept: the `/api` contract);
+`figures.grid_document`;
 `plotter/static/map.js` draws both maps square, steps the cells (the
 selected cell is the browser tab's, in `sessionStorage`), checks the
 number boxes before saving, and links a cell to the Images page under
@@ -1122,8 +1096,8 @@ per condition column of a scalar-columns job (`plotter.scans.conditions`
 over `geecs_data_utils.scan_conditions`: the labels from the scan's own
 analysis folder, the values from the s-file) — the scan's label, or
 *mixed* with a "changed mid-scan" chip and the split, `unknown` counting
-shots with no value; a "?" unfolds where they come from. The same list is
-`/plot/api/conditions?day=&scan=`. Per tile or on other pages: not yet.
+shots with no value; a "?" unfolds where they come from. Per tile or on
+other pages: not yet.
 The shot filters' editor (`plot_tools.js`) offers a condition column's
 labels (`#filter-conditions`, `scans.condition_labels`: the open scan's)
 as "is / is not <label>", stored as the label's number for both bounds —

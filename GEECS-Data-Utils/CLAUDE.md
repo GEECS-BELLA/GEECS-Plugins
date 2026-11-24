@@ -119,9 +119,7 @@ geecs_data_utils/
                                #   average_rows (rows → one average; a
                                #   bin's rows from data.binning.bin_rows,
                                #   a filter as its mask; prepare= cleans
-                               #   each shot first, e.g. ImagePrep.apply;
-                               #   the portal's
-                               #   bin-image route still has its own loop);
+                               #   each shot first, e.g. ImagePrep.apply);
                                #   a "stack" may hold
                                #   traces: stack_content says which, and
                                #   load_shot_trace reads one as x-vs-y;
