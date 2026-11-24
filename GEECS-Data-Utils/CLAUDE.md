@@ -276,7 +276,10 @@ Two facts about a scan, in `data/sfile.py`, never to be swapped:
   `ROWLESS_SETTLE_SECONDS` (60 s, past the native scanner's threaded table
   write). Of the s-file it reads existence only, never its mtime or
   contents, and nothing in the analysis tree, because analysis writes there
-  (and never deletes the s-file). The analysis worker plans on it; the
+  (and never deletes the s-file). That is sound because the native writer
+  (`tiled_export.write_scalar_files`) writes the table in place but
+  publishes the s-file by rename from a hidden temp file, so its existence
+  means it is complete. The analysis worker plans on it; the
   portal's Analysis tab shows it as a note and never blocks a manual run.
 
 ## Scalar output files
