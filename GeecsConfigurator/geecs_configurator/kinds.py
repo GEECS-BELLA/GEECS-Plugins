@@ -59,7 +59,13 @@ CONSUMERS: dict[str, list[Consumer]] = {
     "preset": [_c("scanner", "per submit")],
     "optimizer_config": [_c("worker", _PER_REQUEST)],
     "experiment_defaults": [_c("worker", "per plan")],
-    "interlocks": [_c("interlock server", "at start", "restart the interlock server")],
+    "interlocks": [
+        _c(
+            "interlock server",
+            "at start and on Reload",
+            "press Reload on the interlock page (or restart the unit)",
+        )
+    ],
     "operator_policy": [_c("Canopy's GEECS module", "per request, short cache")],
     "screen": [_c("Control Room", _PER_REQUEST)],
     "home_layout": [_c("Control Room", _PER_REQUEST)],
