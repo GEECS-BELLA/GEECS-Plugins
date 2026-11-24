@@ -78,6 +78,8 @@
     if (!last) return;
     // Stale: every chip goes grey (the word stays), so no row looks live.
     wasStale = (Date.now() - lastAt) / 1000 > STALE_S;
+    // Arming only means something for settings checks: no button without one.
+    $("btn-arm").hidden = !anyArmable();
     var body = $("rows");
     body.textContent = "";
     last.statuses.forEach(function (s) {
@@ -254,6 +256,10 @@
     if (action) action();
   });
 
+  function anyArmable() {
+    return !!last && last.statuses.some(function (s) { return s.armable; });
+  }
+
   function send(path, body) {
     busy = true;
     ["btn-arm", "btn-reload", "btn-arm-one"].forEach(function (id) { $(id).disabled = true; });
@@ -293,7 +299,8 @@
   $("btn-reload").addEventListener("click", function () {
     ask("Reload the configuration",
       "Re-read the running configuration file. Every interlock then waits for fresh " +
-      "values (unsafe meanwhile), and every settings check must be armed again.",
+      "values (unsafe meanwhile)" +
+      (anyArmable() ? ", and every settings check must be armed again." : "."),
       function () { send("/api/reload", {}); });
   });
 
