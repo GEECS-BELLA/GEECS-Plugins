@@ -67,8 +67,27 @@ def test_days_read_from_yaml_dates_and_strings_alike() -> None:
         {"image_tile_max": 10},
         {"image_centre": 0},
         {"extra_scans": [{"day": "2026-11-22", "scan": 0}]},
+        {"image_channels": []},
+        {"image_more": [{"channels": []}]},
     ],
 )
 def test_out_of_range_values_are_refused(doc: dict) -> None:
     with pytest.raises(ValidationError):
         PlotterSettings.model_validate(doc)
+
+
+def test_a_set_saved_with_one_channel_reads_as_that_channels_list() -> None:
+    settings = PlotterSettings.model_validate(
+        {"image_channel": 2, "image_more": [{"channel": 3}, {}]}
+    )
+    assert settings.image_channels == [2]
+    assert [c.channels for c in settings.image_more] == [[3], [0]]
+    dumped = settings.model_dump()
+    assert "image_channel" not in dumped and "channel" not in dumped["image_more"][0]
+
+
+def test_a_set_naming_both_keeps_the_list() -> None:
+    settings = PlotterSettings.model_validate(
+        {"image_channel": 2, "image_channels": [0, 1]}
+    )
+    assert settings.image_channels == [0, 1]

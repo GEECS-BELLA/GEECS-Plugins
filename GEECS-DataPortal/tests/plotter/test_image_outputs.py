@@ -116,8 +116,11 @@ def test_a_table_output_is_a_trace_row_its_columns_the_channels(
 ) -> None:
     page = post(client, scan=1, page="images", device=TABLE, channel="1")
     assert 'data-kind="trace"' in page
-    assert '<option value="0">Charge_fC</option>' in page
-    assert '<option value="1" selected>ChargeDen_pC/GeV/c</option>' in page
+    assert '<input type="checkbox" value="0" data-channel-box> Charge_fC' in page
+    assert (
+        '<input type="checkbox" value="1" data-channel-box checked> ChargeDen_pC/GeV/c'
+        in page
+    )
     assert _png(
         _get(client, "tile.png", device=TABLE, strip="bins", index=0, channel=1)
     )

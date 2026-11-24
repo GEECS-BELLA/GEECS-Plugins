@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import date
 from typing import ClassVar, Literal, Optional
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
@@ -48,6 +48,24 @@ TILE_MAX_RANGE = (40, 4000)
 
 #: Every model of a set keeps the fields it does not know (the module docstring).
 _KEEP_UNKNOWN = ConfigDict(extra="allow")
+
+#: The highest scope channel a trace row may name (from 0).
+MAX_CHANNEL = 15
+
+
+def _one_channel_to_list(data: object, old: str, new: str) -> object:
+    """A set saved with one channel (*old*: an int) read as the list *new* holding it.
+
+    Trace rows drew one scope channel each until they overlaid several; a
+    set saved then opens on the same channel. A set naming both keeps the
+    list and drops the old key.
+    """
+    if isinstance(data, dict) and old in data:
+        data = dict(data)
+        one = data.pop(old)
+        if new not in data and isinstance(one, int) and not isinstance(one, bool):
+            data[new] = [one]
+    return data
 
 
 class ScanRef(SchemaModel):
@@ -89,10 +107,14 @@ class ImageCamera(SchemaModel):
     )
     cbar: bool = Field(True, description="Draw colour bars.")
     bgsub: bool = Field(True, description="Subtract the set's background scan.")
-    channel: int = Field(
-        0,
-        ge=0,
-        description="The scope channel (from 0), for a device recording traces.",
+    channels: list[int] = Field(
+        default_factory=lambda: [0],
+        min_length=1,
+        max_length=MAX_CHANNEL + 1,
+        description=(
+            "The row's scope channels (from 0), overlaid on each trace tile; "
+            "a device with one channel reads it whatever is named."
+        ),
     )
     xmin: Optional[float] = Field(
         None, description="A trace row's x window, low side; empty: no limit."
@@ -100,6 +122,12 @@ class ImageCamera(SchemaModel):
     xmax: Optional[float] = Field(
         None, description="A trace row's x window, high side; empty: no limit."
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_channel(cls, data: object) -> object:
+        """An older set's one ``channel`` as ``channels``."""
+        return _one_channel_to_list(data, "channel", "channels")
 
 
 class PlotterSettings(VersionedSchemaModel):
@@ -115,6 +143,13 @@ class PlotterSettings(VersionedSchemaModel):
     tier: ClassVar[Tier] = "operator"
 
     schema_version: Literal[1] = Field(1, description="Format version. Leave at 1.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_channel(cls, data: object) -> object:
+        """An older set's one ``image_channel`` as ``image_channels``."""
+        return _one_channel_to_list(data, "image_channel", "image_channels")
+
     x: Optional[str] = Field(
         None, description="The X column; empty: the scan variable; '' the shot number."
     )
@@ -212,8 +247,14 @@ class PlotterSettings(VersionedSchemaModel):
     image_bgsub: bool = Field(
         True, description="The first camera subtracts the background."
     )
-    image_channel: int = Field(
-        0, ge=0, description="The first row's scope channel (from 0), for traces."
+    image_channels: list[int] = Field(
+        default_factory=lambda: [0],
+        min_length=1,
+        max_length=MAX_CHANNEL + 1,
+        description=(
+            "The first row's scope channels (from 0), overlaid on each trace tile; "
+            "a device with one channel reads it whatever is named."
+        ),
     )
     image_xmin: Optional[float] = Field(
         None, description="The first trace row's x window, low side; empty: no limit."

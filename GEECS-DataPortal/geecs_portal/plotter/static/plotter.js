@@ -193,6 +193,19 @@
     else control.addEventListener("change", () => form.requestSubmit());
   }
 
+  // A scope row's channel checkboxes: the ticked ones, overlaid, saved as
+  // "0,2,3" in the row's hidden channel field. The last one ticked stays
+  // ticked: a row draws at least one channel.
+  for (const box of document.querySelectorAll("[data-channel-box]")) {
+    box.addEventListener("change", () => {
+      const group = box.closest(".channels");
+      const ticked = [...group.querySelectorAll("[data-channel-box]")].filter((b) => b.checked);
+      if (!ticked.length) { box.checked = true; return; }
+      group.querySelector('input[type="hidden"]').value = ticked.map((b) => b.value).join(",");
+      form.requestSubmit();
+    });
+  }
+
   // The XY plot's other scans: a chip's × drops its scan, and Add scan…
   // (the kit's drawer picker) lists a day's scans and adds the ticked
   // ones; either saves the list into the set and reloads.

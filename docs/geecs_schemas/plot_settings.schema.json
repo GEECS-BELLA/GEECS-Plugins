@@ -94,12 +94,15 @@
           "title": "Bgsub",
           "type": "boolean"
         },
-        "channel": {
-          "default": 0,
-          "description": "The scope channel (from 0), for a device recording traces.",
-          "minimum": 0,
-          "title": "Channel",
-          "type": "integer"
+        "channels": {
+          "description": "The row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named.",
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Channels",
+          "type": "array"
         },
         "xmin": {
           "anyOf": [
@@ -504,12 +507,15 @@
       "title": "Image Bgsub",
       "type": "boolean"
     },
-    "image_channel": {
-      "default": 0,
-      "description": "The first row's scope channel (from 0), for traces.",
-      "minimum": 0,
-      "title": "Image Channel",
-      "type": "integer"
+    "image_channels": {
+      "description": "The first row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named.",
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Image Channels",
+      "type": "array"
     },
     "image_xmin": {
       "anyOf": [

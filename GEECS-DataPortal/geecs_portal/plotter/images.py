@@ -835,6 +835,55 @@ def trace_tile_found(
     return found
 
 
+def channel_finds(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    channels: Sequence[int],
+) -> list[tuple[int, Union[shot_traces.ShotTrace, str]]]:
+    """Each picked channel's trace of the tile, or why it has none, in order.
+
+    A trace row overlays its *channels* on one tile, each
+    :func:`trace_tile_found` on its own (a bin: each channel's own mean).
+    """
+    out: list[tuple[int, Union[shot_traces.ShotTrace, str]]] = []
+    for channel in channels:
+        try:
+            out.append(
+                (channel, trace_tile_found(folder, frame, device, rows, channel))
+            )
+        except NoImage as reason:
+            out.append((channel, str(reason)))
+    return out
+
+
+def channel_traces(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    channels: Sequence[int],
+) -> list[tuple[int, shot_traces.ShotTrace]]:
+    """The tile's trace of each picked channel it has, in order: ``(channel, found)``.
+
+    :func:`channel_finds` without the channels the tile has no trace of (a
+    shot whose file lacks one, a channel the scope does not have): only a
+    tile with none of them is refused.
+
+    Raises
+    ------
+    NoImage
+        No picked channel has a trace on this tile; each one's reason.
+    """
+    finds = channel_finds(folder, frame, device, rows, channels)
+    found = [(ch, one) for ch, one in finds if not isinstance(one, str)]
+    if not found:
+        why = list(dict.fromkeys(one for _, one in finds if isinstance(one, str)))
+        raise NoImage("; ".join(why) if why else "no channel picked")
+    return found
+
+
 #: A trace row's x window: ``(low, high)``, either ``None`` for no limit.
 XWindow = tuple[Optional[float], Optional[float]]
 
@@ -861,14 +910,15 @@ def trace_levels(
     frame: pd.DataFrame,
     device: str,
     tiles: list[Tile],
-    channel: int = 0,
+    channels: Sequence[int] = (0,),
     window: Optional[XWindow] = None,
 ) -> tuple[float, float, int]:
     """One y range for every trace tile: the lowest and highest sample of them all.
 
     The trace row's "shared" scale, as :func:`shared_levels` is a camera's:
-    every tile given (the page's shown ones) is read first, a few at a time.
-    With an x *window*, only the samples inside it count.
+    every tile given (the page's shown ones) is read first, a few at a time,
+    over every picked channel (they overlay on one axis). With an x
+    *window*, only the samples inside it count.
 
     Returns
     -------
@@ -883,12 +933,22 @@ def trace_levels(
 
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
-            trace = trace_tile(folder, frame, device, tile.rows, channel)
-            y = windowed(trace, window).data[:, 1]
+            found = channel_traces(folder, frame, device, tile.rows, channels)
         except NoImage:
             return None
-        finite = y[np.isfinite(y)]
-        return (float(finite.min()), float(finite.max())) if finite.size else None
+        ranges = []
+        for _, one in found:
+            assert one.result is not None
+            try:
+                y = windowed(one.result, window).data[:, 1]
+            except NoImage:
+                continue
+            finite = y[np.isfinite(y)]
+            if finite.size:
+                ranges.append((float(finite.min()), float(finite.max())))
+        if not ranges:
+            return None
+        return min(lo for lo, _ in ranges), max(hi for _, hi in ranges)
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         found = [w for w in pool.map(levels, tiles) if w is not None]

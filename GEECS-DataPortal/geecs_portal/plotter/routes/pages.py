@@ -763,7 +763,7 @@ def _fill_images(
             first["device"],
             page["strip"],
             experiment,
-            first["channel"],
+            first["channels"],
             first["pick_by"],
             _strip_refs(page, extras),
             settings.merge_tolerance,
@@ -838,7 +838,7 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
         centre=settings.image_centre,
         cbar=settings.image_cbar,
         bgsub=settings.image_bgsub,
-        channel=settings.image_channel,
+        channels=settings.image_channels,
         xmin=settings.image_xmin,
         xmax=settings.image_xmax,
     )
@@ -876,7 +876,8 @@ def _camera_row(
     next pick does not erase it. With none saved the row asks for one:
     probing every folder for a camera costs tens of seconds cold over the
     share. A device that records traces (a scope) is a row of trace tiles
-    (``trace``: what it records; ``channels``: the scope's), on the same
+    (``trace``: what it records; ``channel_names``: the scope's channels,
+    ``channels`` the ones the row overlays), on the same
     bins; a camera's clean-ups, background, ROI and colour map do not
     apply to it.
     """
@@ -892,7 +893,7 @@ def _camera_row(
         "trace": "",
         "window": None,
         "window_problem": "",
-        "channels": [],
+        "channel_names": [],
         "tiles": [],
         "roi": ",".join(str(v) for v in roi) if roi else "",
         "pick_by": page.get("y", "") if page["pick"] == "ymax" else "",
@@ -917,7 +918,7 @@ def _camera_row(
             # Traces: none of a camera's clean-ups, background or ROI.
             row.update(
                 trace=probe.content,
-                channels=list(probe.channels),
+                channel_names=list(probe.channels),
                 bg="",
                 roi="",
                 cbar=False,
@@ -926,7 +927,7 @@ def _camera_row(
                 # One channel (a spectrometer's file, a stack): read it,
                 # whatever this row saved for a scope it showed before.
                 # The saved value stays, for when it shows that scope again.
-                row["channel"] = 0
+                row["channels"] = [0]
         else:
             row["problem"] = (
                 f"{device} has no pictures (a vendor format or a file the page cannot draw)"
@@ -949,7 +950,7 @@ def _camera_row(
             prep=prep,
             filters=settings.shot_filters,
             bg=row["bg"],
-            channel=row["channel"] if trace else None,
+            channels=row["channels"] if trace else None,
             source=source,
             extra=page["scans_text"],
             mtol=settings.merge_tolerance,
@@ -976,10 +977,11 @@ def _camera_row(
             # Bins and shots: the strip is the shots the shot filters keep.
             **({"filters": settings.shot_filters} if settings.shot_filters else {}),
             **({"bg": row["bg"]} if row["bg"] else {}),
-            **({"channel": row["channel"]} if trace else {}),
+            **({"channel": row["channels"]} if trace else {}),
             **multi_query(page["scans_text"], settings.merge_tolerance, x or ""),
             **window_query(row["window"]),
-        }
+        },
+        doseq=True,  # a trace row's channels: channel= once each
     )
     return row
 
