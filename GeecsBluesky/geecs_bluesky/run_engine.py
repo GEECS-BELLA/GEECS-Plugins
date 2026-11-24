@@ -14,8 +14,9 @@ What ``claim=True`` installs, each with one job:
   points the native-saving detectors at it;
 - :func:`~geecs_bluesky.preprocessors.scalar_headers` — the ``Device
   Variable`` header map into the start document;
-- the four output callbacks
-  (:func:`geecs_bluesky.callbacks.subscribe_scan_outputs`).
+- the output callbacks
+  (:func:`geecs_bluesky.callbacks.subscribe_scan_outputs`), the ECS live
+  dump among them when ``ecs_dump_targets`` is given.
 
 Background telemetry is not the engine's: every bound scan verb reads it
 into its own rows
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import logging
 from functools import partial
+from typing import TYPE_CHECKING
 
 from bluesky import RunEngine
 
@@ -37,6 +39,9 @@ from geecs_bluesky.plans.claim_scan import (
     claim_scan_preprocessor,
 )
 from geecs_bluesky.preprocessors import install_connect_on_demand, scalar_headers
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from geecs_bluesky.callbacks.ecs_dump import EcsTargets
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +53,7 @@ def make_run_engine(
     tiled: bool = False,
     claim: bool = False,
     path_provider: GeecsScanPathProvider | None = None,
+    ecs_dump_targets: EcsTargets | None = None,
 ) -> RunEngine:
     """Build the RunEngine every GEECS plan runs on.
 
@@ -74,6 +80,10 @@ def make_run_engine(
     path_provider :
         The provider the namespace's native-saving detectors hold (built
         by the caller, shared with the namespace).
+    ecs_dump_targets :
+        With *claim*: the settables every run's ECS live dump reads
+        (:func:`~geecs_bluesky.callbacks.ecs_dump.ecs_dump_targets` over the
+        namespace's roster); ``None`` writes no dump.
 
     Returns
     -------
@@ -103,7 +113,9 @@ def make_run_engine(
         # Kept on the RunEngine so a shutdown (or a caller that wants the
         # s-file on disk before it moves on) can wait for the stack reads
         # and the joined s-file write, which finish on their own threads.
-        RE.geecs_scan_outputs = subscribe_scan_outputs(RE)  # type: ignore[attr-defined]
+        RE.geecs_scan_outputs = subscribe_scan_outputs(  # type: ignore[attr-defined]
+            RE, ecs_dump_targets=ecs_dump_targets
+        )
     # Installed LAST on purpose: connect_on_demand must be the OUTERMOST
     # preprocessor so it also sees messages later preprocessors inject.
     # Re-run after appending anything else.

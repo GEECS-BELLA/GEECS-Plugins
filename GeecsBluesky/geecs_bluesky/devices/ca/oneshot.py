@@ -160,7 +160,7 @@ def try_caget_once(pv: str, *, timeout: float, datatype: Any = None) -> Any:
 
 
 def try_caget_many(
-    pvs: list[str], *, timeout: float, datatype: Any = None
+    pvs: list[str], *, timeout: float, datatype: Any = None, ctrl: bool = False
 ) -> list[Any]:
     """Concurrent fail-open reads of *pvs* on the shared loop.
 
@@ -171,17 +171,22 @@ def try_caget_many(
     *pvs* — including the whole batch when ``aioca`` itself is missing
     (the ``ca`` extra): fail-open covers the import too, matching
     :func:`try_caget_once`.
+
+    ``ctrl=True`` reads ``FORMAT_CTRL``: each value carries its alarm
+    ``severity``, and an enum's its ``enums`` (the choice strings its
+    native index selects) — one read that serves every PV type.
     """
     try:
-        from aioca import caget
+        from aioca import FORMAT_CTRL, FORMAT_RAW, caget
     except Exception:  # noqa: BLE001 — probe answers None on failure
         return [None] * len(pvs)
+    form = FORMAT_CTRL if ctrl else FORMAT_RAW
 
     async def _one(pv: str) -> Any:
         try:
             if datatype is None:
-                return await caget(pv, timeout=timeout)
-            return await caget(pv, datatype=datatype, timeout=timeout)
+                return await caget(pv, format=form, timeout=timeout)
+            return await caget(pv, datatype=datatype, format=form, timeout=timeout)
         except Exception:  # noqa: BLE001 — probe answers None on failure
             return None
 

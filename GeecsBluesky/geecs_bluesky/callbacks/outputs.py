@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from geecs_bluesky.callbacks.ecs_dump import EcsDumpCallback, EcsTargets
 from geecs_bluesky.callbacks.scan_info import ScanInfoCallback
 from geecs_bluesky.callbacks.scan_log import ScanLogCallback
 from geecs_bluesky.callbacks.sfile import SFileCallback
@@ -25,7 +26,8 @@ class ScanOutputs:
     scan_log: ScanLogCallback
     scan_info: ScanInfoCallback
     sfile: SFileCallback
-    tokens: tuple[int, int, int, int]
+    tokens: tuple[int, ...]
+    ecs_dump: EcsDumpCallback | None = None
 
     def join(self, timeout: float | None = None) -> None:
         """Wait for the pending stack reads and s-file writes."""
@@ -33,30 +35,49 @@ class ScanOutputs:
         self.sfile.join(timeout)
 
 
-def subscribe_scan_outputs(run_engine: Any) -> ScanOutputs:
+def subscribe_scan_outputs(
+    run_engine: Any, *, ecs_dump_targets: EcsTargets | None = None
+) -> ScanOutputs:
     """Subscribe the output callbacks; return them with their tokens.
 
     Order is not load-bearing: the stack check appends its verdict to
-    ``scan.log`` itself, after the log callback has closed the file.
+    ``scan.log`` itself, after the log callback has closed the file.  The
+    ECS live dump is subscribed after the scan log, so its lines land in
+    ``scan.log`` (the start document reaches the callbacks in order).
+
+    Parameters
+    ----------
+    run_engine :
+        The RunEngine.
+    ecs_dump_targets :
+        The settables the ECS live dump reads
+        (:func:`~geecs_bluesky.callbacks.ecs_dump.ecs_dump_targets` over the
+        namespace's roster); ``None`` writes no dump.
 
     Returns
     -------
     ScanOutputs
-        The four callbacks and their subscription tokens (``.tokens``).
+        The callbacks and their subscription tokens (``.tokens``).
     """
     stack_check = StackCheckCallback()
     scan_log = ScanLogCallback()
     scan_info = ScanInfoCallback()
     sfile = SFileCallback()
+    tokens = [
+        run_engine.subscribe(stack_check),
+        run_engine.subscribe(scan_log),
+        run_engine.subscribe(scan_info),
+        run_engine.subscribe(sfile),
+    ]
+    ecs_dump = None
+    if ecs_dump_targets is not None:
+        ecs_dump = EcsDumpCallback(ecs_dump_targets)
+        tokens.append(run_engine.subscribe(ecs_dump))
     return ScanOutputs(
         stack_check=stack_check,
         scan_log=scan_log,
         scan_info=scan_info,
         sfile=sfile,
-        tokens=(
-            run_engine.subscribe(stack_check),
-            run_engine.subscribe(scan_log),
-            run_engine.subscribe(scan_info),
-            run_engine.subscribe(sfile),
-        ),
+        tokens=tuple(tokens),
+        ecs_dump=ecs_dump,
     )
