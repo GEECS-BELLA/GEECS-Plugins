@@ -153,6 +153,28 @@ correctness round, lens 1 alone):
 > file it duplicates / the better home. Say "no surviving findings"
 > if that is the honest result — do not pad.
 
+For a **cleanup PR** (a merge of duplicates, a deletion, a tidy: a diff
+that claims behaviour is unchanged), append these probes to the brief.
+Each one found a defect more than once in the 2026-11 integration-map
+batches (#1413), where every constituent PR had at least one finding:
+
+> This diff claims to change no behaviour. Also check:
+>
+> - **Lost coverage.** For each deleted test, name the live code it
+>   exercised and the test that still covers it. Deleting a duplicate
+>   often deletes the only test of a shared path.
+> - **Behaviour hidden in the merge.** Where two copies become one,
+>   compare each old caller's answers with its new ones, branch by
+>   branch. Report every case that differs, including a new refusal, a
+>   new default or a field now filled in, even if it looks intended.
+> - **Every caller.** List who calls the changed function or route,
+>   across all packages, GEECS-MCP's contract tests included, and what
+>   each now gets.
+> - **Import weight.** Check what the changed module newly imports at
+>   load, and whether a light package now loads a heavy one.
+> - **The PR body.** Check each factual sentence against the code and
+>   report any that is false or overstated.
+
 Disposition, in a PR comment before merge: each finding is either
 **fixed** (commit referenced) or **waived** with a one-line reason.
 A fix must go back to the **same reviewer** (continue the subagent)
