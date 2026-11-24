@@ -174,14 +174,17 @@ def test_an_axis_of_the_wrong_length_is_refused(scan_folder):
         magspec.magspec_shot(scan_folder, NAME, 5)
 
 
+NOT_A_TABLE = "not a tab-separated table"
+
+
 @pytest.mark.parametrize(
     "text, match",
     [
-        ("", "empty"),
-        ("Momentum_GeV/c\n1.0\n", "two or more"),
-        ("Momentum_GeV/c\tCharge_fC\n", "no rows"),
-        ("Momentum_GeV/c\tCharge_fC\n1.0\t2.0\t3.0\n", "width"),
-        ("Momentum_GeV/c\tCharge_fC\n1.0\tx\n", "not a number"),
+        ("", NOT_A_TABLE),
+        ("Momentum_GeV/c\n1.0\n", NOT_A_TABLE),
+        ("Momentum_GeV/c\tCharge_fC\n", NOT_A_TABLE),
+        ("Momentum_GeV/c\tCharge_fC\n1.0\t2.0\n1.0\t2.0\t3.0\n", NOT_A_TABLE),
+        ("Momentum_GeV/c\tCharge_fC\n1.0\tx\n", NOT_A_TABLE),
         ("Momentum_GeV/c\tMomentum_fC\n1.0\t2.0\n", "distinct"),
         ("Momentum_GeV/c\tCharge_fC\nnan\t2.0\n", "finite"),
     ],
@@ -199,6 +202,33 @@ def test_a_header_with_no_unit_reads_as_a_bare_label(tmp_path):
     table = magspec.read_lineout_table(path)
     assert (table.axis.label, table.axis.unit) == ("angle", "")
     assert table.channels["Charge"].unit == ""
+
+
+def test_a_header_reads_as_the_trace_path_reads_it(tmp_path):
+    path = tmp_path / "t.txt"
+    path.write_text("Angle [mrad]\tCharge_Density_fC\n-1.0\t0.5\n1.0\t0.25\n")
+    table = magspec.read_lineout_table(path)
+    assert (table.axis.label, table.axis.unit) == ("Angle", "mrad")
+    assert table.channels["Charge_Density"].unit == "fC"
+
+
+@pytest.mark.parametrize("cut", [0, 60, -20])
+def test_a_truncated_or_empty_png_is_a_value_error(tmp_path, cut):
+    whole = tmp_path / "whole.png"
+    _png(whole, _pixels(0))
+    path = tmp_path / "cut.png"
+    raw = whole.read_bytes()
+    path.write_bytes(raw[:cut] if cut >= 0 else raw[:cut])
+    with pytest.raises(ValueError, match="not a readable PNG"):
+        magspec.read_charge_image(path)
+
+
+def test_series_resolved_once_reads_every_shot(scan_folder):
+    series = magspec.magspec_series(scan_folder, NAME)
+    for number in (1, 2):
+        shot = magspec.magspec_shot(scan_folder, NAME, number, series=series)
+        np.testing.assert_array_equal(shot.frame.data, _pixels(number))
+    assert magspec.magspec_shot(scan_folder, NAME, 3, series=series) is None
 
 
 def test_reading_creates_nothing(scan_folder):

@@ -38,6 +38,7 @@ import png
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
 from geecs_data_utils.io import analysis_outputs
 from geecs_data_utils.io.analysis_outputs import OutputSeries
+from geecs_data_utils.io.shot_traces import column_name, read_text_table
 
 #: The output folder suffixes that carry the image's two axes.
 MOMENTUM_SUFFIX = "-interpSpec"
@@ -71,41 +72,33 @@ class MagspecShot:
     divergence: LineoutTable
 
 
-def _split_name(name: str) -> tuple[str, str]:
-    """``Momentum_GeV/c`` → ``("Momentum", "GeV/c")``; a name with no ``_`` has no unit."""
-    label, _, unit = name.strip().partition("_")
-    return label, unit
-
-
 def read_lineout_table(path: Union[Path, str]) -> LineoutTable:
-    """Read a tab-separated ``<label>_<unit>`` table: the first column the axis.
+    """Read an axis table: the first column the axis, each further one a trace on it.
+
+    The table and its headers are read as the trace path reads every
+    analysis-output table (:func:`~geecs_data_utils.io.shot_traces.read_text_table`,
+    :func:`~geecs_data_utils.io.shot_traces.column_name`: ``Charge_fC`` and
+    ``Charge [fC]`` are both label ``Charge``, unit ``fC``).
 
     Raises
     ------
     ValueError
-        A table with fewer than two columns, no rows, a row whose width is
-        not the header's, a repeated label, or an axis that is not finite.
+        Not a table of two or more numeric columns under at most one header
+        line (rows of one width), a repeated label, or an axis that is not
+        finite.
     """
     path = Path(path)
-    lines = path.read_text().splitlines()
-    if not lines:
-        raise ValueError(f"{path.name}: empty table")
-    names = [_split_name(name) for name in lines[0].split("\t")]
-    if len(names) < 2:
-        raise ValueError(f"{path.name}: an axis table needs two or more columns")
+    table = read_text_table(path)
+    if table is None:
+        raise ValueError(
+            f"{path.name}: not a tab-separated table of two or more numeric columns"
+        )
+    headers, data = table
+    names = [column_name(header) for header in headers]
     labels = [label for label, _ in names]
-    if len(set(labels)) != len(labels) or "" in labels:
-        raise ValueError(f"{path.name}: column labels must be distinct and named")
-    rows = [line.split("\t") for line in lines[1:] if line.strip()]
-    if not rows:
-        raise ValueError(f"{path.name}: no rows under the header")
-    if any(len(row) != len(names) for row in rows):
-        raise ValueError(f"{path.name}: a row's width is not the header's")
-    try:
-        data = np.array(rows, dtype=np.float64)
-    except ValueError as exc:
-        raise ValueError(f"{path.name}: a cell is not a number") from exc
-    (axis_label, axis_unit), *others = names
+    if len(set(labels)) != len(labels):
+        raise ValueError(f"{path.name}: column labels must be distinct")
+    (axis_label, axis_unit), *others = [(label, unit or "") for label, unit in names]
     try:
         axis = Axis(data[:, 0], unit=axis_unit, label=axis_label)
     except ValueError as exc:
@@ -139,19 +132,24 @@ def read_charge_image(path: Union[Path, str]) -> tuple[np.ndarray, str]:
     Raises
     ------
     ValueError
-        A PNG that is not single-channel greyscale.
+        A PNG that is not single-channel greyscale, or one pypng cannot
+        decode (truncated or empty: a file its producer is still writing).
     """
     raw = Path(path).read_bytes()
     comment = None
-    for kind, data in png.Reader(bytes=raw).chunks():
-        if kind == b"tEXt":
-            key, _, text = data.partition(b"\x00")
-            if key == b"Comment":
-                comment = text.decode("latin-1")
-    width, height, rows, info = png.Reader(bytes=raw).read()
+    try:
+        for kind, data in png.Reader(bytes=raw).chunks():
+            if kind == b"tEXt":
+                key, _, text = data.partition(b"\x00")
+                if key == b"Comment":
+                    comment = text.decode("latin-1")
+        width, height, rows, info = png.Reader(bytes=raw).read()
+        counts = np.array(list(rows), dtype=np.float64)
+    except (png.Error, EOFError) as exc:
+        raise ValueError(f"{Path(path).name}: not a readable PNG ({exc})") from exc
     if not info.get("greyscale") or info.get("alpha"):
         raise ValueError(f"{Path(path).name}: a magspec image is greyscale")
-    counts = np.array(list(rows), dtype=np.float64).reshape(height, width)
+    counts = counts.reshape(height, width)
     scale, unit = charge_per_count(comment) or DEFAULT_CHARGE_PER_COUNT
     return counts * scale, unit
 
@@ -216,15 +214,25 @@ def magspec_series(
     return image, momentum, angle
 
 
-def magspec_shot(scan_folder: Path, name: str, number: int) -> Optional[MagspecShot]:
+def magspec_shot(
+    scan_folder: Path,
+    name: str,
+    number: int,
+    *,
+    series: Optional[tuple[OutputSeries, OutputSeries, OutputSeries]] = None,
+) -> Optional[MagspecShot]:
     """File number *number* of the magspec output *name*, with its axes; ``None`` if absent.
 
     *number* is the files' shot number (the row's shot, or in a scan-mode
     run the shot it announced). A shot missing any of its three files is
     ``None``: never a neighbour's axis. Malformed or mismatched files raise
     as :func:`read_magspec_shot` does.
+
+    Resolving *name* lists six folders; a caller reading many shots passes
+    :func:`magspec_series`' answer once as *series*, leaving three stats
+    and three reads per shot.
     """
-    found = magspec_series(scan_folder, name)
+    found = series if series is not None else magspec_series(scan_folder, name)
     if found is None:
         return None
     paths = [series.shot_file(number) for series in found]
