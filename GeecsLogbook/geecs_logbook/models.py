@@ -66,14 +66,15 @@ class ScanSummary(BaseModel):
     number : int
         The scan number, i.e. ``NNN`` in ``ScanNNN``.
     started : datetime or None
-        When the scan ran, from the first record in its ``scan.log``.
-        Falls back to the ``ScanInfo`` file's own modification time for
-        archive scans that predate ``scan.log`` — approximate, and flagged
-        as such by ``started_approximate``. ``None`` when neither exists.
+        When the scan ran, by ``folder_catalog.scan_start_time`` (the
+        portal's rule): the s-file's first LabVIEW ``DateTime Timestamp``,
+        else ``scan.log``'s first record, else the ``ScanInfo`` file's own
+        mtime — approximate, and flagged by ``started_approximate`` — each
+        only when it falls on the folder's day. ``None`` when none does.
         Never the scan *folder's* mtime: any later pass that writes into
         the folder moves it, measured over an hour off the real start.
     started_approximate : bool
-        Whether ``started`` is the fallback rather than the log's own
+        Whether ``started`` is the ScanInfo mtime rather than a recorded
         timestamp, so the view can mark it rather than implying precision
         it does not have.
     parameter : str or None

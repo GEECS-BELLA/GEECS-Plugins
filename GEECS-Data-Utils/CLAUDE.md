@@ -459,10 +459,11 @@ this package and must never depend on GeecsBluesky or a GUI package).
   = the s-file column that records the scan parameter, alias and all;
   `num_points`/`shots_per_step`; `scan_folder`; `time` = the first
   shot's LabVIEW `DateTime Timestamp`, else `scan.log`'s first record,
-  else the ini mtime — the logbook's ladder — every rung clamped to the
-  folder's day, `time_approximate` flagging the ini-mtime and noon
-  rungs). A loaded run has **`data=None`** on purpose: its scalars are
-  the s-file, which `scan_frame` already reads for a run-less scan — one
+  else the ini mtime, every rung clamped to the folder's day, then local
+  noon; `time_approximate` flags the ini-mtime and noon rungs). The rungs
+  are the public `scan_start_time`, which the logbook calls too, so a scan
+  shows one start time on both surfaces; noon is the catalog's alone. A
+  loaded run has **`data=None`** on purpose: its scalars are the s-file, which `scan_frame` already reads for a run-less scan — one
   s-file reader. The outcome is `scan_info.classify_end_info` — the
   logbook's classifier too — projected onto the stop document's
   `exit_status` words (`success`/`fail`/`abort`/`unknown`, `incomplete` →

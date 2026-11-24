@@ -27,6 +27,7 @@ scan-folder invariant).
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import logging
 import os
@@ -35,7 +36,7 @@ import time
 from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 from geecs_data_utils.data.sfile import sfile_column, sfile_head_for_scan
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
@@ -142,35 +143,37 @@ def _on_day(epoch: Optional[float], day: date) -> bool:
         return False
 
 
-def _start_time(
-    scan_dir: Path, header: list[str], first: list[str], day: date
-) -> tuple[float, bool]:
-    """When the scan started, and whether that time is only approximate.
+def scan_start_time(
+    day: date,
+    header: Sequence[str],
+    first: Sequence[str],
+    log_path: Optional[Path],
+    ini_path: Optional[Path],
+    ini_mtime: Optional[float] = None,
+) -> Optional[tuple[float, bool]]:
+    """When a scan started, as ``(epoch, approximate)``, or ``None``.
 
-    The first shot's ``DateTime Timestamp`` when the s-file has one; else
-    ``scan.log``'s first record; else the ScanInfo ini's mtime (the
-    logbook's ladder — Master Control writes the ini as a scan starts).
-    Every rung must land on the folder's own day, because the portal
-    re-bases a run's scan folder on it; local noon is the last resort and,
-    like the ini mtime, is flagged approximate.
+    The rule: the s-file's first ``DateTime Timestamp`` (LabVIEW), else
+    ``scan.log``'s first record, else the ScanInfo ini's mtime (flagged
+    approximate), each taken only when it falls on the scan folder's *day*.
+    *ini_mtime* saves a stat when the caller's listing already has it.
     """
     if _DATETIME_COLUMN in header:
-        index = header.index(_DATETIME_COLUMN)
+        index = list(header).index(_DATETIME_COLUMN)
         raw = finite_float(first[index]) if index < len(first) else None
         if raw is not None and raw > LABVIEW_EPOCH_OFFSET:
             epoch = raw - LABVIEW_EPOCH_OFFSET
             if _on_day(epoch, day):
                 return epoch, False
-    logged = first_log_timestamp(scan_dir / "scan.log")
+    logged = first_log_timestamp(log_path) if log_path else None
     if logged is not None and _on_day(logged.timestamp(), day):
         return logged.timestamp(), False
-    try:
-        mtime = (scan_dir / f"ScanInfo{scan_dir.name}.ini").stat().st_mtime
-    except OSError:
-        mtime = None
-    if _on_day(mtime, day):
-        return mtime, True
-    return datetime(day.year, day.month, day.day, 12).timestamp(), True
+    if ini_mtime is None and ini_path is not None:
+        with contextlib.suppress(OSError):
+            ini_mtime = ini_path.stat().st_mtime
+    if ini_mtime is not None and _on_day(ini_mtime, day):
+        return ini_mtime, True
+    return None
 
 
 def _scan_variable_column(parameter: str, header: list[str]) -> str:
@@ -204,7 +207,14 @@ def folder_start_doc(
         read_scan_info_file(scan_dir / f"ScanInfo{scan_dir.name}.ini")
     )
     header, first, closed = sfile_head_for_scan(scan_dir)
-    started, approximate = _start_time(scan_dir, header, first, day)
+    # local noon places a scan with no evidence on its day, flagged
+    started, approximate = scan_start_time(
+        day,
+        header,
+        first,
+        scan_dir / "scan.log",
+        scan_dir / f"ScanInfo{scan_dir.name}.ini",
+    ) or (datetime(day.year, day.month, day.day, 12).timestamp(), True)
     start_doc: dict = {
         "scan_number": number,
         "experiment": experiment,

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date
+import os
+from datetime import date, datetime
 from pathlib import Path
+
+from geecs_data_utils.folder_catalog import FolderScanCatalog
+from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
 
 from geecs_logbook.scan_reader import read_day, read_scan
 
@@ -265,9 +269,41 @@ class TestStartTime:
         """
         root = make_run(1)
         # make_run writes ScanInfo but no scan.log — the archive shape.
+        ini = next(root.rglob("ScanInfoScan001.ini"))
+        written = datetime(2026, 9, 11, 10, 30).timestamp()
+        os.utime(ini, (written, written))
         scan = read_day(DAY, "Undulator", base_directory=root).scans[0]
-        assert scan.started is not None
+        assert scan.started == datetime(2026, 9, 11, 10, 30)
         assert scan.started_approximate is True
+
+    def test_an_ini_mtime_off_the_day_is_no_claim(self, make_run) -> None:
+        """A ScanInfo touched on another day says nothing about this one."""
+        root = make_run(1)  # the ini's mtime is today, not DAY
+        scan = read_day(DAY, "Undulator", base_directory=root).scans[0]
+        assert scan.started is None
+
+    def test_agrees_with_the_portal_catalog(self, make_run) -> None:
+        """A Master Control scan shows the portal's start time, not the ini's.
+
+        No scan.log, an s-file whose first shot is stamped 09:42:07 and an
+        ini last written at 10:30: both surfaces read the first shot.
+        """
+        root = make_run(1)
+        day_dir = next(root.rglob("26_0911"))
+        ini = day_dir / "scans" / "Scan001" / "ScanInfoScan001.ini"
+        written = datetime(2026, 9, 11, 10, 30).timestamp()
+        os.utime(ini, (written, written))
+        shot = datetime(2026, 9, 11, 9, 42, 7).timestamp() + LABVIEW_EPOCH_OFFSET
+        (day_dir / "analysis").mkdir()
+        (day_dir / "analysis" / "s1.txt").write_text(
+            f"Shotnumber\tDateTime Timestamp\n1\t{shot}\n"
+        )
+
+        scan = read_day(DAY, "Undulator", base_directory=root).scans[0]
+        (run,) = FolderScanCatalog(root).list_runs("Undulator", DAY)
+        assert scan.started == datetime.fromtimestamp(run.start_time)
+        assert scan.started == datetime(2026, 9, 11, 9, 42, 7)
+        assert scan.started_approximate is False
 
     def test_no_sources_means_no_claim(self, tmp_path: Path) -> None:
         """With neither log nor ScanInfo, the time is absent, not invented."""

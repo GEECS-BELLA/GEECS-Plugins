@@ -15,7 +15,8 @@ change — and the portal's folder catalog reads the same facts the same way:
 - ``geecs_data_utils.scan_info`` — the ``ScanNNN`` name, the ``[Scan Info]``
   parse and its typed record, and the outcome from ``ScanEndInfo`` plus
   the run-closed evidence (``classify_end_info``).
-- ``first_log_timestamp`` — when the scan actually ran, from ``scan.log``.
+- ``folder_catalog.scan_start_time`` — when the scan ran: the portal's
+  ladder, so a scan shows one start time on both surfaces.
 
 Read-only by construction
 -------------------------
@@ -50,6 +51,7 @@ from geecs_data_utils.data.sfile import (
     sfile_column,
     sfile_path_for_scan,
 )
+from geecs_data_utils.folder_catalog import scan_start_time
 from geecs_data_utils.scan_info import (
     ScanInfoRecord,
     classify_end_info,
@@ -58,7 +60,6 @@ from geecs_data_utils.scan_info import (
     read_scan_info_sections,
     scan_log_variables,
 )
-from geecs_data_utils.scan_log_loader import first_log_timestamp
 from geecs_data_utils.scan_paths import experiment_dir_present
 
 from geecs_logbook.models import DaySummary, ScanSummary
@@ -86,6 +87,9 @@ READ_WORKERS = 16
 
 #: How many scan summaries to remember across requests.
 _CACHE_SIZE = 4096
+
+#: ``YY_MMDD`` day folders inside a month folder.
+_DAY_DIR = re.compile(r"^(\d{2})_(\d{2})(\d{2})$")
 
 
 class ScanContents(NamedTuple):
@@ -215,6 +219,9 @@ def read_scan(
         than an error.
     """
     contents = scan_contents(scan_folder)
+    # The s-file is found from listings already in hand and kept on the
+    # summary, so the day's lookup reads it without walking the folder again.
+    sfile = sfile_for(scan_folder, scan_data=contents.scan_data, sfiles=sfiles)
     args = (
         str(scan_folder),
         number,
@@ -224,6 +231,7 @@ def read_scan(
         contents.log_path,
         contents.devices,
         _run_closed(scan_folder, contents, sfiles),
+        str(sfile) if sfile else None,
     )
     if contents.ini_path and contents.ini_mtime is None:
         # The listing found the file but could not stat it — a flaky share.
@@ -232,9 +240,6 @@ def read_scan(
         summary = _summarize(*args)
     else:
         summary = _read_scan_cached(*args)
-    # The s-file is found from listings already in hand and kept on the
-    # summary, so the day's lookup reads it without walking the folder again.
-    sfile = sfile_for(scan_folder, scan_data=contents.scan_data, sfiles=sfiles)
     update: dict = {"sfile": str(sfile) if sfile else None}
     if summary.scan_log_variables:
         # The values live in the s-file, written at the run's close and in
@@ -306,6 +311,15 @@ def first_row(path: Path) -> Optional[dict[str, str]]:
     return dict(zip(header, first + ("",) * (len(header) - len(first))))
 
 
+def _sfile_head(path: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """An s-file's header and first row through the shared cache; empty when unreadable."""
+    try:
+        info = os.stat(path)
+        return _sfile_head_cached(path, info.st_mtime, info.st_size)
+    except OSError:
+        return (), ()
+
+
 @lru_cache(maxsize=_CACHE_SIZE)
 def _sfile_head_cached(
     path: str, mtime: float, size: int
@@ -325,6 +339,7 @@ def _read_scan_cached(
     log_path: Optional[str],
     devices: tuple[str, ...],
     closed: bool,
+    sfile: Optional[str],
 ) -> ScanSummary:
     """Memoise :func:`_summarize` on the ScanInfo file's identity.
 
@@ -342,7 +357,7 @@ def _read_scan_cached(
     s-files, never by rewriting the ini.
     """
     return _summarize(
-        folder, number, ini_path, ini_mtime, ini_size, log_path, devices, closed
+        folder, number, ini_path, ini_mtime, ini_size, log_path, devices, closed, sfile
     )
 
 
@@ -355,6 +370,7 @@ def _summarize(
     log_path: Optional[str],
     devices: tuple[str, ...],
     closed: bool,
+    sfile: Optional[str],
 ) -> ScanSummary:
     """Build a summary from an already-listed scan folder, uncached."""
     sections = read_scan_info_sections(ini_path) if ini_path else {}
@@ -362,15 +378,22 @@ def _summarize(
     record = ScanInfoRecord.from_ini(info)
     status = classify_end_info(record.end_info, closed=closed)
 
-    # scan.log is the honest start. Archive scans predate it, so fall back
-    # to the ScanInfo file's own mtime — the scan's *end*, minutes out
-    # rather than the folder's hours — and flag it rather than implying a
-    # precision it does not have. Never the folder's mtime.
-    started = first_log_timestamp(log_path) if log_path else None
+    started: Optional[datetime] = None
     approximate = False
-    if started is None and ini_mtime is not None:
-        started = datetime.fromtimestamp(ini_mtime)
-        approximate = True
+    day = _DAY_DIR.match(Path(folder).parent.parent.name)
+    if day:
+        yy, mm, dd = (int(g) for g in day.groups())
+        header, first = _sfile_head(sfile) if sfile else ((), ())
+        found = scan_start_time(
+            date(2000 + yy, mm, dd),
+            header,
+            first,
+            Path(log_path) if log_path else None,
+            Path(ini_path) if ini_path else None,
+            ini_mtime,
+        )
+        if found:
+            started, approximate = datetime.fromtimestamp(found[0]), found[1]
 
     return ScanSummary(
         number=number,
@@ -393,10 +416,6 @@ def _summarize(
         folder_name=Path(folder).name,
         scan_log_variables=scan_log_variables(sections),
     )
-
-
-#: ``YY_MMDD`` day folders inside a month folder.
-_DAY_DIR = re.compile(r"^(\d{2})_(\d{2})(\d{2})$")
 
 
 def month_folder(
