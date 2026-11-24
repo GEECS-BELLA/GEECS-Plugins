@@ -16,7 +16,7 @@ What ``claim=True`` installs, each with one job:
   Variable`` header map into the start document;
 - the four output callbacks
   (:func:`geecs_bluesky.callbacks.subscribe_scan_outputs`);
-- with ``ecs_dump_targets``, the ECS live dump after every claimed open
+- with ``ecs_dump_targets``, the ECS live dump after a claimed open
   (:func:`~geecs_bluesky.plans.ecs_dump.ecs_dump_preprocessor`).
 
 Background telemetry is the bound verbs' own (no baseline stream).
@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 from functools import partial
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from bluesky import RunEngine
@@ -54,6 +55,7 @@ def make_run_engine(
     claim: bool = False,
     path_provider: GeecsScanPathProvider | None = None,
     ecs_dump_targets: EcsTargets | None = None,
+    ecs_dump_enabled: Callable[[], bool] | None = None,
 ) -> RunEngine:
     """Build the RunEngine every GEECS plan runs on.
 
@@ -84,6 +86,10 @@ def make_run_engine(
         With *claim*: the settables every run's ECS live dump reads
         (:func:`~geecs_bluesky.plans.ecs_dump.ecs_dump_targets` over the
         namespace's roster); ``None`` writes no dump.
+    ecs_dump_enabled :
+        Asked at each claimed open whether to write the dump (the worker
+        passes ``ExperimentDefaults.ecs_live_dump``, off by default);
+        ``None`` writes it for every claimed run.
 
     Returns
     -------
@@ -113,7 +119,11 @@ def make_run_engine(
         if ecs_dump_targets is not None:
             # Outside the claim: it reads the claimed folder off open_run.
             RE.preprocessors.append(
-                partial(ecs_dump_preprocessor, targets=ecs_dump_targets)
+                partial(
+                    ecs_dump_preprocessor,
+                    targets=ecs_dump_targets,
+                    enabled=ecs_dump_enabled,
+                )
             )
         # Kept on the RunEngine so a shutdown (or a caller that wants the
         # s-file on disk before it moves on) can wait for the stack reads

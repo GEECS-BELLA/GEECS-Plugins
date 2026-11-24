@@ -461,3 +461,71 @@ def test_a_second_write_replaces_its_own_dump_and_never_the_aside(tmp_path):
     write_ecs_dump(folder, 5, "second")
     assert (dumps / "Scan5.master_control.txt").read_bytes() == b"MASTER CONTROL"
     assert (dumps / "Scan5.txt").read_bytes() == b"second"
+
+
+# ------------------------------------------------------------- the switch
+def test_the_switch_is_off_unless_the_experiment_defaults_turn_it_on():
+    from geecs_schemas import ExperimentDefaults
+
+    from geecs_bluesky.plans.ecs_dump import ecs_live_dump_enabled
+
+    def resolver(defaults):
+        return SimpleNamespace(resolve_experiment_defaults=lambda: defaults)
+
+    def unreadable():
+        raise ValueError("bad yaml")
+
+    assert ExperimentDefaults().ecs_live_dump is False
+    assert ecs_live_dump_enabled(None) is False
+    assert ecs_live_dump_enabled(resolver(None)) is False  # no defaults file
+    assert ecs_live_dump_enabled(resolver(ExperimentDefaults())) is False
+    assert (
+        ecs_live_dump_enabled(SimpleNamespace(resolve_experiment_defaults=unreadable))
+        is False
+    )
+    assert (
+        ecs_live_dump_enabled(resolver(ExperimentDefaults(ecs_live_dump=True))) is True
+    )
+
+
+def test_the_switch_is_asked_at_every_claimed_open(claimed_RE, tmp_path):
+    switch = {"on": False}
+    asked = []
+
+    def enabled():
+        asked.append(switch["on"])
+        return switch["on"]
+
+    async def read(experiment, pairs, *, timeout):
+        return [_reading(1.0)] * len(pairs)
+
+    claimed_RE.preprocessors.append(
+        partial(
+            ecs_dump_preprocessor,
+            targets=[("U_S1H", ["Current"])],
+            reader=read,
+            enabled=enabled,
+        )
+    )
+    claimed_RE(_empty_run())  # Scan1: off
+    switch["on"] = True
+    claimed_RE(_empty_run())  # Scan2: on, no reopen
+    dumps = tmp_path / "26_1124" / ECS_DUMP_FOLDER
+    assert asked == [False, True]
+    assert sorted(p.name for p in dumps.iterdir()) == ["Scan2.txt"]
+
+
+def test_make_run_engine_hands_the_switch_to_the_preprocessor():
+    def enabled():
+        return False
+
+    RE = make_run_engine(
+        experiment="Bella",
+        claim=True,
+        ecs_dump_targets=[("U_S1H", ["Current"])],
+        ecs_dump_enabled=enabled,
+    )
+    (dump,) = [
+        p for p in RE.preprocessors if getattr(p, "func", None) is ecs_dump_preprocessor
+    ]
+    assert dump.keywords["enabled"] is enabled

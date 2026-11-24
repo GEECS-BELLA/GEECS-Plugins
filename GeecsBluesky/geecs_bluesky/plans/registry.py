@@ -450,22 +450,27 @@ def witness_wrapper(
 
 
 def _experiment_default(
-    requested: bool | None, resolver: Any | None, field: str, *, on_failure: str
+    requested: bool | None,
+    resolver: Any | None,
+    field: str,
+    *,
+    on_failure: str,
+    default: bool = True,
 ) -> bool:
-    """*requested*, else ``ExperimentDefaults.<field>``, else on.
+    """*requested*, else ``ExperimentDefaults.<field>``, else *default*.
 
     Read at every run, not at bind time, so an edit to
     ``experiment_defaults.yaml`` reaches the next scan without the worker
-    reopening its environment.  Fail-open to *on*: a resolver that cannot
-    read the defaults (no configs root, bad YAML, an older resolver without
-    the method) keeps the behaviour every scan had before the switch
-    existed — *on_failure* says which — and says so in the journal, once
-    per run.
+    reopening its environment.  A resolver that cannot read the defaults
+    (no configs root, bad YAML, an older resolver without the method), or
+    no defaults file, gives *default*: on for a switch every scan had
+    before it existed, off for an opt-in one — *on_failure* says which,
+    in the journal, once per run.
     """
     if requested is not None:
         return bool(requested)
     if resolver is None:
-        return True
+        return default
     try:
         defaults = resolver.resolve_experiment_defaults()
     except Exception as exc:  # no configs root, unreadable defaults file  # noqa: BLE001 — bad config skipped, logged
@@ -475,8 +480,8 @@ def _experiment_default(
             exc,
             on_failure,
         )
-        return True
-    return bool(getattr(defaults, field, True))
+        return default
+    return bool(getattr(defaults, field, default))
 
 
 def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> bool:

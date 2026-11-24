@@ -394,7 +394,7 @@ actively developed analysis packages. `LogMaker4GoogleDocs` is a standalone lega
   │       └── analysis_status/         (ScanAnalysis task queue YAML files)
   ├── ECS Live dumps/
   │   └── Scan{N}.txt                  (every settable at the scan's start, N unpadded;
-  │                                      the scanner's ECS live dump)
+  │                                      the scanner's opt-in ECS live dump)
   └── analysis/
       ├── s{NNN}.txt                   (watched s-file copy)
       └── Scan{NNN}/...                (analysis output tree)

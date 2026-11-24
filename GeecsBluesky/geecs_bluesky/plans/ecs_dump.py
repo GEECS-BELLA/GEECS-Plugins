@@ -7,7 +7,8 @@ no final line ending, an ``[Experiment]`` header, one ``[Device i]`` section
 per roster device with ``Device Name`` and ``shot # = "0"``.
 
 :func:`ecs_dump_preprocessor` inserts the dump right after each claimed
-``open_run``: one concurrent ``FORMAT_CTRL`` batch over every served
+``open_run`` while ``ExperimentDefaults.ecs_live_dump`` is on (off by
+default; :func:`ecs_live_dump_enabled`, read per run): one concurrent ``FORMAT_CTRL`` batch over every served
 settable readback, awaited on the RunEngine's loop (never blocking it) and
 bounded, so the values precede the plan's first move.  Values the batch
 cannot read, or reads INVALID, are left out, as Master Control leaves out a
@@ -110,14 +111,14 @@ async def read_settables(
     if not pairs:
         return []
     try:
-        from aioca import FORMAT_CTRL, caget
-    except Exception:  # noqa: BLE001 — the dump is fail-open
+        from aioca import FORMAT_CTRL, CANothing, caget
+    except ImportError:  # the ca extra missing: the dump is fail-open
         return [None] * len(pairs)
 
     async def _one(pv: str) -> Any:
         try:
             return await caget(pv, format=FORMAT_CTRL, timeout=timeout)
-        except Exception:  # noqa: BLE001 — an unread PV is left out
+        except (CANothing, TimeoutError):  # unread: left out of the dump
             return None
 
     pvs = [pv_name(experiment, device, variable) for device, variable in pairs]
@@ -127,8 +128,25 @@ async def read_settables(
                 asyncio.gather(*(_one(pv) for pv in pvs)), timeout + _BATCH_GRACE_S
             )
         )
-    except Exception:  # noqa: BLE001 — a batch past its budget reads nothing
+    except TimeoutError:  # a batch past its budget reads nothing
         return [None] * len(pairs)
+
+
+def ecs_live_dump_enabled(resolver: Any | None) -> bool:
+    """``ExperimentDefaults.ecs_live_dump``, read now; off when it cannot be read.
+
+    Opt-in, so it fails closed: no resolver, no defaults file, or one that
+    does not parse writes no dump (the last WARNING-logged).
+    """
+    from geecs_bluesky.plans.registry import _experiment_default
+
+    return _experiment_default(
+        None,
+        resolver,
+        "ecs_live_dump",
+        on_failure="no ECS live dump",
+        default=False,
+    )
 
 
 def warm_up(run_engine: Any, experiment: str | None, targets: EcsTargets) -> None:
@@ -346,10 +364,8 @@ async def dump_run(
             asyncio.to_thread(write_ecs_dump, scan_folder, scan_number, text),
             WRITE_TIMEOUT_S,
         )
-    except Exception:  # noqa: BLE001 — the dump never fails a run
-        logger.warning(
-            "ECS live dump for scan %s not written", scan_number, exc_info=True
-        )
+    except Exception:  # the dump never fails a run: logged with its traceback
+        logger.exception("ECS live dump for scan %s not written", scan_number)
         return None
     if path is None:
         return None
@@ -375,8 +391,13 @@ def ecs_dump_preprocessor(
     targets: EcsTargets,
     reader: EcsReader = read_settables,
     timeout: float = DEFAULT_READ_TIMEOUT_S,
+    enabled: Callable[[], bool] | None = None,
 ) -> Generator[Msg, Any, Any]:
-    """Insert the run's dump right after every claimed ``open_run``.
+    """Insert the run's dump right after every claimed ``open_run`` while *enabled*.
+
+    *enabled* is asked at each claimed open (the worker's:
+    :func:`ecs_live_dump_enabled` over its configs resolver); ``None``
+    dumps every claimed run.
 
     Installed outside the claim preprocessor (it reads the ``scan_folder``,
     ``scan_number`` and ``experiment`` the claim put on the message); an
@@ -396,6 +417,8 @@ def ecs_dump_preprocessor(
         folder = msg.kwargs.get("scan_folder")
         number = msg.kwargs.get("scan_number")
         if not folder or number is None:
+            return None, None
+        if enabled is not None and not enabled():
             return None, None
         once = str(folder)
         factory = partial(

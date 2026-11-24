@@ -901,8 +901,12 @@ outside the claim when `make_run_engine` is given `ecs_dump_targets` — the
 startup profile passes `ecs_dump_targets(namespace.roster)`): Master
 Control's per-scan file of every settable, `<day>/ECS Live dumps/Scan<N>.txt`
 (N unpadded, the claimed number), which `geecs_data_utils`'
-`ScanPaths.get_ecs_dump_file` and `ECSDump` read.  Every claimed run writes
-one (`count`, `sweep`, `optimize`).  It is one `wait_for` inserted right
+`ScanPaths.get_ecs_dump_file` and `ECSDump` read.  **Opt-in per
+experiment**: `ExperimentDefaults.ecs_live_dump` (off by default) is read
+at every claimed open (`ecs_live_dump_enabled`, the startup profile's
+`ecs_dump_enabled`), so an edit reaches the next scan without a reopen;
+unreadable defaults leave it off.  On, every claimed run writes one
+(`count`, `sweep`, `optimize`).  It is one `wait_for` inserted right
 after `open_run`: **one** concurrent aioca `FORMAT_CTRL` batch of every
 roster device's served settable readbacks, **awaited on the RunEngine's
 loop** — the plan waits, so the values precede its first move, but the loop
@@ -911,9 +915,11 @@ synchronously on the loop) — bounded by `DEFAULT_READ_TIMEOUT_S` (2 s) plus
 a 1 s grace, the write by `WRITE_TIMEOUT_S` on a thread, and never pending,
 since a pending `wait_for` fails the run.  A dead device's never-connected
 channels hold the batch to its full budget, so 2–3 s at a run's open is the
-expected cost when anything is down.  The channels are connected once at
-environment open on the same loop (`warm_up`, fire and forget: aioca keeps
-channels per loop).  The format is Master Control's byte for byte (CRLF,
+expected cost when anything is down.  When it is on at environment open,
+the channels are connected then on the same loop (`warm_up`, fire and
+forget: aioca keeps channels per loop); turned on later, its first scan
+searches thousands of channels within the same bound, so that one dump may
+leave out many values (later scans find them connected).  The format is Master Control's byte for byte (CRLF,
 LabVIEW escapes, no final line ending; devices in the DB's case-insensitive
 collation, every roster device listed, `shot # = "0"`) — the rendering
 reproduces 817 of 832 Master Control dumps from their own contents, the

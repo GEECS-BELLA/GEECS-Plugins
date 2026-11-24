@@ -222,9 +222,11 @@ on the data share (`scans/ScanNNN/` with `ScanInfoScanNNN.ini`, the
 device's natively saved per-shot files), so every existing analysis tool
 keeps working; and a run in the Tiled catalog with the start/stop metadata
 and one event row per shot. Only the worker ever creates a scan folder.
-Beside `scans/`, each scan also leaves Master Control's **ECS live dump**,
+Beside `scans/`, each scan can also leave Master Control's **ECS live dump**,
 `ECS Live dumps/Scan<N>.txt`: every settable's value read once at the
-scan's start, in Master Control's format. A variable that could not be read
+scan's start, in Master Control's format. It is off unless the experiment
+turns it on (`ecs_live_dump: true` in its `experiment_defaults.yaml`, read
+at every scan). A variable that could not be read
 (its device down) is left out of it. Where Master Control still runs, its
 own `Scan<N>.txt` (written when the previous scan ended) is moved aside to
 `Scan<N>.master_control.txt`, never deleted.
