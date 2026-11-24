@@ -69,8 +69,9 @@ def run_analysis_list(
     input column is the run's ``no_data``, naming the column). Every loadable
     diagnostic is listed regardless, so a device-less one is still
     reachable; the tab collapses the inapplicable ones.  ``settled`` is
-    :func:`~geecs_data_utils.data.sfile.scan_is_settled`: until it is true
-    the scanner may still be writing, and a run is refused.
+    :func:`~geecs_data_utils.data.sfile.scan_is_settled`, whether the
+    analysis worker would pick the scan up now; a run here is never
+    refused on it.
     """
     portal.analysis_available()
     detail, folder, analysis_folder, tag = portal.analysis_context(uid, day)
@@ -138,9 +139,7 @@ def run_analysis_start(
     diagnostic 404 · folder unresolvable 404 · a destructive kind
     without ``confirm=<this scan's number>`` 400 (the tab asks for
     it; the gate is here so no client runs a delete unasked) · a job
-    already running for this scan 409 (its record in the body) · a scan
-    not yet settled (``scan_is_settled``: the scanner may still be
-    writing it) 409.
+    already running for this scan 409 (its record in the body).
     Build + run + cleanup happen on the worker thread, so everything
     past this point — config errors included — lands in the record
     as ``failed``.
@@ -149,13 +148,7 @@ def run_analysis_start(
     info = portal.processing_infos().get(analyzer)
     if info is None:
         raise HTTPException(status_code=404, detail=f"no diagnostic: {analyzer!r}")
-    _, folder, analysis_folder, tag = portal.analysis_context(uid, day)
-    if not scan_is_settled(folder):
-        raise HTTPException(
-            status_code=409,
-            detail="the scan is still being recorded: analysis opens once "
-            "the scanner's files have settled",
-        )
+    _, _, analysis_folder, tag = portal.analysis_context(uid, day)
     if info.destructive and confirm.strip() != str(tag.number):
         raise HTTPException(
             status_code=400,

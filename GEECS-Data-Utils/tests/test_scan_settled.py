@@ -51,6 +51,16 @@ def test_an_analysis_write_does_not_unsettle_a_scan(tmp_path):
     assert scan_is_settled(scan)
 
 
+def test_a_table_without_its_s_file_is_not_settled(tmp_path):
+    # the analyzers read the s-file: a scan without it would be recorded no_data
+    scan = _scan(tmp_path, scan_info={"ScanEndInfo": "success"})
+    write_closed(scan)
+    _age(scan / "ScanInfoScan004.ini", 60)
+    sfile_path_for_scan(scan).unlink()
+    assert run_closed_evidence(scan) is not None  # data written, all the same
+    assert not scan_is_settled(scan)
+
+
 def test_a_scan_with_no_rows_settles(tmp_path):
     # the native scanner fills ScanEndInfo at the stop and writes no table
     scan = _scan(tmp_path, scan_info={"ScanEndInfo": "abort: no shots"})

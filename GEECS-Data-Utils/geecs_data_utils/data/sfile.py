@@ -219,13 +219,15 @@ def scan_is_settled(scan_folder: Path, *, now: Optional[float] = None) -> bool:
 
     Settled: the scanner's own files in the scan folder
     (``ScanInfoScanNNN.ini``, ``ScanDataScanNNN.txt``) have not changed for
-    :data:`SETTLE_SECONDS` and the run closed — its ``ScanData`` table
-    exists, or, for a run with no rows, its ``ScanEndInfo`` is filled and
-    nothing has changed for :data:`ROWLESS_SETTLE_SECONDS`.  Nothing
-    analysis writes is read (not the s-file, not the analysis tree), so an
-    analysis run never unsettles a scan.  Not :func:`run_closed_evidence`,
-    which says the data is written (a surface shows the scan finished)
-    while the files may still be changing.  Read-only.
+    :data:`SETTLE_SECONDS` and the run closed — its ``ScanData`` table and
+    the analysis s-file both exist, or, for a run with no rows, its
+    ``ScanEndInfo`` is filled and nothing has changed for
+    :data:`ROWLESS_SETTLE_SECONDS`.  Of what analysis writes, only the
+    s-file's existence is read — never its time or contents, and analysis
+    never deletes it — so an analysis run never unsettles a scan.  Not
+    :func:`run_closed_evidence`, which says the data is written (a surface
+    shows the scan finished) while the files may still be changing.
+    Read-only.
     """
     folder = Path(scan_folder)
     table = scan_data_txt_path_for(folder)
@@ -238,7 +240,11 @@ def scan_is_settled(scan_folder: Path, *, now: Optional[float] = None) -> bool:
         return False
     age = (time.time() if now is None else now) - max(stamps.values())
     if table in stamps:
-        return age >= SETTLE_SECONDS
+        try:
+            has_sfile = sfile_path_for_scan(folder).is_file()
+        except ValueError:  # not a canonical scans/ScanNNN folder: no s-file to read
+            has_sfile = False
+        return has_sfile and age >= SETTLE_SECONDS
     end_info = (read_scan_info_file(info).get("ScanEndInfo") or "").strip()
     return bool(end_info) and age >= ROWLESS_SETTLE_SECONDS
 

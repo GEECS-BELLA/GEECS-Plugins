@@ -755,18 +755,19 @@ class TestRun:
         FakeAnalyzer.instances[-1].release.set()
         assert _wait(client)["state"] == "done"
 
-    def test_a_scan_still_being_recorded_runs_nothing(self, scan_folder, configs_tree):
+    def test_an_unsettled_scan_is_listed_so_and_still_runs(
+        self, scan_folder, configs_tree
+    ):
         pytest.importorskip("scan_analysis")
-        # the scanner's table just rewritten: not settled for analysis
+        # the scanner's table just rewritten: not settled for the worker
         scan_data_txt_path_for(scan_folder).write_text("Shotnumber\n1\n2\n")
         client = _client(scan_folder, configs_tree)
         assert client.get("/api/run/uid-002/analysis").json()["settled"] is False
-        refused = client.post(
+        started = client.post(
             "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"}
         )
-        assert refused.status_code == 409
-        assert "still being recorded" in refused.json()["detail"]
-        assert FakeAnalyzer.instances == []
+        assert started.status_code == 202
+        assert _wait(client)["state"] == "done"
 
     def test_a_settled_scan_lists_settled(self, scan_folder, configs_tree):
         pytest.importorskip("scan_analysis")

@@ -483,9 +483,9 @@ redo (`rerun_completed` covers `no_data` too — often a typo in the job,
 which a redo after the fix must reach). A cancel stops before the next
 task. A scan is analysed only once it is settled
 (`geecs_data_utils.data.sfile.scan_is_settled`, read off the scanner's own
-files in the scan folder and never the s-file analysis merges into, so an
-analysis run never reopens a scan and a closed run with no rows still
-settles): a task run over a half-written table would be recorded done and
+files in the scan folder plus the s-file's existence alone, never its time
+or contents, so an analysis merge never reopens a scan, a table without its
+s-file waits, and a closed run with no rows still settles): a task run over a half-written table would be recorded done and
 never looked at again; the rest are still recording and left out
 (`open_scans`). Jobs run in order on one
 thread; the job list is in memory and the status records are the durable

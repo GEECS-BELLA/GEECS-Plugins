@@ -24,9 +24,9 @@ day whose ``scans/`` folder does not exist yet is waited for, not an error.
 
 A scan still being recorded is left out: only a settled scan is analysed
 (:func:`geecs_data_utils.data.sfile.scan_is_settled`, read off the
-scanner's own files, never the s-file analysis merges into) — a task run
-over a half-written table would be recorded done and never looked at
-again.  Nothing here creates a scan folder; the day's ``scans/`` folder is
+scanner's own files and the s-file's existence, never its time) — a task
+run over a half-written table, or before the s-file exists, would be
+recorded done and never looked at again.  Nothing here creates a scan folder; the day's ``scans/`` folder is
 listed, never made.
 """
 
