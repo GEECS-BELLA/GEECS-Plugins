@@ -237,11 +237,18 @@ def test_clean_ups_work_in_the_pngs_counts(magspec: Path) -> None:
 
 
 def test_centring_never_moves_charge_off_its_axes(magspec: Path) -> None:
+    # A bright pixel off centre: centring would move it to the middle.
+    pixels = np.full((4, 6), 10, dtype=np.uint16)
+    pixels[0, 0] = 1000
+    image = magspec.parent.parent / "analysis" / "Scan001" / "py-magspec"
+    Image.fromarray(pixels).save(image / "Scan001_py-magspec_001.png")
+    assert not np.array_equal(images.ImagePrep(centre=0.5).apply(pixels * 1.0), pixels)
     frame = pd.DataFrame({"Bin #": [1, 1, 2, 2]})
-    plain = images.calibrated_tile(magspec, frame, NAME, (1,))
     centred = images.calibrated_tile(
         magspec, frame, NAME, (1,), images.ImagePrep(centre=0.5)
     )
+    assert centred.data[0, 0] == centred.data.max()  # still at its momentum and angle
+    plain = images.calibrated_tile(magspec, frame, NAME, (1,))
     np.testing.assert_array_equal(centred.data, plain.data)
 
 
