@@ -225,8 +225,9 @@ and one event row per shot. Only the worker ever creates a scan folder.
 Beside `scans/`, each scan also leaves Master Control's **ECS live dump**,
 `ECS Live dumps/Scan<N>.txt`: every settable's value read once at the
 scan's start, in Master Control's format. A variable that could not be read
-(its device down) is left out of it, and a dump already there (Master
-Control's, where it still runs) is kept, never replaced.
+(its device down) is left out of it. Where Master Control still runs, its
+own `Scan<N>.txt` (written when the previous scan ended) is moved aside to
+`Scan<N>.master_control.txt`, never deleted.
 
 Read it back in the [Data Portal](data_portal.md) (day → scan → metadata, scalar plots,
 images, from any browser) or from Python through the `ScanCatalog` layer

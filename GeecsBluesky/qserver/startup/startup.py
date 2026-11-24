@@ -34,13 +34,13 @@ import os
 import geecs_bluesky  # noqa: F401
 
 from geecs_bluesky.config_resolver import ConfigsRepoResolver
-from geecs_bluesky.callbacks.ecs_dump import ecs_dump_targets
-from geecs_bluesky.callbacks.ecs_dump import warm_up as warm_up_ecs_dump
 from geecs_bluesky.devices.background import warm_up_on
 from geecs_bluesky.devices.scan_mode import ScanModeControl
 from geecs_bluesky.namespace import GeecsNamespace, motor_targets
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+from geecs_bluesky.plans.ecs_dump import ecs_dump_targets
+from geecs_bluesky.plans.ecs_dump import warm_up as warm_up_ecs_dump
 from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
 from geecs_bluesky.run_engine import make_run_engine
 
@@ -199,25 +199,23 @@ logging.getLogger("geecs_bluesky").setLevel(logging.INFO)
 # The ECS live dump (Master Control's per-scan file of every settable,
 # <day>/ECS Live dumps/Scan<N>.txt): what it reads is the roster's served
 # settables, fixed at environment open like the namespace itself.
+_ecs_targets = ecs_dump_targets(namespace.roster) if namespace is not None else None
 RE = make_run_engine(
     experiment=_experiment,
     tiled=True,
     claim=not _hermetic,
     path_provider=_path_provider,
-    ecs_dump_targets=(
-        ecs_dump_targets(namespace.roster) if namespace is not None else None
-    ),
+    ecs_dump_targets=_ecs_targets,
 )
 if not _hermetic:
     # The background telemetry's candidates connect once, here, so a run's
     # probe finds them connected (its 1 s budget then covers the stage and
     # the first reading alone).  Bounded, and never a drop for good.
     warm_up_on(RE, namespace.telemetry(), timeout=_connect_timeout())
-    # The ECS live dump's channels, likewise: the run's 2 s batch then
-    # reads connected channels instead of searching for thousands.
-    warm_up_ecs_dump(
-        _experiment, ecs_dump_targets(namespace.roster), timeout=_connect_timeout()
-    )
+    # The ECS live dump's channels, connected on the RunEngine's loop in
+    # the background (aioca keeps channels per loop): never waited for here.
+    if _ecs_targets is not None:
+        warm_up_ecs_dump(RE, _experiment, _ecs_targets)
 
 # The plans the manager discovers (every generator function in this
 # namespace is a plan to it — profile_ops.plans_from_nspace): the stock

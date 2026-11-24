@@ -2,26 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 
 import bluesky.plan_stubs as bps
 import numpy as np
 import pytest
 from bluesky import RunEngine
+from types import SimpleNamespace
 
-from geecs_bluesky.callbacks import subscribe_scan_outputs
-from geecs_bluesky.callbacks.ecs_dump import (
+from geecs_bluesky.plans.ecs_dump import (
     ECS_DUMP_FOLDER,
-    EcsDumpCallback,
+    dump_run,
+    ecs_dump_preprocessor,
     ecs_dump_targets,
     ecs_value,
     read_settables,
     render_ecs_dump,
     write_ecs_dump,
 )
+from geecs_bluesky.run_engine import make_run_engine
 from geecs_bluesky.namespace import DeviceRoster
 from geecs_bluesky.plans.claim_scan import (
     GeecsScanPathProvider,
@@ -157,18 +159,40 @@ def test_the_targets_keep_only_what_the_gateway_serves():
     assert ecs_dump_targets(roster) == [("U_S1H", ["Current"])]
 
 
-def test_the_reads_are_one_ctrl_batch_of_the_readback_pvs(monkeypatch):
+def test_the_reads_are_one_concurrent_ctrl_batch_of_the_readback_pvs(monkeypatch):
+    import aioca
+
     calls = []
 
-    def fake(pvs, *, timeout, ctrl):
-        calls.append((list(pvs), timeout, ctrl))
-        return [None] * len(pvs)
+    async def fake_caget(pv, *, format, timeout):
+        calls.append((pv, format, timeout))
+        if "cam_1" in pv:
+            raise aioca.CANothing(pv)  # unread: None, the batch goes on
+        return _reading(1.0)
 
-    monkeypatch.setattr("geecs_bluesky.devices.ca.oneshot.try_caget_many", fake)
-    read_settables("Bella", [("U_S1H", "Current"), ("CAM-1", "exposure")], timeout=1.5)
-    ((pvs, timeout, ctrl),) = calls
-    assert pvs == ["bella:u_s1h:current", "bella:cam_1:exposure"]
-    assert (timeout, ctrl) == (1.5, True)
+    monkeypatch.setattr(aioca, "caget", fake_caget)
+    readings = asyncio.run(
+        read_settables(
+            "Bella", [("U_S1H", "Current"), ("CAM-1", "exposure")], timeout=1.5
+        )
+    )
+    assert [pv for pv, _, _ in calls] == ["bella:u_s1h:current", "bella:cam_1:exposure"]
+    assert {(f, t) for _, f, t in calls} == {(aioca.FORMAT_CTRL, 1.5)}
+    assert readings[0] == 1.0 and readings[1] is None
+
+
+def test_a_batch_past_its_budget_reads_nothing(monkeypatch):
+    import aioca
+
+    async def hang(pv, *, format, timeout):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(aioca, "caget", hang)
+    monkeypatch.setattr("geecs_bluesky.plans.ecs_dump._BATCH_GRACE_S", 0.05)
+    readings = asyncio.run(
+        read_settables("Bella", [("U_S1H", "Current")], timeout=0.05)
+    )
+    assert readings == [None]
 
 
 # --------------------------------------------------------------- the writer
@@ -184,12 +208,18 @@ def _scan(tmp_path: Path, number: int = 5) -> Path:
 def _reader(readings):
     calls = []
 
-    def read(experiment, pairs, *, timeout):
+    async def read(experiment, pairs, *, timeout):
         calls.append((experiment, list(pairs), timeout))
         return [readings.get(pair) for pair in pairs]
 
     read.calls = calls
     return read
+
+
+def _dump(folder, reader, number=5, timeout=0.5):
+    return asyncio.run(
+        dump_run(folder, number, "Bella", TARGETS, reader=reader, timeout=timeout)
+    )
 
 
 def test_the_dump_is_written_beside_scans_and_left_out_values_are_absent(tmp_path):
@@ -201,7 +231,7 @@ def test_the_dump_is_written_beside_scans_and_left_out_values_are_absent(tmp_pat
             # U_S2H Current unread: left out, its section kept
         }
     )
-    path = write_ecs_dump(folder, 5, "Bella", TARGETS, reader=reader, timeout=0.5)
+    path = _dump(folder, reader)
     assert path == tmp_path / "26_1124" / ECS_DUMP_FOLDER / "Scan5.txt"
     assert reader.calls == [
         ("Bella", [("U_S1H", "Current"), ("U_S1H", "Mode"), ("U_S2H", "Current")], 0.5)
@@ -213,48 +243,68 @@ def test_the_dump_is_written_beside_scans_and_left_out_values_are_absent(tmp_pat
         b'Current = "1.500000"\r\nMode = "auto"\r\n\r\n'
         b'[Device 3]\r\nDevice Name = "U_S2H"\r\nshot # = "0"'
     )
+    assert sorted(p.name for p in path.parent.iterdir()) == [
+        "Scan5.txt"
+    ]  # no temp left
+    assert path.stat().st_mode & 0o777 == 0o644
 
 
 def test_the_readers_in_data_utils_find_and_parse_it(tmp_path):
     from geecs_data_utils.type_defs import parse_ecs_dump
 
-    folder = _scan(tmp_path)
-    reader = _reader({("U_S1H", "Current"): _reading(1.5)})
-    path = write_ecs_dump(folder, 5, "Bella", TARGETS, reader=reader)
+    path = _dump(_scan(tmp_path), _reader({("U_S1H", "Current"): _reading(1.5)}))
     dump = parse_ecs_dump(path)
     assert dump.experiment_name == "Bella"
     assert [d.name for d in dump.devices] == ["AVO-PL1-1", "U_S1H", "U_S2H"]
     assert dump.devices[1].parameters == {"Current": "1.500000"}
 
 
-def test_an_existing_dump_is_kept_and_nothing_is_read(tmp_path, caplog):
+def test_master_controls_earlier_file_is_moved_aside_never_deleted(tmp_path, caplog):
     folder = _scan(tmp_path)
     existing = tmp_path / "26_1124" / ECS_DUMP_FOLDER / "Scan5.txt"
     existing.parent.mkdir()
-    existing.write_bytes(b"Master Control's")
-    reader = _reader({})
+    existing.write_bytes(b"Master Control's, from the end of scan 4")
     with caplog.at_level(logging.WARNING):
-        assert write_ecs_dump(folder, 5, "Bella", TARGETS, reader=reader) is None
-    assert existing.read_bytes() == b"Master Control's"
-    assert reader.calls == []
-    assert "kept, not replaced" in caplog.text
+        path = _dump(folder, _reader({("U_S1H", "Current"): _reading(1.5)}))
+    assert path == existing
+    assert b'Current = "1.500000"' in existing.read_bytes()
+    aside = existing.with_name("Scan5.master_control.txt")
+    assert aside.read_bytes() == b"Master Control's, from the end of scan 4"
+    assert "moved aside" in caplog.text
 
 
 def test_a_folder_outside_a_days_scans_gets_no_dump_and_nothing_is_created(tmp_path):
     folder = tmp_path / "elsewhere" / "Scan005"
     folder.mkdir(parents=True)
     before = sorted(tmp_path.rglob("*"))
-    assert write_ecs_dump(folder, 5, "Bella", TARGETS, reader=_reader({})) is None
+    assert _dump(folder, _reader({})) is None
     assert sorted(tmp_path.rglob("*")) == before
 
 
+def test_a_missing_scan_folder_is_never_created(tmp_path):
+    folder = tmp_path / "26_1124" / "scans" / "Scan005"  # never made
+    (tmp_path / "26_1124" / "scans").mkdir(parents=True)
+    assert write_ecs_dump(folder, 5, "text") is None
+    assert not folder.exists()
+    assert not (tmp_path / "26_1124" / ECS_DUMP_FOLDER).exists()
+
+
 def test_a_short_batch_writes_every_section_with_no_values(tmp_path):
-    folder = _scan(tmp_path)
-    path = write_ecs_dump(
-        folder, 5, "Bella", TARGETS, reader=lambda *a, **k: [_reading(1.0)]
-    )
+    async def short(*_a, **_k):
+        return [_reading(1.0)]
+
+    path = _dump(_scan(tmp_path), short)
     assert b' = "1.000000"' not in path.read_bytes()
     assert path.read_bytes().count(b"[Device ") == 3
+
+
+def test_a_failing_read_or_write_never_raises(tmp_path, caplog):
+    async def boom(*_a, **_k):
+        raise RuntimeError("gateway gone")
+
+    with caplog.at_level(logging.WARNING):
+        assert _dump(_scan(tmp_path), boom) is None
+    assert "not written" in caplog.text
 
 
 # ------------------------------------------------------ in the RunEngine
@@ -277,37 +327,54 @@ def test_a_run_writes_its_dump_before_the_plan_goes_on(claimed_RE, tmp_path):
     state = {"moved": False}
     seen = []
 
-    def read(experiment, pairs, *, timeout):
-        seen.append(state["moved"])
+    async def read(experiment, pairs, *, timeout):
+        seen.append((experiment, state["moved"]))
+        await asyncio.sleep(0.05)  # on the RE loop, awaited: the plan waits
         return [_reading(2.0)] * len(pairs)
 
-    callback = EcsDumpCallback([("U_S1H", ["Current"])], reader=read)
-    claimed_RE.subscribe(callback)
+    claimed_RE.preprocessors.append(
+        partial(ecs_dump_preprocessor, targets=[("U_S1H", ["Current"])], reader=read)
+    )
 
     def plan():
-        yield from bps.open_run()
+        uid = yield from bps.open_run()
+        assert isinstance(uid, str)  # the open's own response still reaches the plan
         state["moved"] = True  # the plan's first step after the open
         yield from bps.close_run()
 
     claimed_RE(plan())
     claimed_RE(plan())
-    assert seen == [False, True] and state["moved"]
+    assert seen == [("Bella", False), ("Bella", True)] and state["moved"]
     dumps = tmp_path / "26_1124" / ECS_DUMP_FOLDER
     assert sorted(p.name for p in dumps.iterdir()) == ["Scan1.txt", "Scan2.txt"]
     assert b'Current = "2.000000"' in (dumps / "Scan1.txt").read_bytes()
-    assert callback.last_path == dumps / "Scan2.txt"
 
 
-def test_a_failing_read_never_fails_the_run(claimed_RE, tmp_path, caplog):
-    def read(*_a, **_k):
+def test_a_failing_read_never_fails_the_run(claimed_RE, tmp_path):
+    async def read(*_a, **_k):
         raise RuntimeError("gateway gone")
 
-    claimed_RE.subscribe(EcsDumpCallback([("U_S1H", ["Current"])], reader=read))
-    with caplog.at_level(logging.WARNING):
-        (uid,) = claimed_RE(_empty_run())
+    claimed_RE.preprocessors.append(
+        partial(ecs_dump_preprocessor, targets=[("U_S1H", ["Current"])], reader=read)
+    )
+    (uid,) = claimed_RE(_empty_run())
     assert uid
     assert not (tmp_path / "26_1124" / ECS_DUMP_FOLDER / "Scan1.txt").exists()
-    assert "EcsDumpCallback failed on a start document" in caplog.text
+
+
+def test_an_unclaimed_run_gets_no_dump(tmp_path):
+    RE = RunEngine()
+    called = []
+
+    async def read(*_a, **_k):
+        called.append(True)
+        return []
+
+    RE.preprocessors.append(
+        partial(ecs_dump_preprocessor, targets=[("U_S1H", ["Current"])], reader=read)
+    )
+    RE(_empty_run())
+    assert called == []
 
 
 def _empty_run():
@@ -315,26 +382,82 @@ def _empty_run():
     yield from bps.close_run()
 
 
-def test_subscribe_scan_outputs_adds_the_dump_only_with_targets():
-    RE = SimpleNamespace(subscribe=lambda cb: id(cb))
-    without = subscribe_scan_outputs(RE)
-    assert without.ecs_dump is None and len(without.tokens) == 4
-    with_targets = subscribe_scan_outputs(RE, ecs_dump_targets=[("U_S1H", ["Current"])])
-    assert isinstance(with_targets.ecs_dump, EcsDumpCallback)
-    assert len(with_targets.tokens) == 5
+def test_make_run_engine_installs_the_dump_outside_the_claim_only_with_targets():
+    without = make_run_engine(experiment="Bella", claim=True)
+    assert not any(
+        getattr(p, "func", None) is ecs_dump_preprocessor for p in without.preprocessors
+    )
+    with_targets = make_run_engine(
+        experiment="Bella", claim=True, ecs_dump_targets=[("U_S1H", ["Current"])]
+    )
+    funcs = [getattr(p, "func", p) for p in with_targets.preprocessors]
+    assert funcs.index(ecs_dump_preprocessor) > funcs.index(claim_scan_preprocessor)
 
 
-def test_the_warm_up_reads_every_target_once_and_counts_the_answers(monkeypatch):
-    from geecs_bluesky.callbacks.ecs_dump import warm_up
+def test_the_warm_up_starts_the_reads_on_the_run_engines_loop_and_returns(monkeypatch):
+    from geecs_bluesky.plans.ecs_dump import warm_up
+
+    loop = asyncio.new_event_loop()
+    seen = []
+
+    async def fake(experiment, pairs, *, timeout):
+        seen.append((experiment, len(pairs), asyncio.get_running_loop() is loop))
+        return [None] * len(pairs)
+
+    monkeypatch.setattr("geecs_bluesky.plans.ecs_dump.read_settables", fake)
+    scheduled = []
+    monkeypatch.setattr(
+        asyncio,
+        "run_coroutine_threadsafe",
+        lambda coro, lp: scheduled.append((coro, lp)),
+    )
+    warm_up(SimpleNamespace(loop=loop), "Bella", TARGETS)
+    warm_up(SimpleNamespace(loop=loop), "Bella", [("AVO-PL1-1", [])])  # nothing to read
+    ((coro, target_loop),) = scheduled
+    assert target_loop is loop
+    loop.run_until_complete(coro)
+    loop.close()
+    assert seen == [("Bella", 3, True)]
+
+
+def test_a_resume_before_the_first_checkpoint_neither_redumps_nor_loses_master_control(
+    claimed_RE, tmp_path
+):
+    from bluesky.utils import RunEngineInterrupted
 
     calls = []
 
-    def fake(pvs, *, timeout, ctrl):
-        calls.append((len(pvs), timeout))
-        return [1.0, None, 2.0][: len(pvs)]
+    async def read(experiment, pairs, *, timeout):
+        calls.append(1)
+        return [_reading(float(len(calls)))] * len(pairs)
 
-    monkeypatch.setattr("geecs_bluesky.devices.ca.oneshot.try_caget_many", fake)
-    assert warm_up("Bella", TARGETS, timeout=20.0) == 2
-    assert calls == [(3, 20.0)]
-    assert warm_up("Bella", [("AVO-PL1-1", [])], timeout=20.0) == 0
-    assert len(calls) == 1
+    claimed_RE.preprocessors.append(
+        partial(ecs_dump_preprocessor, targets=[("U_S1H", ["Current"])], reader=read)
+    )
+    dumps = tmp_path / "26_1124" / ECS_DUMP_FOLDER
+    dumps.mkdir(parents=True)
+    (dumps / "Scan1.txt").write_bytes(b"MASTER CONTROL")
+
+    def plan():
+        yield from bps.open_run()
+        yield from bps.pause()  # before any checkpoint: the resume replays from here
+        yield from bps.checkpoint()
+        yield from bps.close_run()
+
+    with pytest.raises(RunEngineInterrupted):
+        claimed_RE(plan())
+    claimed_RE.resume()
+    assert calls == [1]  # the start state, read once
+    assert (dumps / "Scan1.master_control.txt").read_bytes() == b"MASTER CONTROL"
+    assert b'Current = "1.000000"' in (dumps / "Scan1.txt").read_bytes()
+
+
+def test_a_second_write_replaces_its_own_dump_and_never_the_aside(tmp_path):
+    folder = _scan(tmp_path)
+    dumps = tmp_path / "26_1124" / ECS_DUMP_FOLDER
+    dumps.mkdir()
+    (dumps / "Scan5.txt").write_bytes(b"MASTER CONTROL")
+    write_ecs_dump(folder, 5, "first")
+    write_ecs_dump(folder, 5, "second")
+    assert (dumps / "Scan5.master_control.txt").read_bytes() == b"MASTER CONTROL"
+    assert (dumps / "Scan5.txt").read_bytes() == b"second"

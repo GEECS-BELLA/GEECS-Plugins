@@ -14,14 +14,13 @@ What ``claim=True`` installs, each with one job:
   points the native-saving detectors at it;
 - :func:`~geecs_bluesky.preprocessors.scalar_headers` — the ``Device
   Variable`` header map into the start document;
-- the output callbacks
-  (:func:`geecs_bluesky.callbacks.subscribe_scan_outputs`), the ECS live
-  dump among them when ``ecs_dump_targets`` is given.
+- the four output callbacks
+  (:func:`geecs_bluesky.callbacks.subscribe_scan_outputs`);
+- with ``ecs_dump_targets``, the ECS live dump after every claimed open
+  (:func:`~geecs_bluesky.plans.ecs_dump.ecs_dump_preprocessor`).
 
-Background telemetry is not the engine's: every bound scan verb reads it
-into its own rows
-(:class:`~geecs_bluesky.devices.background.BackgroundSnapshot`); there is
-no run-level baseline stream.  ``connect_on_demand`` goes in
+Background telemetry is the bound verbs' own (no baseline stream).
+``connect_on_demand`` goes in
 last, outermost, so it also sees the messages the other preprocessors
 inject.
 """
@@ -38,10 +37,11 @@ from geecs_bluesky.plans.claim_scan import (
     GeecsScanPathProvider,
     claim_scan_preprocessor,
 )
+from geecs_bluesky.plans.ecs_dump import ecs_dump_preprocessor
 from geecs_bluesky.preprocessors import install_connect_on_demand, scalar_headers
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from geecs_bluesky.callbacks.ecs_dump import EcsTargets
+    from geecs_bluesky.plans.ecs_dump import EcsTargets
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ def make_run_engine(
         by the caller, shared with the namespace).
     ecs_dump_targets :
         With *claim*: the settables every run's ECS live dump reads
-        (:func:`~geecs_bluesky.callbacks.ecs_dump.ecs_dump_targets` over the
+        (:func:`~geecs_bluesky.plans.ecs_dump.ecs_dump_targets` over the
         namespace's roster); ``None`` writes no dump.
 
     Returns
@@ -110,12 +110,15 @@ def make_run_engine(
             )
         )
         RE.preprocessors.append(scalar_headers)
+        if ecs_dump_targets is not None:
+            # Outside the claim: it reads the claimed folder off open_run.
+            RE.preprocessors.append(
+                partial(ecs_dump_preprocessor, targets=ecs_dump_targets)
+            )
         # Kept on the RunEngine so a shutdown (or a caller that wants the
         # s-file on disk before it moves on) can wait for the stack reads
         # and the joined s-file write, which finish on their own threads.
-        RE.geecs_scan_outputs = subscribe_scan_outputs(  # type: ignore[attr-defined]
-            RE, ecs_dump_targets=ecs_dump_targets
-        )
+        RE.geecs_scan_outputs = subscribe_scan_outputs(RE)  # type: ignore[attr-defined]
     # Installed LAST on purpose: connect_on_demand must be the OUTERMOST
     # preprocessor so it also sees messages later preprocessors inject.
     # Re-run after appending anything else.

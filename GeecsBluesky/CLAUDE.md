@@ -136,12 +136,13 @@ geecs_bluesky/
                             #   binder), liveness_gate, TriggerProfiles, background_wrapper
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
+  plans/ecs_dump.py         # the ECS live dump: ecs_dump_preprocessor (after every
+                            #   claimed open_run), the format, warm_up
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
                             #   sfile.py (the s-file), scan_log.py (scan.log: ScanLogFile, the
                             #   root-logger handler one run holds), stack_check.py,
-                            #   ecs_dump.py (the ECS live dump at the start document),
                             #   outputs.py (subscribe_scan_outputs), _base.py (stream bookkeeping)
   qs_client/                # the RE Manager client every GEECS client uses: client.py
                             #   (QueueClient, readiness_verdict), presets.py (expand_preset),
@@ -872,7 +873,7 @@ failure).  A device slower than the rep rate simply leaves `NaN` on the
 rows it missed; an event no row's window reaches stays in the stream and
 in Tiled.
 
-## The GEECS scan: one claim, its callbacks, the background in every row
+## The GEECS scan: one claim, four callbacks, the background in every row
 
 `make_run_engine(experiment, claim=True, path_provider=…)` installs, in
 this order: the `claim_scan` preprocessor (**every run claims** a scan
@@ -895,35 +896,41 @@ trip), `ScanLogCallback` (`scan.log`, start to stop), and
 `StackCheckCallback` (frames on disk versus the documents, a warning in
 `scan.log`).  `tiled=True` adds the spool callback (below).
 
-**The ECS live dump** (`callbacks/ecs_dump.EcsDumpCallback`, subscribed
-when `make_run_engine` is given `ecs_dump_targets` — the startup profile
-passes `ecs_dump_targets(namespace.roster)`): Master Control's per-scan
-file of every settable, `<day>/ECS Live dumps/Scan<N>.txt` (N unpadded,
-the claimed number), which `geecs_data_utils`' `ScanPaths.get_ecs_dump_file`
-and `ECSDump` read.  Every run with a claim writes one (`count`, `sweep`,
-`optimize`).  Written at the **start document** — the RunEngine dispatches
-it before the plan goes on, so the values precede the first move — from
-**one** concurrent `FORMAT_CTRL` batch of every roster device's served
-settable readbacks on the one-shot loop (`try_caget_many(ctrl=True)`), one
-budget (`DEFAULT_READ_TIMEOUT_S`, 2 s; worst case that plus the loop's
-grace).  The format is Master Control's byte for byte (CRLF, LabVIEW
-escapes, no final line ending; devices in the DB's case-insensitive
+**The ECS live dump** (`plans/ecs_dump.ecs_dump_preprocessor`, installed
+outside the claim when `make_run_engine` is given `ecs_dump_targets` — the
+startup profile passes `ecs_dump_targets(namespace.roster)`): Master
+Control's per-scan file of every settable, `<day>/ECS Live dumps/Scan<N>.txt`
+(N unpadded, the claimed number), which `geecs_data_utils`'
+`ScanPaths.get_ecs_dump_file` and `ECSDump` read.  Every claimed run writes
+one (`count`, `sweep`, `optimize`).  It is one `wait_for` inserted right
+after `open_run`: **one** concurrent aioca `FORMAT_CTRL` batch of every
+roster device's served settable readbacks, **awaited on the RunEngine's
+loop** — the plan waits, so the values precede its first move, but the loop
+never blocks (never a read in a callback: `emit` runs callbacks
+synchronously on the loop) — bounded by `DEFAULT_READ_TIMEOUT_S` (2 s) plus
+a 1 s grace, the write by `WRITE_TIMEOUT_S` on a thread, and never pending,
+since a pending `wait_for` fails the run.  A dead device's never-connected
+channels hold the batch to its full budget, so 2–3 s at a run's open is the
+expected cost when anything is down.  The channels are connected once at
+environment open on the same loop (`warm_up`, fire and forget: aioca keeps
+channels per loop).  The format is Master Control's byte for byte (CRLF,
+LabVIEW escapes, no final line ending; devices in the DB's case-insensitive
 collation, every roster device listed, `shot # = "0"`) — the rendering
 reproduces 817 of 832 Master Control dumps from their own contents, the
 rest being Master Control's own quirks (a nonzero `shot #`, a device count
 that disagrees with its sections).  What cannot match: a numeric value is
-the gateway's double written `%.6f` (a device's own digits, `758` or a
-15-digit delay, are not served), and variables follow the DB's row order,
-not the device's.  **A missing value is left out**, as Master Control
-leaves out a variable it holds none for: unread within the budget, or
-INVALID (a down device's stale readback); a device with nothing read keeps
-its section with its name alone.  Best-effort like the others — a failure
-is logged, never raised.  **Never overwrites**: the file is created
-exclusively, and an existing one is kept with a WARNING (Master Control,
-where it still runs, writes the same name for the scan it expects next).
-Scanner side only: it creates `ECS Live dumps/` (one level, never
-`parents`) in the day the claim already made, and never a scan folder; a
-scan folder not under a day's `scans/` gets no dump.  A detector's
+the gateway's double written `%.6f` (a device's own digits are not served),
+and variables follow the DB's row order.  **A missing value is left out**,
+as Master Control leaves out a variable it holds none for: unread within
+the budget, or INVALID (a down device's stale readback); a device with
+nothing read keeps its section with its name alone.  **It replaces
+Master Control's file**: where Master Control still runs it writes
+`Scan<N>.txt` when scan N−1 ends — minutes to hours before scan N, so
+stale — and that file is moved aside to `Scan<N>.master_control.txt`
+(never deleted) before the dump is renamed in atomically.  Scanner side
+only: it creates `ECS Live dumps/` (one level, never `parents`) in the day
+the claim already made, never a scan folder; a scan folder not under a
+day's `scans/` gets no dump.  A detector's
 native files go to `ScanNNN/<GEECS device>/`; `X.scalars` in the detector
 list records the same columns without files (`save_images: false`).
 
