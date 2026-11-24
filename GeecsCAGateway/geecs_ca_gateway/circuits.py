@@ -9,7 +9,8 @@ has stopped reading its socket never lets that task take an entry, and the
 
 :class:`GatewayContext` serves its circuits as :class:`GatewayCircuit`, whose
 queue's ``put`` waits as caproto's does, but for :data:`UNREAD_GRACE_S` at
-most. A burst, or a client that reads slowly, is paced as by caproto. A
+most. A burst, or a slow client whose circuit still takes entries (one
+send batch at a time), is paced as by caproto. A
 circuit that takes nothing for the whole grace is disconnected (its socket
 aborted, so caproto's own disconnect path cleans it up) with one WARNING, and
 the update is dropped. A client that is alive reconnects, resubscribes, and

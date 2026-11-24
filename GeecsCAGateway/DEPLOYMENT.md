@@ -632,8 +632,11 @@ followed by caproto's `Disconnected from client at ...`. The same host
 repeating (on a new port each time: a reconnect is a new connection)
 means that client reconnects and stops reading again; find and fix it.
 A slow client (one that reads, but slower than its updates arrive) is
-not disconnected: while its queue is full it paces delivery to every
-client, as caproto does, without tripping the watchdog. To find it,
+not disconnected while it still takes about one send batch (up to
+about 64 kB) every 2 s: while its queue is full it paces delivery to
+every client, as caproto does, without tripping the watchdog. Slower
+than that with a full queue, it gets the WARNING above although it is
+reading (a thin VPN link with many subscriptions is the likely case). To find it,
 `ss -tn state established '( sport = :<CA port> )'` on the host lists
 each client with its send queue; the slow one holds a large `Send-Q`.
 

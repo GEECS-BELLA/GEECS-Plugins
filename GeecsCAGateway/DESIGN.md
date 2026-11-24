@@ -212,8 +212,8 @@ Recorded so the next build phase doesn't relitigate them.
   gateway bounds that wait (`circuits.py`): a full circuit queue that
   takes no entry for `UNREAD_GRACE_S` (2 s) has its client disconnected,
   so a stopped client costs the others one pause of at most that long. A
-  slow client that still reads paces delivery for everyone, as in
-  caproto; nothing disconnects it. The watchdog (`watchdog.py`: no
+  slow client that still takes about one send batch per grace paces
+  delivery for everyone, as in caproto, and is not disconnected. The watchdog (`watchdog.py`: no
   progress for 30 s, evidence logged, exit for a systemd restart) stays as
   the backstop for a stall of any other cause.
 - **Fuller metadata contract** — curated value-based alarm limits (HIHI/…)

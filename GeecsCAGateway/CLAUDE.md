@@ -180,8 +180,8 @@ One asyncio event loop runs everything:
   full and the park is permanent. Reproduced in `tests/test_watchdog.py`.
   The fix is `circuits.py`: `serve()` builds a `GatewayContext`, whose
   circuits' queue `put` waits as caproto's (the wait is the loop's yield
-  to the circuit's own task, so bursts and slow readers are paced, never
-  cut off) but for `UNREAD_GRACE_S` at most; then that client's socket is
+  to the circuit's own task, so bursts and readers that still take a send
+  batch per grace are paced, not cut off) but for `UNREAD_GRACE_S` at most; then that client's socket is
   aborted with one WARNING (dropping silently would leave it showing
   stale values as live; caproto's own drop path calls
   `asyncio.Queue.clear()`, which does not exist). A disconnecting

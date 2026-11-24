@@ -713,8 +713,12 @@ update for 2 s is disconnected, and the gateway logs one WARNING naming
 it. Its channels go disconnected; if the client is alive it reconnects,
 resubscribes, and gets the current value on subscribe, never a stale
 value presented as live. Other clients' monitors pause for at most
-those 2 s. A client that reads, however slowly, is never disconnected
-for it, but while its queue is full it paces delivery to every client.
+those 2 s per client disconnected. "Takes an update" is measured at
+the gateway's queue, which moves one send batch (up to about 64 kB) at
+a time: a client that is more than 10000 updates behind and reads less
+than about one batch every 2 s is disconnected even though it is
+reading. One that keeps up with that is not, but while its queue is
+full it paces delivery to every client.
 
 ### Monitor-delivery stall: the gateway restarts itself
 

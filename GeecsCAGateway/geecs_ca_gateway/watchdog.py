@@ -26,7 +26,8 @@ within its grace, before any stall; the watchdog is the backstop for a stall
 of any other cause. What it does not cover: a client that reads slowly but not
 zero keeps the loop taking now and then, so delivery is paced for everyone
 without a stall (a restart would not cure it, and the gateway does not
-disconnect a circuit that takes entries); and a loop blocked outright, since the watchdog runs on the loop it watches. The
+disconnect a circuit that takes an entry within each grace); and a loop
+blocked outright, since the watchdog runs on the loop it watches. The
 hard-exit timer is armed only after a detection.
 """
 
