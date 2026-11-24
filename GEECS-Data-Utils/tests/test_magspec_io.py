@@ -218,13 +218,18 @@ def test_a_truncated_or_empty_png_is_a_value_error(tmp_path, cut):
     _png(whole, _pixels(0))
     path = tmp_path / "cut.png"
     raw = whole.read_bytes()
-    path.write_bytes(raw[:cut] if cut >= 0 else raw[:cut])
+    path.write_bytes(raw[:cut])
     with pytest.raises(ValueError, match="not a readable PNG"):
         magspec.read_charge_image(path)
 
 
-def test_series_resolved_once_reads_every_shot(scan_folder):
+def test_series_resolved_once_reads_every_shot(scan_folder, monkeypatch):
     series = magspec.magspec_series(scan_folder, NAME)
+
+    def no_listing(*args):
+        raise AssertionError("a resolved series lists no folder")
+
+    monkeypatch.setattr(magspec.analysis_outputs, "resolve_output", no_listing)
     for number in (1, 2):
         shot = magspec.magspec_shot(scan_folder, NAME, number, series=series)
         np.testing.assert_array_equal(shot.frame.data, _pixels(number))
