@@ -1,4 +1,4 @@
-"""The scan's plot JSON API over the union frame: columns, frame, binned, grid, bin membership."""
+"""The scan's plot JSON API over the union frame: columns and binned."""
 
 from __future__ import annotations
 
@@ -8,15 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from geecs_data_utils import tiled_schema as schema_map
-from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
-from geecs_data_utils.scan_grid import grid_axes, grid_scan
+from geecs_data_utils.scan_frame import PROVENANCE_RUN
+from geecs_data_utils.scan_grid import grid_axes
 
 from geecs_portal import analysis, figures
 from geecs_portal.routes.common import (
     _UNION_HEADERS,
-    _bin_groups,
     _display,
-    _image_folder,
     _masked,
     _union,
 )
@@ -24,7 +22,7 @@ from geecs_portal.state import PortalState, get_state
 
 router = APIRouter()
 
-#: Multi-Y ceiling on /frame and /binned (mockup ruling: up to 4).
+#: Multi-Y ceiling on /binned (mockup ruling: up to 4).
 _MAX_Y_COLUMNS = 4
 
 
@@ -91,108 +89,6 @@ def api_columns(
         "grid_axes": grid_axes(list(pf.frame.columns), detail.start_doc),
         "total": len(pf.frame),
     }
-    return JSONResponse(payload, headers=_UNION_HEADERS)
-
-
-@router.get("/api/run/{uid}/grid")
-def api_grid(
-    uid: str,
-    gridcfg: str = "",
-    filters: str = "",
-    day: str = "",
-    portal: PortalState = Depends(get_state),
-) -> JSONResponse:
-    """Two-axis geometry, filtered scalar statistics and paired figures."""
-    detail = portal.load_run(uid)
-    pf, run_day = _union(detail, day)
-    try:
-        cfg = analysis.parse_gridcfg(gridcfg)
-        flt = analysis.parse_filters(filters)
-        result = grid_scan(pf.frame, detail.start_doc, cfg, flt)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=f"no grid column: {exc}") from exc
-    except (ValueError, TypeError, IndexError, OverflowError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    pretty = _pretty_names(detail, pf, [result.config.x, result.config.y, cfg.value])
-    code = analysis.grid_code(uid, run_day, result.config, flt, pretty)
-    return JSONResponse(
-        figures.grid_document(result, pretty, code), headers=_UNION_HEADERS
-    )
-
-
-@router.get("/api/run/{uid}/frame")
-def api_frame(
-    uid: str,
-    cols: list[str] = Query(default=[]),
-    x: str = "",
-    filters: str = "",
-    display: str = "",
-    day: str = "",
-    portal: PortalState = Depends(get_state),
-) -> JSONResponse:
-    """Per-shot series + the ready figure for the selection."""
-    detail = portal.load_run(uid)
-    pf, run_day = _union(detail, day)
-    flt, mask = _masked(pf, filters)
-    disp = _display(display)
-    requested = _y_columns(cols)
-    series = {}
-    kinds = {}
-    for column in dict.fromkeys([*requested, *([x] if x else [])]):
-        # Coerce on the FULL frame: a filter that empties the frame
-        # must not turn a valid column into a 404.
-        full = schema_map.numeric_series(pf.frame, column)
-        if full is None:
-            raise HTTPException(
-                status_code=404, detail=f"no plottable column {column!r}"
-            )
-        epoch = schema_map.timestamp_epoch(column)
-        if epoch:
-            # Timestamps plot as real local datetimes, never raw
-            # seconds (ts_ = Unix epoch; acq_timestamp = LabVIEW).
-            series[column] = analysis.jsonable_datetimes(full[mask], epoch)
-            kinds[column] = "datetime"
-        else:
-            series[column] = analysis.jsonable_values(full[mask])
-    # The shot-axis rule (scan_event_index, NA-coalesced from the
-    # s-file's Shotnumber) lives in tiled_schema.shot_axis_for_frame —
-    # ONE implementation, shared with the notebook snippet's path.
-    shot_values = analysis.jsonable_values(figures.shot_axis_for_frame(pf.frame)[mask])
-    # An unservable x already 404'd in the coercion loop above;
-    # empty means "no X picked" — the shot axis, and the snippet
-    # omits the x argument.
-    x_name = x or None
-    payload = {
-        "series": series,
-        "kinds": kinds,
-        "shot": shot_values,
-        "pass": int(mask.sum()),
-        "total": len(pf.frame),
-        "code": analysis.frame_code(
-            uid,
-            run_day,
-            requested,
-            flt,
-            {column: schema_map.timestamp_epoch(column) for column in kinds},
-            x=x_name,
-            display=disp,
-        ),
-    }
-    if requested:
-        payload["figure"] = figures.page_figure(
-            figures.shots_figure(
-                series,
-                requested,
-                palette=figures.THEMED_PALETTE,
-                x=x_name,
-                shot=shot_values,
-                kinds=kinds,
-                pretty=_pretty_names(
-                    detail, pf, [*requested, *([x_name] if x_name else [])]
-                ),
-                display=disp,
-            )
-        )
     return JSONResponse(payload, headers=_UNION_HEADERS)
 
 
@@ -276,54 +172,4 @@ def api_binned(
                 display=disp,
             )
         )
-    return JSONResponse(payload, headers=_UNION_HEADERS)
-
-
-@router.get("/api/run/{uid}/filter-count")
-def api_filter_count(
-    uid: str, filters: str = "", day: str = "", portal: PortalState = Depends(get_state)
-) -> JSONResponse:
-    """Live pass count for the filters popup: ``{pass, total}``."""
-    detail = portal.load_run(uid)
-    pf, _ = _union(detail, day)
-    _, mask = _masked(pf, filters)
-    payload = {"pass": int(mask.sum()), "total": len(pf.frame)}
-    return JSONResponse(payload, headers=_UNION_HEADERS)
-
-
-@router.get("/api/run/{uid}/bin-images")
-def api_bin_images(
-    uid: str,
-    device: str = "",
-    filters: str = "",
-    bincfg: str = "",
-    day: str = "",
-    portal: PortalState = Depends(get_state),
-) -> JSONResponse:
-    """Per-bin membership for the Images tab's averaged grid.
-
-    The JSON carries the numbers (bins, counts, member shots — all
-    notebook-reproducible via the snippet); the pixels are served
-    by ``/run/{uid}/bin-image.png?bin=<index>`` per bin, so the
-    grid lazy-loads exactly like the per-shot gallery.
-    """
-    detail = portal.load_run(uid)
-    if not device:
-        raise HTTPException(status_code=400, detail="device is required")
-    folder, run_day = _image_folder(detail, day, device)
-    pf = scan_frame(detail, folder)
-    flt, mask = _masked(pf, filters)
-    cfg, groups = _bin_groups(pf, mask, bincfg)
-    bin_labels = analysis.jsonable_labels([label for label, _ in groups])
-    payload = {
-        "device": device,
-        "bin_col": cfg.bin_col,
-        "bins": [
-            {"bin": label, "count": len(shots), "shots": shots}
-            for label, (_, shots) in zip(bin_labels, groups)
-        ],
-        "pass": int(mask.sum()),
-        "total": len(pf.frame),
-        "code": analysis.bin_images_code(uid, run_day, device, flt, cfg),
-    }
     return JSONResponse(payload, headers=_UNION_HEADERS)

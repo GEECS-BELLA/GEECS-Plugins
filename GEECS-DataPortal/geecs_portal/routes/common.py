@@ -9,7 +9,6 @@ from urllib.parse import urlencode
 
 from fastapi import HTTPException
 
-from geecs_data_utils.data.binning import bin_rows
 from geecs_data_utils.data.row_filters import filter_mask
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import safe_cmap, window_percentiles
@@ -26,13 +25,13 @@ from geecs_data_utils.tiled_catalog import (
     resolve_scan_folder,
 )
 
-from geecs_portal import analysis, figures
+from geecs_portal import analysis
 
 
 def _portal_version() -> str:
     """The installed package version — the /api cache-bust key.
 
-    The page keys every /api fetch and bin-image card by this version.
+    The page keys every /api fetch by this version.
     Union-frame responses are ``no-cache`` now (``_UNION_HEADERS``), so
     for them the key is only insurance against intermediaries; it still
     matters for a payload-shape change behind any cached response.
@@ -46,7 +45,7 @@ def _portal_version() -> str:
 
 
 #: Headers for every response computed over the union frame (columns,
-#: frame, binned, bin-images, bin-image.png). The event table is frozen
+#: binned). The event table is frozen
 #: once the run stops, but the s-file half of the union is NOT: ScanAnalysis
 #: appends its columns to ``analysis/sN.txt`` after the scan — hours later
 #: when it is re-run by hand — so a completed run's column list can grow.
@@ -313,44 +312,6 @@ def _resolved_folder(detail, day: str):
     run_day = _run_day(detail, day)
     folder = resolve_scan_folder(detail, run_day) if run_day else None
     return run_day, folder
-
-
-def _bin_groups(pf, mask, bincfg_raw: str):
-    """Per-bin shot membership over the filtered union frame.
-
-    ``geecs_data_utils.data.binning.bin_rows`` over the WHOLE union frame
-    with the filter as its ``mask`` — the same labels, NaN bin and
-    ``min_count`` (per-bin ROW counts) as ``/binned``'s ``bin_frame``, so
-    the two tabs' bins agree under one shared ``bincfg`` — and the same
-    call serves both bin-images endpoints, so a ``bin`` INDEX is stable
-    between the JSON listing and the PNG renders regardless of how
-    labels serialize. Each row is then named by its shot identity
-    (``shot_axis_for_frame``): the union's rows are not the event
-    table's, the shot number is what the image loaders read.
-
-    Returns
-    -------
-    tuple of (BinningConfig, list of (label, list of int))
-        The parsed config and, per bin in group order, the label
-        and the sorted 1-based shot numbers (rows with no shot
-        identity are dropped — no shot number, no image).
-    """
-    try:
-        cfg = analysis.parse_bincfg(bincfg_raw)
-    except analysis.BadParam as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    try:
-        bins = bin_rows(pf.frame, cfg, mask=mask)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=f"no bin column: {exc}") from exc
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    shots = figures.shot_axis_for_frame(pf.frame)
-    groups = [
-        (label, sorted({int(s) for s in shots.iloc[[r - 1 for r in rows]].dropna()}))
-        for label, rows in bins
-    ]
-    return cfg, groups
 
 
 def _image_folder(detail, day: str, device: str):
