@@ -112,7 +112,6 @@ A saved scan: the device group plus the plan call.
 | `name` | `str` | yes | — | The name clients use to pick this preset. |
 | `description` | `str` | no | '' | What this scan is for — becomes the run's description (ScanStartInfo in the legacy ScanInfo file). |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile driving the shots. Leave unset to use the experiment default (experiment_defaults.yaml). |
-| `background` | `bool` | no | False | Flag this scan as a background measurement (metadata only: ScanMode 'background' in ScanInfo, 'background' in the run). |
 | `native_image_save` | `bool (optional)` | no | None | Whether cameras whose frames the PVA gateway's file plugin captures also write their LabVIEW per-shot files (PNGs) this scan. Leave unset for the experiment default (experiment_defaults.yaml). Off keeps the plugin's HDF5 stack as those cameras' only record. A device without a file plugin (no PVA stream, a proprietary format) always writes its native files whatever this says, and a scalars-only entry (save_images off) is unaffected. |
 | `background_telemetry` | `bool (optional)` | no | None | Whether every other logged scalar of the experiment — the variables the GEECS experiment database marks for scan logging (expt_device_variable, get='yes') on the devices not in this scan — is read into every row as well, softly: from the gateway's monitor cache, never waited on; a device that does not answer when the scan starts is left out of that scan with a log line, and one the gateway marks INVALID reads NaN. Leave unset for the experiment default (experiment_defaults.yaml). Off records this scan's own devices alone. |
 | `devices` | `list[PresetDevice]` | no | empty | The devices recording this scan, one entry per device. Every subscribed scalar of each is a column of every row; each entry chooses whether its images are saved. An empty list scans with the motors' readbacks only. |
@@ -171,7 +170,6 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 | `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan. |
 | `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, trigger_profile=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, the telemetry toggle and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
-| `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
 
 Example:
 
@@ -309,7 +307,7 @@ The device writes that drive the machine through its trigger states.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `schema_version` | `int` | no | 2 | Format version of this config file. Leave at 2 — tools update this automatically when the file format changes. |
+| `schema_version` | `2` | no | 2 | Format version of this config file. Leave at 2 — tools update this automatically when the file format changes. |
 | `name` | `str` | yes | — | The name scans use to refer to this trigger profile. |
 | `states` | `dict[TriggerState, list[TriggerWrite]]` | no | empty | For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched. |
 | `description` | `str` | no | '' | Optional note about what setup this profile is for. |

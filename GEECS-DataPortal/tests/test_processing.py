@@ -96,16 +96,6 @@ def test_a_core_failure_propagates_without_a_second_backend(recipe_tree, monkeyp
         )
 
 
-def test_display_window_and_bin_average_have_no_shot_overlays():
-    array = np.arange(100, dtype=float).reshape(10, 10)
-    array[0, :2] = [np.nan, np.inf]
-    figure = processing.render_frame_figure(array, window=(10, 90), cmap="gray")
-    expected = np.percentile(array[np.isfinite(array)], (10, 90))
-    assert figure.axes[0].images[0].get_clim() == tuple(expected)
-    assert not figure.axes[0].lines
-    assert len(figure.axes) == 2  # image and colorbar
-
-
 def test_bad_core_render_is_a_render_error_without_fallback(recipe_tree, monkeypatch):
     _, _, document = recipe_tree
     with pytest.raises(processing.RenderError):

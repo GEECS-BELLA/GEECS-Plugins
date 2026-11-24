@@ -80,16 +80,11 @@ class ScanMode(str, Enum):
         No parameter variation. Data collection for statistics
     OPTIMIZATION : str
         Optimization-driven scan using external optimizer
-    BACKGROUND : str
-        Background measurement for calibration purposes. Merely sets
-        a flag in the scan_info.ini file that can be used for
-        downstream purposes
     """
 
     STANDARD = "standard"
     NOSCAN = "noscan"
     OPTIMIZATION = "optimization"
-    BACKGROUND = "background"
     model_config = {"arbitrary_types_allowed": True}
 
 

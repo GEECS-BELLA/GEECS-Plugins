@@ -17,7 +17,8 @@ geecs_data_utils/
                                #   floats), read_scan_info_sections (every section,
                                #   one parse, interpolation off) + scan_log_variables
                                #   (the web scanner's [Scan Log] list), is_noscan,
-                               #   classify_end_info — the one
+                               #   classify_end_info, scan_start_time (the
+                               #   start-time ladder) + LABVIEW_EPOCH_OFFSET — the one
                                #   home the portal, logbook, ScanAnalysis and
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
@@ -119,9 +120,7 @@ geecs_data_utils/
                                #   average_rows (rows → one average; a
                                #   bin's rows from data.binning.bin_rows,
                                #   a filter as its mask; prepare= cleans
-                               #   each shot first, e.g. ImagePrep.apply;
-                               #   the portal's
-                               #   bin-image route still has its own loop);
+                               #   each shot first, e.g. ImagePrep.apply);
                                #   a "stack" may hold
                                #   traces: stack_content says which, and
                                #   load_shot_trace reads one as x-vs-y;
@@ -264,6 +263,27 @@ and calendar use it). Pinned by `tests/test_data_root_experiment.py`.
 
 `ScanPaths` validates this convention and raises if the path doesn't conform.
 
+Two facts about a scan, in `data/sfile.py`, never to be swapped:
+
+- **Data written** — `run_closed_evidence`: `ScanDataScanNNN.txt` or the
+  analysis s-file exists. The portal and the logbook show the scan
+  finished on it.
+- **Settled for analysis** — `scan_is_settled`: the scanner's own files in
+  the scan folder (`ScanInfoScanNNN.ini`, `ScanDataScanNNN.txt`) have sat
+  unchanged for `SETTLE_SECONDS` (10 s) and the run closed — the table and
+  the analysis s-file both exist (the analyzers read the s-file), or, for a
+  run with no rows, `ScanEndInfo` is filled and nothing changed for
+  `ROWLESS_SETTLE_SECONDS` (60 s, past the native scanner's threaded table
+  write). Of the s-file it reads existence only, never its mtime or
+  contents, and nothing in the analysis tree, because analysis writes there
+  (and never deletes the s-file). That is sound for native scans, because
+  the native writer (`tiled_export.write_scalar_files`) writes the table in
+  place but publishes the s-file by rename from a hidden temp file, so its
+  existence means it is complete. An s-file from another writer is not
+  published that way: LabVIEW Master Control's, or
+  `ScanData.copy_fresh_sfile_to_analysis`, which unlinks it then copies. The analysis worker plans on it; the
+  portal's Analysis tab shows it as a note and never blocks a manual run.
+
 ## Scalar output files
 
 `scalar_files` owns generated-scalar normalization and persistence shared by
@@ -353,7 +373,7 @@ cfg_path = scan_analysis_config.find_config(
 
 ## Key Type Definitions
 
-- **`ScanMode`** (Enum) — `STANDARD`, `NOSCAN`, `OPTIMIZATION`, `BACKGROUND`
+- **`ScanMode`** (Enum) — `STANDARD`, `NOSCAN`, `OPTIMIZATION`
 - **`ECSDump`** / **`DeviceDump`** — Pydantic models for ECS live dump files
 
 ## Useful Utilities
@@ -376,6 +396,9 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 - **GeecsBluesky / GeecsScanner** — `ScanPaths` for scan folder
   resolution and post-scan file organization (`ScanMode` remains here as
   the `ScanInfoScanNNN.ini` vocabulary)
+- **Every package's tests** — `geecs_data_utils.testing` (`make_scan_folder`,
+  `write_sfile`, `write_closed`, `forge_imaq_blob`): test fixtures only,
+  never imported by production code, since it creates scan folders
 
 ## `analysis_status/` reader (`analysis_status`)
 
@@ -442,10 +465,11 @@ this package and must never depend on GeecsBluesky or a GUI package).
   = the s-file column that records the scan parameter, alias and all;
   `num_points`/`shots_per_step`; `scan_folder`; `time` = the first
   shot's LabVIEW `DateTime Timestamp`, else `scan.log`'s first record,
-  else the ini mtime — the logbook's ladder — every rung clamped to the
-  folder's day, `time_approximate` flagging the ini-mtime and noon
-  rungs). A loaded run has **`data=None`** on purpose: its scalars are
-  the s-file, which `scan_frame` already reads for a run-less scan — one
+  else the ini mtime, every rung clamped to the folder's day, then local
+  noon; `time_approximate` flags the ini-mtime and noon rungs). The rungs
+  are `scan_info.scan_start_time`, which the logbook calls too, so a scan
+  shows one start time on both surfaces; noon is the catalog's alone. A
+  loaded run has **`data=None`** on purpose: its scalars are the s-file, which `scan_frame` already reads for a run-less scan — one
   s-file reader. The outcome is `scan_info.classify_end_info` — the
   logbook's classifier too — projected onto the stop document's
   `exit_status` words (`success`/`fail`/`abort`/`unknown`, `incomplete` →
@@ -581,8 +605,8 @@ this package and must never depend on GeecsBluesky or a GUI package).
 Tests are hermetic (`tests/test_tiled_*.py`) — fake client objects that
 quack like Tiled search results; no network, no real catalog.
 
-Data Utils has no intra-repo dependencies. `io.scan_stack.LABVIEW_EPOCH_OFFSET`
-is a file-format constant, deliberately independent of Core's wire-format
+Data Utils has no intra-repo dependencies. `scan_info.LABVIEW_EPOCH_OFFSET`
+(re-used by `io.scan_stack`) is a file-format constant, deliberately independent of Core's wire-format
 constant. GeecsBluesky (which already depends on both) pins their equality;
 sharing this integer does not justify an access-library dependency here.
 

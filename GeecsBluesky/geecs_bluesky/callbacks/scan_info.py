@@ -112,11 +112,7 @@ def shots_per_step(start: Mapping[str, Any]) -> int:
 
 def scan_info_lines(start: Mapping[str, Any], *, end_info: str = "") -> list[str]:
     """The ``[Scan Info]`` ini lines for one run (the legacy key set, verbatim)."""
-    background = bool(start.get("background", False))
-    if not start.get("motors"):
-        mode = "background" if background else "noscan"
-    else:
-        mode = "standard"
+    mode = "standard" if start.get("motors") else "noscan"
     first, last, step = first_axis(start)
     description = str(start.get("description") or "")
     return [
@@ -129,7 +125,6 @@ def scan_info_lines(start: Mapping[str, Any], *, end_info: str = "") -> list[str
         f"Step size = {step}\n",
         f"Shots per step = {shots_per_step(start)}\n",
         f'ScanEndInfo = "{end_info}"\n',
-        f"Background = {str(background).lower()}\n",
         f'ScanMode = "{mode}"\n',
         'Scanner = "bluesky"\n',
         f'Plan = "{start.get("plan_name", "")}"\n',

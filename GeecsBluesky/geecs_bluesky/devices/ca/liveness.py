@@ -20,7 +20,7 @@ read live.
   enum edge to trip over.
 - :func:`down_natives` — native devices (no ``CONNECTED``): a judge that raises is down.
 - :func:`probe_stale` — a frozen loop (``systimestamp`` stale): a warning only.
-- :func:`probe_gateway_monitors` — does the gateway deliver monitors at all.
+- :func:`probe_gateway_monitors` — does the gateway deliver monitors (and tick).
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra).
 """
@@ -141,12 +141,16 @@ def probe_disconnected(
     ]
 
 
-#: :func:`probe_gateway_monitors` verdicts.
-MonitorVerdict = Literal["delivered", "withheld", "unreachable"]
+#: :func:`probe_gateway_monitors` verdicts (``"stalled"`` only with ``tick=True``).
+MonitorVerdict = Literal["delivered", "withheld", "stalled", "unreachable"]
 
 
 def probe_gateway_monitors(
-    experiment: str, *, timeout: float = DEFAULT_PROBE_TIMEOUT_S, grace: float = 1.0
+    experiment: str,
+    *,
+    timeout: float = DEFAULT_PROBE_TIMEOUT_S,
+    grace: float = 1.0,
+    tick: bool = False,
 ) -> MonitorVerdict:
     """Whether the CA gateway delivers monitors, judged on its heartbeat over one held subscription.
 
@@ -161,16 +165,30 @@ def probe_gateway_monitors(
     subscription stayed silent through *grace* too: the gateway serves
     gets but delivers no monitor events.
 
-    Costs two round trips when healthy; worst cases: unreachable one
-    *timeout* when the first get fails, three when the second does;
-    withheld three *timeout* budgets plus *grace*.
+    With *tick*, a delivered value on subscribe is not yet the verdict: the
+    subscription must also deliver the next tick within
+    :data:`~geecs_core.pv_naming.GATEWAY_HEARTBEAT_PERIOD_S` plus *timeout*.
+    If it does not, a get decides: failing, ``"unreachable"``; past the
+    value on subscribe, ``"withheld"`` (the count advanced and no event
+    followed); equal to it, ``"stalled"`` (the gateway's status loop has
+    stopped ticking, so this probe cannot say whether monitors flow).
+
+    Costs two round trips when healthy (with *tick*, plus up to one
+    heartbeat period); worst cases: unreachable one *timeout* when the
+    first get fails, three when the second does; withheld three *timeout*
+    budgets plus *grace* (with *tick*, the period and a further *timeout*
+    on top).
 
     Raises
     ------
     ImportError
         ``aioca`` is missing (the ``ca`` extra): the probe cannot run.
     """
-    from geecs_core.pv_naming import GATEWAY_HEARTBEAT, gateway_status_pv
+    from geecs_core.pv_naming import (
+        GATEWAY_HEARTBEAT,
+        GATEWAY_HEARTBEAT_PERIOD_S,
+        gateway_status_pv,
+    )
 
     from geecs_bluesky.devices.ca.oneshot import FirstValueWatch, try_caget_once
 
@@ -178,11 +196,17 @@ def probe_gateway_monitors(
     if try_caget_once(pv, timeout=timeout) is None:
         return "unreachable"
     with FirstValueWatch(pv) as watch:
-        if watch.wait(timeout):
+        if not watch.wait(timeout):
+            if try_caget_once(pv, timeout=timeout) is None:
+                return "unreachable"
+            if not watch.wait(grace):
+                return "withheld"
+        if not tick or watch.wait(GATEWAY_HEARTBEAT_PERIOD_S + timeout, events=2):
             return "delivered"
-        if try_caget_once(pv, timeout=timeout) is None:
+        now = try_caget_once(pv, timeout=timeout)
+        if now is None:
             return "unreachable"
-        return "delivered" if watch.wait(grace) else "withheld"
+        return "withheld" if int(now) != int(watch.values[0]) else "stalled"
 
 
 def probe_stale_pvs(

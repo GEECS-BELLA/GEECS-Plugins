@@ -1,5 +1,6 @@
 """The registry pass, on the installed family files and hand-written registries."""
 
+from geecs_core.testing import patch_geecs_db
 from geecs_schemas import ArchivePolicy, NativeDevices, PanelDevices, load_families
 
 from geecs_archiver import archive_set
@@ -280,22 +281,11 @@ def test_a_detector_family_marking_nothing_takes_settings_readbacks_and_the_lock
 
 
 def test_build_archive_set_checks_the_registry_against_the_db_roster(monkeypatch):
-    from geecs_core.db import geecs_db
-
-    monkeypatch.setattr(
-        geecs_db.GeecsDb,
-        "get_experiment_devices",
-        staticmethod(lambda e, enabled_only=True: {"UC_VisaEBeam6": ("h", 1)}),
-    )
-    monkeypatch.setattr(
-        geecs_db.GeecsDb,
-        "get_experiment_device_variables",
-        staticmethod(lambda e, enabled_only=True: {"UC_VisaEBeam6": []}),
-    )
-    monkeypatch.setattr(
-        geecs_db.GeecsDb,
-        "get_subscribed_variables",
-        staticmethod(lambda e, enabled_only=True: {}),
+    patch_geecs_db(
+        monkeypatch,
+        devices={"UC_VisaEBeam6": ("h", 1)},
+        variables={"UC_VisaEBeam6": []},
+        subscribed={},
     )
     result = build_archive_set(
         "Undulator",

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import io
+import os
+import time
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from geecs_data_utils.tiled_export import build_legacy_scalar_dataframe
 
@@ -112,6 +116,79 @@ def test_write_scalar_files_never_creates_the_scan_folder(tmp_path) -> None:
     start = {**_start_doc(), "scan_folder": str(tmp_path / "scans" / "Scan099")}
     assert write_scalar_files(start, _primary_df()) is None
     assert not (tmp_path / "scans").exists()
+
+
+def _settled_scan(tmp_path):
+    folder = tmp_path / "26_0310" / "scans" / "Scan012"
+    folder.mkdir(parents=True)
+    (folder / "ScanInfoScan012.ini").write_text('[Scan Info]\nScanEndInfo = ""\n')
+    return folder, {**_start_doc(), "scan_folder": str(folder)}
+
+
+def _stall_the_s_file_write(monkeypatch, during):
+    """Patch ``to_csv``: the table writes normally; the s-file write lands a partial file, then calls ``during`` and raises."""
+    real = pd.DataFrame.to_csv
+
+    def to_csv(self, path, *args, **kwargs):
+        target = Path(path)
+        if target.parent.name != "analysis":
+            return real(self, path, *args, **kwargs)
+        target.write_text("Bin #\tscan\n1\t")  # a partial row
+        during()
+        raise OSError("the share stalled")
+
+    monkeypatch.setattr(pd.DataFrame, "to_csv", to_csv)
+
+
+def test_a_s_file_still_being_written_does_not_exist_and_does_not_settle(
+    tmp_path, monkeypatch
+) -> None:
+    """The settle rule reads the s-file's existence: mid-write it must not exist."""
+    from geecs_data_utils import write_scalar_files
+    from geecs_data_utils.data.sfile import (
+        SETTLE_SECONDS,
+        scan_is_settled,
+        sfile_path_for_scan,
+    )
+
+    folder, start = _settled_scan(tmp_path)
+    seen = {}
+
+    def during():
+        # the table and ScanInfo aged past the settle window
+        later = time.time() + SETTLE_SECONDS + 1
+        seen["exists"] = sfile_path_for_scan(folder).exists()
+        seen["settled"] = scan_is_settled(folder, now=later)
+
+    _stall_the_s_file_write(monkeypatch, during)
+    with pytest.raises(OSError):
+        write_scalar_files(start, _primary_df())
+    assert seen == {"exists": False, "settled": False}
+
+
+def test_a_failed_s_file_write_leaves_no_s_file_and_no_temp_file(
+    tmp_path, monkeypatch
+) -> None:
+    from geecs_data_utils import write_scalar_files
+
+    folder, start = _settled_scan(tmp_path)
+    _stall_the_s_file_write(monkeypatch, lambda: None)
+    with pytest.raises(OSError, match="stalled"):
+        write_scalar_files(start, _primary_df())
+    assert (folder / "ScanDataScan012.txt").is_file()  # the table is written in place
+    assert sorted(os.listdir(tmp_path / "26_0310" / "analysis")) == []
+
+
+def test_a_written_s_file_is_complete_and_leaves_no_temp_file(tmp_path) -> None:
+    from geecs_data_utils import write_scalar_files
+
+    folder, start = _settled_scan(tmp_path)
+    result = write_scalar_files(start, _primary_df())
+    assert result is not None
+    scan_txt, sfile = result
+    assert sorted(os.listdir(sfile.parent)) == ["s12.txt"]
+    assert sfile.read_text() == scan_txt.read_text()
+    assert len(pd.read_csv(sfile, delimiter="\t")) == 4
 
 
 # ------------------------------------- rows + per-frame streams (phase 2c)

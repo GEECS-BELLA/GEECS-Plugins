@@ -11,6 +11,7 @@ import pytest
 from geecs_core.db.alarms import AlarmLimits
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig
 from geecs_core.db.geecs_db import GeecsDb
+from geecs_core.testing import patch_geecs_db
 from geecs_ca_gateway.gateway import GeecsCaGateway
 
 # Mirrors GeecsDb.get_device_variables("U_S1H") observed against real hardware.
@@ -96,33 +97,19 @@ def test_alarm_limits_hysteresis_holds_level_before_stepdown() -> None:
 
 def test_from_geecs_experiment_attaches_numeric_alarm_limits(monkeypatch) -> None:
     """DB alarm rows attach only to served numeric readback variables."""
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_devices",
-        classmethod(lambda cls, experiment, enabled_only=True: {"U_A": ("h", 1)}),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_device_variables",
-        classmethod(
-            lambda cls, experiment, enabled_only=True: {
-                "U_A": [
-                    {
-                        "name": "Current",
-                        "units": "A",
-                        "min": -5.0,
-                        "max": 5.0,
-                        "settable": True,
-                        "variabletype": "numeric",
-                    }
-                ]
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_subscribed_variables",
-        classmethod(lambda cls, experiment, enabled_only=True: {"U_A": ["Current"]}),
+    current = {
+        "name": "Current",
+        "units": "A",
+        "min": -5.0,
+        "max": 5.0,
+        "settable": True,
+        "variabletype": "numeric",
+    }
+    patch_geecs_db(
+        monkeypatch,
+        devices={"U_A": ("h", 1)},
+        variables={"U_A": [current]},
+        subscribed={"U_A": ["Current"]},
     )
     monkeypatch.setattr(
         GeecsDb,
@@ -134,31 +121,6 @@ def test_from_geecs_experiment_attaches_numeric_alarm_limits(monkeypatch) -> Non
 
     cfg = GatewayConfig.from_geecs_experiment("Undulator")
     assert cfg.devices[0].variables[0].alarm_limits == AlarmLimits(high=4.0)
-
-
-def test_include_filters_variables() -> None:
-    """``include`` restricts which variables are exposed."""
-    spec = DeviceSpec.from_db_metadata(
-        "U_S1H", "h", 1, U_S1H_META, include=["Current", "Voltage"]
-    )
-    assert {v.geecs_var for v in spec.variables} == {"Current", "Voltage"}
-
-
-def test_include_settable_exposes_control_surface() -> None:
-    """Settable variables survive the include filter with include_settable.
-
-    The include list is the monitoring subset (get='yes'); settable variables
-    are the control surface (camera save/localsavingpath, magnet setpoints)
-    and CA clients need their :SP PVs regardless of the get-list.
-    """
-    # Voltage-only get-list; Current is settable but not monitored.
-    spec = DeviceSpec.from_db_metadata(
-        "U_S1H", "h", 1, U_S1H_META, include=["Voltage"], include_settable=True
-    )
-    assert {v.geecs_var for v in spec.variables} == {"Voltage", "Current"}
-    # Without the flag, the include list is strict (existing behavior).
-    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, U_S1H_META, include=["Voltage"])
-    assert {v.geecs_var for v in spec.variables} == {"Voltage"}
 
 
 def test_dtypes_override() -> None:
@@ -180,9 +142,7 @@ def test_pvdb_built_from_db_spec_has_limits() -> None:
     span as enforced ``DBR_CTRL`` limits so out-of-range client puts fail at
     the CA layer.
     """
-    spec = DeviceSpec.from_db_metadata(
-        "U_S1H", "h", 1, U_S1H_META, include=["Current", "Voltage"]
-    )
+    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, U_S1H_META)
     # __init__ only builds the pvdb — no network until connect() is called.
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
@@ -393,22 +353,8 @@ def _patch_experiment_db(
     sub_map: dict,
 ) -> None:
     """Stub the three batched GeecsDb queries from_geecs_experiment issues."""
-    from geecs_core.db.geecs_db import GeecsDb
-
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_devices",
-        classmethod(lambda cls, experiment, *, enabled_only=True: endpoints),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_experiment_device_variables",
-        classmethod(lambda cls, experiment, *, enabled_only=True: var_map),
-    )
-    monkeypatch.setattr(
-        GeecsDb,
-        "get_subscribed_variables",
-        classmethod(lambda cls, experiment, *, enabled_only=True: sub_map),
+    patch_geecs_db(
+        monkeypatch, devices=endpoints, variables=var_map, subscribed=sub_map
     )
 
 

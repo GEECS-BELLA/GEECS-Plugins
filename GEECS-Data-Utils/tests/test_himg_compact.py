@@ -44,6 +44,7 @@ from geecs_data_utils.io.himg_stack import (
     verify_himg_stack,
 )
 from geecs_data_utils.io.himg_worker import run_himg_job, run_job_in_process
+from geecs_data_utils.testing import make_scan_folder
 
 DEVICE = "U_HasoLift"
 STAMPS = [3873135602.613, 3873135603.611, 3873135604.615]
@@ -60,18 +61,18 @@ def _himg(seed: int) -> bytes:
 
 def build_scan(root: Path, *, closed: bool = True, convert: bool = True) -> Path:
     """``…/scans/Scan012/U_HasoLift`` with three native shots (old mtimes) and a stack."""
-    scan = root / "Undulator" / "Y2026" / "03-Mar" / "26_0310" / "scans" / "Scan012"
+    scan = make_scan_folder(
+        root / "Undulator" / "Y2026" / "03-Mar" / "26_0310" / "scans" / "Scan012",
+        devices=[DEVICE, "other_device"],
+        scan_info={"Scan No": 12},
+        scan_data="Shotnumber\n1\n2\n3\n" if closed else None,
+    )
     device_dir = scan / DEVICE
-    device_dir.mkdir(parents=True)
     for seed, stamp in enumerate(STAMPS):
         path = device_dir / f"{DEVICE}_{stamp:.3f}.himg"
         path.write_bytes(_himg(seed))
         os.utime(path, (OLD, OLD))
         (device_dir / f"{DEVICE}_{stamp:.3f}.has").write_bytes(b"sidecar")
-    (scan / "ScanInfoScan012.ini").write_text('[Scan Info]\nScan No = "12"\n')
-    if closed:
-        (scan / "ScanDataScan012.txt").write_text("Shotnumber\n1\n2\n3\n")
-    (scan / "other_device").mkdir()
     (scan / "other_device" / "note.txt").write_text("untouched")
     if convert:
         convert_himg_folder(device_dir)

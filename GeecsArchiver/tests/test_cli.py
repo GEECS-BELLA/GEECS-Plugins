@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+from geecs_core.testing import patch_geecs_db
 
 from geecs_archiver import cli
 from geecs_archiver.archive_set import ArchiveCandidate, ArchiveSet
@@ -339,18 +340,9 @@ def test_list_json_carries_the_source(tmp_path, monkeypatch, capsys):
 
 
 def test_a_device_both_passes_own_is_a_drift_exit(tmp_path, monkeypatch, capsys):
-    from geecs_core.db import geecs_db
-
-    for name, value in (
-        ("get_experiment_devices", {"M": ("h", 1)}),
-        ("get_experiment_device_variables", {"M": []}),
-        ("get_subscribed_variables", {}),
-    ):
-        monkeypatch.setattr(
-            geecs_db.GeecsDb,
-            name,
-            staticmethod(lambda e, enabled_only=True, value=value: value),
-        )
+    patch_geecs_db(
+        monkeypatch, devices={"M": ("h", 1)}, variables={"M": []}, subscribed={}
+    )
     configs_checkout(
         tmp_path, monkeypatch, native="devices:\n  M: {kind: epics_motor, axes: [x]}\n"
     )

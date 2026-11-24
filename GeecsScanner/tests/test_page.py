@@ -242,7 +242,6 @@ def test_form_opens_on_what_every_scan_needs(client: TestClient) -> None:
     for plan_only in (
         'id="optimizer-form"',
         'id="sweep-composer"',
-        'id="count-options"',
     ):
         assert invariants < body.index(plan_only), plan_only
     # #896's other half: the optional picker is not in the body at all
@@ -366,8 +365,11 @@ console.log(JSON.stringify(result));
 
 def test_physical_best_targets_stay_visible_after_move_is_queued():
     _need_node()
-    body = _script_function(
-        (_PKG / "static/scanner.js").read_text(), "renderOptimization"
+    script = (_PKG / "static/scanner.js").read_text()
+    body = _script_function(script, "renderOptimization")
+    gates = "\n".join(
+        f"function {name}({args}) {{\n{_script_function(script, name)}\n}}"
+        for name, args in (("idle", ""), ("idleTitle", ""), ("verdict", "st, field"))
     )
     harness = (
         """
@@ -377,12 +379,14 @@ function el() { return {children: [], appendChild(child) {this.children.push(chi
 function $(id) { return els[id] || (els[id] = el()); }
 function td(value) { return {text: value}; }
 var document = {createElement: el};
-var S = {status: {connected: true, re_state: "idle", items_in_queue: 0}, optimization: {
+var S = {status: {connected: true, re_state: "idle", items_in_queue: 0, idle_blocker: null}, optimization: {
  run_uid: "run", config: "test", iteration: 1, max_iterations: 1, exit_status: "success", finished: true,
  measured: {bump: 0}, outputs: {}, best: {bump: 999}, valid_shots: {},
  best_moves: {"Motor1:Current": 0.123456789, "Motor2:Current": -0.5}
 }};
 """
+        + gates
+        + "\n"
         + f"function renderOptimization() {{\n{body}\n}}"
         + """
 renderOptimization();
@@ -603,25 +607,37 @@ console.log(JSON.stringify(cases));
     )
 
 
-@pytest.mark.parametrize("mode", ["count", "sweep", "optimize"])
-def test_background_count_flag_does_not_follow_mode_change(mode):
+@pytest.mark.parametrize(
+    ("mode", "eyebrow", "note_hidden"),
+    [("count", "Count", False), ("sweep", "Sweep · trajectory", True)],
+)
+def test_count_mode_names_itself_and_says_it_moves_nothing(
+    client: TestClient, mode, eyebrow, note_hidden
+):
+    """Count mode has no options of its own: a true heading and a note, no empty group."""
+    html = client.get("/").text
+    assert (
+        '<span class="dim note" id="count-note" hidden>A count moves nothing: '
+        "the shots above are the whole plan.</span>"
+    ) in html
+    assert "count's own options" not in html and 'id="count-options"' not in html
     _need_node()
     source = (_PKG / "static/scanner.js").read_text()
     harness = (
-        r"""
-var S={mode:MODE,acq:'strict',presetDoc:{background:true,plan:{name:'count',kwargs:{num:3}}}};
-function $(id) {return {value:id==='shots'?'3':'',checked:true};}
-function tableDevices() {return [];}
-var composer={value(){return {trajectory:{kind:'axes',axes:[]}};}};
-""".replace("MODE", json.dumps(mode))
-        + "function buildPreset(){\n"
-        + _script_function(source, "buildPreset")
-        + "\n}\nconsole.log(JSON.stringify(buildPreset()));"
+        "var els={};\n"
+        "function $(id){return els[id]||(els[id]={hidden:false,textContent:'',"
+        "querySelectorAll:function(){return [];}});}\n"
+        "var S={};function setAcq(){}function lockOptimizerDevices(){}function recalc(){}\n"
+        "function setMode(mode, silent){\n"
+        + _script_function(source, "setMode")
+        + "\n}\nsetMode(MODE, true);\n".replace("MODE", json.dumps(mode))
+        + "console.log(JSON.stringify({eyebrow:$('plan-eyebrow').textContent,"
+        "note:$('count-note').hidden}));"
     )
     result = subprocess.run(
         ["node", "-"], input=harness, text=True, capture_output=True, check=True
     )
-    assert json.loads(result.stdout)["background"] is (mode == "count")
+    assert json.loads(result.stdout) == {"eyebrow": eyebrow, "note": note_hidden}
 
 
 def test_add_device_is_the_kit_drawer_picker() -> None:
@@ -802,34 +818,44 @@ def test_start_queue_sits_beside_clear_and_confirms_what_runs(
     handler = handler[: handler.index("  });")]
     assert 'verb("/api/queue/start", { operator: operator() }, refreshQueue)' in handler
     assert '"dlg-start-queue-first").textContent = q.waiting.length ? q.waiting[0].summary' in script  # fmt: skip
+    # The enablement is the server's verdict (test_service's start-queue cases), relayed.
+    assert 'var startable = verdict(st, "start_queue_blocker");' in script
+    assert "function startQueueBlocker" not in script
+
+
+def test_the_page_relays_the_servers_verdicts_and_derives_none() -> None:
+    """B1: the now chip, the idle-only gates and Set to best read the status's verdicts."""
+    script = (_PKG / "static" / "scanner.js").read_text()
+    assert "var runKit = st.run_kit || K.unknown, runWord = st.run_word || \"unknown\";" in script  # fmt: skip
+    assert 'setChip($("now-chip"), runKit, runWord);' in script
+    assert 'return !verdict(S.status, "idle_blocker");' in script
+    best = script[script.index('$("btn-set-best").disabled =') :]
+    assert best.startswith('$("btn-set-best").disabled = !idle()')
+    # no copy of the idle or start rule is left on the page
+    assert 'st.connected && st.re_state === "idle"' not in script
+    assert 'st.re_state !== "idle"' not in script
+
+
+def test_a_verdict_the_status_does_not_carry_blocks_the_control() -> None:
+    """An absent field (a scanner older than the page) blocks with a reload hint; null allows."""
     _need_node()
-    blocker = _script_function(script, "startQueueBlocker")
-    ready = {"connected": True, "readiness": "ready", "re_state": "idle", "manager_state": "idle", "items_in_queue": 2, "reopening": False}  # fmt: skip
-    cases = {
-        "stopped": {},
-        "empty": {"items_in_queue": 0},
-        "running": {"re_state": "running"},
-        "paused": {"re_state": "paused"},
-        "started": {"manager_state": "executing_queue"},
-        "reopening": {"reopening": True},
-        "closed": {"readiness": "environment_closed"},
-        "down": {"connected": False},
-    }
+    script = (_PKG / "static" / "scanner.js").read_text()
+    body = _script_function(script, "verdict")
     harness = "\n".join(
         [
-            f"function startQueueBlocker(st) {{\n{blocker}\n}}",
-            f"var base = {json.dumps(ready)}, cases = {json.dumps(cases)}, out = {{}};",
-            "Object.keys(cases).forEach(function (k) {",
-            "  out[k] = startQueueBlocker(Object.assign({}, base, cases[k]));",
-            "});",
-            "out.none = startQueueBlocker(null);",
-            "console.log(JSON.stringify(out));",
+            f"function verdict(st, field) {{\n{body}\n}}",
+            "var f = 'idle_blocker';",
+            "console.log(JSON.stringify({",
+            "  absent: verdict({connected: true, re_state: 'idle'}, f),",
+            "  allowed: verdict({idle_blocker: null}, f),",
+            "  blocked: verdict({idle_blocker: 'a plan is running'}, f),",
+            "  none: verdict(null, f),",
+            "}));",
         ]
     )
-    out = subprocess.run(
-        ["node", "-"], input=harness, capture_output=True, text=True, check=True
-    )
+    out = subprocess.run(["node", "-"], input=harness, capture_output=True, text=True, check=True)  # fmt: skip
     got = json.loads(out.stdout)
-    assert got.pop("stopped") == "", "a stopped, ready queue with items waiting starts"
-    assert all(got.values()), got  # every other state disables it, with a reason
-    assert "nothing waits" in got["empty"] and "reopening" in got["reopening"]
+    assert "reload" in got["absent"]
+    assert got["allowed"] == ""
+    assert got["blocked"] == "a plan is running"
+    assert got["none"] == "waiting for the manager"

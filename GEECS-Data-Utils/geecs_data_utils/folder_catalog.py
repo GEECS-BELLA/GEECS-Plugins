@@ -38,16 +38,14 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from geecs_data_utils.data.sfile import sfile_column, sfile_head_for_scan
-from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
 from geecs_data_utils.scan_info import (
     ScanInfoRecord,
     classify_end_info,
-    finite_float,
     parse_scan_folder_name,
     read_scan_info_file,
     scan_folder_name,
+    scan_start_time,
 )
-from geecs_data_utils.scan_log_loader import first_log_timestamp
 from geecs_data_utils.scan_paths import (
     ScanPaths,
     current_paths_config,
@@ -70,9 +68,6 @@ FOLDER_UID_PREFIX = "folder:"
 
 #: Finished scans remembered per catalog (a year of busy days is ~10k).
 _FINISHED_CACHE_SIZE = 16384
-
-#: The s-file column Master Control stamps each shot's wall time into.
-_DATETIME_COLUMN = "DateTime Timestamp"
 
 #: :func:`~geecs_data_utils.scan_info.classify_end_info`'s outcome in the
 #: stop document's ``exit_status`` words — the vocabulary every Tiled run
@@ -133,46 +128,6 @@ def parse_folder_uid(uid: str) -> Optional[tuple[str, date, int]]:
         return None
 
 
-def _on_day(epoch: Optional[float], day: date) -> bool:
-    if epoch is None:
-        return False
-    try:
-        return datetime.fromtimestamp(epoch).date() == day
-    except (OverflowError, OSError, ValueError):
-        return False
-
-
-def _start_time(
-    scan_dir: Path, header: list[str], first: list[str], day: date
-) -> tuple[float, bool]:
-    """When the scan started, and whether that time is only approximate.
-
-    The first shot's ``DateTime Timestamp`` when the s-file has one; else
-    ``scan.log``'s first record; else the ScanInfo ini's mtime (the
-    logbook's ladder — Master Control writes the ini as a scan starts).
-    Every rung must land on the folder's own day, because the portal
-    re-bases a run's scan folder on it; local noon is the last resort and,
-    like the ini mtime, is flagged approximate.
-    """
-    if _DATETIME_COLUMN in header:
-        index = header.index(_DATETIME_COLUMN)
-        raw = finite_float(first[index]) if index < len(first) else None
-        if raw is not None and raw > LABVIEW_EPOCH_OFFSET:
-            epoch = raw - LABVIEW_EPOCH_OFFSET
-            if _on_day(epoch, day):
-                return epoch, False
-    logged = first_log_timestamp(scan_dir / "scan.log")
-    if logged is not None and _on_day(logged.timestamp(), day):
-        return logged.timestamp(), False
-    try:
-        mtime = (scan_dir / f"ScanInfo{scan_dir.name}.ini").stat().st_mtime
-    except OSError:
-        mtime = None
-    if _on_day(mtime, day):
-        return mtime, True
-    return datetime(day.year, day.month, day.day, 12).timestamp(), True
-
-
 def _scan_variable_column(parameter: str, header: list[str]) -> str:
     """The s-file column that records *parameter* (it may carry an alias)."""
     return sfile_column(parameter, header) or parameter
@@ -204,7 +159,14 @@ def folder_start_doc(
         read_scan_info_file(scan_dir / f"ScanInfo{scan_dir.name}.ini")
     )
     header, first, closed = sfile_head_for_scan(scan_dir)
-    started, approximate = _start_time(scan_dir, header, first, day)
+    # local noon places a scan with no evidence on its day, flagged
+    started, approximate = scan_start_time(
+        day,
+        header,
+        first,
+        scan_dir / "scan.log",
+        scan_dir / f"ScanInfo{scan_dir.name}.ini",
+    ) or (datetime(day.year, day.month, day.day, 12).timestamp(), True)
     start_doc: dict = {
         "scan_number": number,
         "experiment": experiment,

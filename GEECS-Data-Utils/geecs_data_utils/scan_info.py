@@ -20,6 +20,7 @@ own, and they disagreed (#1061 rows 3.6/3.7/3.8):
   :func:`is_noscan` — "no variable was stepped".
 - :func:`classify_end_info` / :func:`end_info_reason` — the scan's outcome
   from ``ScanEndInfo`` plus the run-closed evidence.
+- :func:`scan_start_time` — when the scan started, one rule for every reader.
 
 Pure and read-only by construction (the repo's scan-folder invariant):
 nothing here creates, writes or deletes a path.
@@ -27,14 +28,18 @@ nothing here creates, writes or deletes a path.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
 from configparser import ConfigParser, Error as ConfigParserError
+from datetime import date, datetime
 from pathlib import Path
-from typing import Literal, Mapping, Optional, Union
+from typing import Literal, Mapping, Optional, Sequence, Union
 
 from pydantic import BaseModel, ConfigDict
+
+from geecs_data_utils.scan_log_loader import first_log_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -216,20 +221,15 @@ def _as_int(raw: Optional[str]) -> Optional[int]:
     return None if value is None else int(value)
 
 
-def _as_bool(raw: Optional[str]) -> Optional[bool]:
-    if raw is None:
-        return None
-    text = raw.strip().lower()
-    if text in {"true", "yes", "1"}:
-        return True
-    if text in {"false", "no", "0"}:
-        return False
-    return None
-
-
 def _as_text(raw: Optional[str]) -> Optional[str]:
     text = (raw or "").strip()
     return text or None
+
+
+def _scan_mode(raw: Optional[str]) -> Optional[str]:
+    """``ScanMode``, with an older ini's ``background`` read as ``noscan``."""
+    mode = _as_text(raw)
+    return "noscan" if mode is not None and mode.lower() == "background" else mode
 
 
 def is_noscan(parameter: Optional[str]) -> bool:
@@ -258,9 +258,9 @@ class ScanInfoRecord(BaseModel):
     shots_per_step : int or None
         ``Shots per step``.
     mode, plan, scanner, trigger_profile : str or None
-        ``ScanMode``, ``Plan``, ``Scanner``, ``Trigger profile``.
-    background : bool or None
-        ``Background``.
+        ``ScanMode``, ``Plan``, ``Scanner``, ``Trigger profile``. An older
+        ini's ``ScanMode = background`` (a count of shots, no variable
+        moved) reads as ``noscan``; its ``Background`` line is ignored.
     purpose : str or None
         ``ScanStartInfo`` — the operator's stated reason for the scan.
     end_info : str or None
@@ -279,7 +279,6 @@ class ScanInfoRecord(BaseModel):
     plan: Optional[str] = None
     scanner: Optional[str] = None
     trigger_profile: Optional[str] = None
-    background: Optional[bool] = None
     purpose: Optional[str] = None
     end_info: Optional[str] = None
 
@@ -292,11 +291,10 @@ class ScanInfoRecord(BaseModel):
             end=finite_float(info.get("End")),
             step_size=finite_float(info.get("Step size")),
             shots_per_step=_as_int(info.get("Shots per step")),
-            mode=_as_text(info.get("ScanMode")),
+            mode=_scan_mode(info.get("ScanMode")),
             plan=_as_text(info.get("Plan")),
             scanner=_as_text(info.get("Scanner")),
             trigger_profile=_as_text(info.get("Trigger profile")),
-            background=_as_bool(info.get("Background")),
             purpose=_as_text(info.get("ScanStartInfo")),
             end_info=info.get("ScanEndInfo"),
         )
@@ -356,3 +354,55 @@ def end_info_reason(end_info: Optional[str]) -> Optional[str]:
         return None
     text = (end_info or "").strip()
     return re.sub(r"^(fail|abort)[a-z]*:\s*", "", text, flags=re.IGNORECASE) or None
+
+
+# LabVIEW timestamps count from 1904-01-01; Unix from 1970-01-01:
+# lv = unix + OFFSET.  A file-format constant (s-files, native filenames),
+# owned here independently of Core's wire-format constant; ``io.scan_stack``
+# re-uses it.
+LABVIEW_EPOCH_OFFSET = 2_082_844_800
+
+#: The s-file column Master Control stamps each shot's wall time into.
+_DATETIME_COLUMN = "DateTime Timestamp"
+
+
+def _on_day(epoch: Optional[float], day: date) -> bool:
+    if epoch is None:
+        return False
+    try:
+        return datetime.fromtimestamp(epoch).date() == day
+    except (OverflowError, OSError, ValueError):
+        return False
+
+
+def scan_start_time(
+    day: date,
+    header: Sequence[str],
+    first: Sequence[str],
+    log_path: Optional[Path],
+    ini_path: Optional[Path],
+    ini_mtime: Optional[float] = None,
+) -> Optional[tuple[float, bool]]:
+    """When a scan started, as ``(epoch, approximate)``, or ``None``.
+
+    The rule: the s-file's first ``DateTime Timestamp`` (LabVIEW), else
+    ``scan.log``'s first record, else the ScanInfo ini's mtime (flagged
+    approximate), each taken only when it falls on the scan folder's *day*.
+    *ini_mtime* saves a stat when the caller's listing already has it.
+    """
+    if _DATETIME_COLUMN in header:
+        index = list(header).index(_DATETIME_COLUMN)
+        raw = finite_float(first[index]) if index < len(first) else None
+        if raw is not None and raw > LABVIEW_EPOCH_OFFSET:
+            epoch = raw - LABVIEW_EPOCH_OFFSET
+            if _on_day(epoch, day):
+                return epoch, False
+    logged = first_log_timestamp(log_path) if log_path else None
+    if logged is not None and _on_day(logged.timestamp(), day):
+        return logged.timestamp(), False
+    if ini_mtime is None and ini_path is not None:
+        with contextlib.suppress(OSError):
+            ini_mtime = ini_path.stat().st_mtime
+    if ini_mtime is not None and _on_day(ini_mtime, day):
+        return ini_mtime, True
+    return None

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from geecs_data_utils.testing import make_scan_folder
 
 from geecs_logbook.app import create_app
 from geecs_logbook.lookup import day_lookup
@@ -42,17 +43,15 @@ def _scan(
     sfile: list[list[str]] | None = None,
     ini: str = SUCCESS_INI,
 ) -> Path:
-    folder = _day(root) / "scans" / f"Scan{n:03d}"
-    folder.mkdir(parents=True)
     text = ini.format(n=n)
     if listed is not None:
         text += f"\n[Scan Log]\nVariables = {json.dumps(listed)}\n"
-    (folder / f"ScanInfoScan{n:03d}.ini").write_text(text)
+    table = None
     if sfile is not None:
-        (folder / f"ScanDataScan{n:03d}.txt").write_text(
-            "\n".join("\t".join(row) for row in sfile) + "\n"
-        )
-    return folder
+        table = "\n".join("\t".join(row) for row in sfile) + "\n"
+    return make_scan_folder(
+        _day(root) / "scans" / f"Scan{n:03d}", scan_info=text, scan_data=table
+    )
 
 
 @pytest.fixture

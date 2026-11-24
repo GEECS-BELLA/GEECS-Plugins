@@ -6,7 +6,9 @@ guarantees:
 
 - **Typos fail loudly.**  Unknown keys are rejected (``extra="forbid"``), so a
   misspelled field name is an immediate validation error instead of a silently
-  ignored setting.
+  ignored setting.  The one exception is a wire request body, which may set
+  ``extra="ignore"`` so a client one field ahead of its server can still
+  write: :class:`geecs_schemas.log_entry.EntryCreate` is the one.
 - **Files are versioned.**  Every top-level config document carries a
   ``schema_version`` so future format changes can be migrated mechanically.
 """

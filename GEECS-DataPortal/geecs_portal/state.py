@@ -259,18 +259,6 @@ class PortalState:
                 status_code=400, detail=f"processing failed: {exc}"
             ) from exc
 
-    def render_frame_figure(self, array, render: dict) -> bytes:
-        """The rendered view of an averaged image: base renderer, no overlays."""
-        ephemeral = self.ephemeral_module()
-        try:
-            return resources.figure_png(
-                ephemeral.render_frame_figure(array, **_figure_kwargs(render))
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=404, detail=f"render failed: {exc}"
-            ) from exc
-
     def apply_processing(self, arrays: list, processing: str) -> list:
         """Ephemeral-process *arrays* → the analyzers' processed images.
 

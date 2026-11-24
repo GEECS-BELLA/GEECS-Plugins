@@ -38,7 +38,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
@@ -293,3 +293,34 @@ class LogEntry(VersionedSchemaModel):
         if self.scan is None:
             return "day"
         return f"scan-{self.scan:04d}"
+
+
+class EntryCreate(SchemaModel):
+    """What a client sends to add an entry: the logbook's ``POST /api/entries`` body.
+
+    The write shape beside the stored one, so a client that imports this
+    package (the Data Portal's plot send) builds the body the logbook's
+    route validates. Tags are not a field: they are read out of
+    ``body_md`` at save. ``payload`` is a plain dict here; the logbook's
+    store validates it against :data:`EntryPayload`.
+
+    Unknown keys are ignored, not refused: this is a wire body, and a
+    client one field ahead of the logbook must still be able to write.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    book: Book = "scans"
+    scan: Optional[int] = Field(
+        None, ge=1, description="Scan number; omit both for a day-level entry."
+    )
+    after: Optional[int] = Field(
+        None, ge=0, description="Interscan: the scan it follows."
+    )
+    author: str = Field(min_length=1, max_length=120)
+    body_md: str = Field(max_length=200_000)
+    template: str = Field("blank", max_length=64)
+    kind: EntryKind = "note"
+    status: EntryStatus = "kept"
+    payload: Optional[dict] = None

@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.testing import make_scan_folder, write_sfile
 from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
@@ -70,14 +71,14 @@ def write_tdms(path: Path, wire: np.ndarray, other: np.ndarray) -> None:
 
 def build_scan(base_dir: Path) -> Path:
     """A completed hexapod scan in the GEECS layout: TDMS shots, s-file, ScanInfo."""
-    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
-    device = scan / DEVICE
-    device.mkdir(parents=True)  # fixture acquisition
-    (scan / "ScanInfoScan001.ini").write_text(
-        '[Scan Info]\nScan No = "1"\nScan Parameter = "U_Hexapod:X"\n'
+    scan = make_scan_folder(
+        ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir),
+        devices=[DEVICE],
+        scan_info='[Scan Info]\nScan No = "1"\nScan Parameter = "U_Hexapod:X"\n'
         f'Start = "{POSITIONS[0]}"\nEnd = "{POSITIONS[-1]}"\n'
-        f'Step size = "0.5"\nShots per step = "{SHOTS_PER_BIN}"\n'
+        f'Step size = "0.5"\nShots per step = "{SHOTS_PER_BIN}"\n',
     )
+    device = scan / DEVICE
     rng = np.random.default_rng(11)
     shots, bins, xs = [], [], []
     for b, x in enumerate(POSITIONS, start=1):
@@ -91,10 +92,8 @@ def build_scan(base_dir: Path) -> Path:
             shots.append(shot)
             bins.append(b)
             xs.append(float(x))
-    analysis = scan.parent.parent / "analysis"
-    analysis.mkdir()
-    pd.DataFrame({"Shotnumber": shots, "Bin #": bins, PARAM_COLUMN: xs}).to_csv(
-        analysis / "s1.txt", sep="\t", index=False
+    write_sfile(
+        scan, pd.DataFrame({"Shotnumber": shots, "Bin #": bins, PARAM_COLUMN: xs})
     )
     return scan
 

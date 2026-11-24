@@ -5,7 +5,8 @@ the legacy on-disk scalar files the original scanner wrote:
 
 - ``scans/ScanNNN/ScanDataScanNNN.txt`` — tab-separated scalar summary.
 - ``analysis/sNNN.txt`` — a copy of the same table; the *mutable* one analysis
-  code appends to.
+  code appends to.  It is published by rename, so its existence means it is
+  complete (:func:`geecs_data_utils.data.sfile.scan_is_settled` reads only that).
 
 :func:`write_scalar_files` writes both from a run's start document and its
 row stream as a DataFrame — the worker's s-file callback feeds it straight
@@ -40,6 +41,8 @@ cross-package "analysis code never creates scan folders" invariant).
 from __future__ import annotations
 
 import logging
+import os
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -675,6 +678,13 @@ def write_scalar_files(
         ``(scan_data_txt_path, sfile_txt_path)`` on success, or ``None`` when
         the scan folder is absent (see :func:`_resolve_output_paths`) or the
         run has no scalar rows.
+
+    Notes
+    -----
+    The table is written in place; the s-file is written to a hidden temp
+    file beside it and renamed onto its path, so the s-file's existence
+    means it is complete.  A failed write leaves no s-file and no temp file,
+    and the error propagates.
     """
     paths = _resolve_output_paths(start_doc)
     if paths is None:
@@ -691,9 +701,25 @@ def write_scalar_files(
         return None
 
     df.to_csv(scan_txt, sep="\t", index=False)
-    df.to_csv(sfile_txt, sep="\t", index=False)
+    _publish_tsv(df, sfile_txt)
     logger.info("Wrote legacy scalar files: %s and %s", scan_txt, sfile_txt)
     return scan_txt, sfile_txt
+
+
+def _publish_tsv(df: pd.DataFrame, path: Path) -> None:
+    """Write ``df`` as TSV to a hidden temp file beside ``path``, then rename it onto ``path``.
+
+    The temp name (``.<name>.<hex>.tmp``) matches no s-file pattern.  On any
+    failure the temp file is removed and the error propagates; ``path`` is
+    never written in place.
+    """
+    temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        df.to_csv(temp, sep="\t", index=False)
+        os.replace(temp, path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
 
 
 def write_scalar_files_from_tiled(

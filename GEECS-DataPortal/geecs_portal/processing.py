@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING, Callable, Sequence
 
 import numpy as np
 from geecs_data_utils.analysis_configs import discover_diagnostics, read_diagnostic
-from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisDocument, load_analysis_document
 from pydantic import ValidationError
 
 from geecs_analysis.engine.compiled import UnsupportedRecipe
 from geecs_analysis.measurement import Measurement
-from geecs_analysis.render import RenderError, single
+from geecs_analysis.render import RenderError as RenderError  # the state's 404
+from geecs_analysis.render import single
 from geecs_analysis.render.specs import FigureSpec
 
 if TYPE_CHECKING:
@@ -209,21 +209,3 @@ def render_diagnostic_ephemeral(
     return render_document_ephemeral(
         load_diagnostic(name, config_dir=config_dir), arrays, window=window, cmap=cmap
     )
-
-
-def render_frame_figure(
-    array: np.ndarray,
-    *,
-    window: tuple[float, float] | None = None,
-    cmap: str | None = None,
-) -> Figure:
-    """Draw a processed bin average without inventing per-shot overlays."""
-    try:
-        if array.ndim != 2:
-            raise ValueError("A bin image must be 2D")
-        return single(
-            Measurement(scalars={}, frame=Frame.from_array(array)),
-            _style(array, window=window, cmap=cmap),
-        )
-    except (TypeError, ValueError) as exc:
-        raise RenderError(str(exc)) from exc

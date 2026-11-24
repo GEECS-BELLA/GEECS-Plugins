@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from datetime import date
 from pathlib import Path
 
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_data_utils.data.sfile import sfile_path_for_scan
+from geecs_data_utils.testing import write_closed
 
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.task_queue import read_statuses
@@ -19,7 +18,8 @@ DAY = date(2026, 3, 10)
 
 
 # GeecsAnalysisWorker/tests/test_api.py keeps a copy of the fixtures below
-# (FakeAnalyzer, write_closed, build_day, make_worker): change both.
+# (FakeAnalyzer, build_day, make_worker): change both. write_closed is
+# geecs_data_utils.testing's.
 
 
 class FakeAnalyzer:
@@ -45,17 +45,6 @@ class FakeAnalyzer:
 
     def cleanup(self):
         pass
-
-
-def write_closed(folder: Path, *, age: float = 60.0) -> None:
-    """What the scanner leaves at the end of a run: the table, then the s-file."""
-    n = int(folder.name[len("Scan") :])
-    (folder / f"ScanDataScan{n:03d}.txt").write_text("Shotnumber\n1\n")
-    sfile = sfile_path_for_scan(folder)
-    sfile.parent.mkdir(parents=True, exist_ok=True)  # fixture acquisition
-    sfile.write_text("Shotnumber\n1\n")
-    then = time.time() - age
-    os.utime(sfile, (then, then))
 
 
 def build_day(base: Path, closed=(1, 2), open_=(3,)) -> None:
@@ -209,19 +198,22 @@ def close_scan(base: Path, n: int) -> None:
     write_closed(folder)
 
 
-def test_a_scan_waits_for_its_s_file_to_settle(tmp_path):
-    from scan_analysis.worker.jobs import SETTLE_SECONDS, scan_is_settled
+def test_a_scan_waits_for_the_scanner_and_not_for_analysis(tmp_path):
+    from geecs_data_utils.data.sfile import sfile_path_for_scan
 
     build_day(tmp_path, closed=(), open_=(1,))
     tag = ScanTag(year=2026, month=3, day=10, number=1, experiment="Test")
     folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=tmp_path)
-    # the ScanData table alone appears mid-write: not yet
-    (folder / "ScanDataScan001.txt").write_text("Shotnumber\n1\n")
-    assert not scan_is_settled(folder)
-    # the s-file just written: still not
+    worker = make_worker(tmp_path, [FakeAnalyzer("A")])
+    # the table just written: still recording
     write_closed(folder, age=0.0)
-    assert not scan_is_settled(folder)
-    assert scan_is_settled(folder, now=time.time() + SETTLE_SECONDS + 1)
+    assert worker.plan(spec()).open_scans == [1]
+    # settled; then an analysis merge rewrites the s-file: still settled
+    write_closed(folder)
+    sfile_path_for_scan(folder).write_text("Shotnumber\tA x\n1\t2\n")
+    plan = worker.plan(spec())
+    assert plan.open_scans == []
+    assert [(t.scan, t.analyzer) for t in plan.tasks] == [(1, "A")]
 
 
 def test_redo_reaches_a_no_data_task(tmp_path):

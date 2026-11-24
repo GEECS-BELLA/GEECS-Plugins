@@ -1,30 +1,24 @@
-"""Rendered resources: per-shot and per-bin images, traces, the scalar PNG."""
+"""Rendered resources: the per-shot image and the scalar PNG."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from matplotlib.figure import Figure
 
 from geecs_data_utils import tiled_schema as schema_map
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import to_display_png
-from geecs_data_utils.io.images import average_frames
-from geecs_data_utils.scan_frame import scan_frame
 
-from geecs_portal import figures, resources
+from geecs_portal import resources
 from geecs_portal.routes.common import (
-    _UNION_HEADERS,
     _acq_timestamp,
-    _bin_groups,
     _display,
     _file_shot,
     _image_folder,
-    _masked,
     _png_headers,
     _render_opts,
     _rendered,
-    _sfile_rows,
 )
 from geecs_portal.state import PortalState, get_state
 
@@ -32,66 +26,6 @@ router = APIRouter()
 
 #: Cap on rows fed to a plot (quick-look, not a data browser).
 _PLOT_MAX_ROWS = 100_000
-
-
-@router.get("/api/run/{uid}/trace")
-def api_run_trace(
-    uid: str,
-    device: str,
-    shot: int = 1,
-    day: str = "",
-    portal: PortalState = Depends(get_state),
-) -> JSONResponse:
-    """One shot of an ARRAY capture stack as a server-authored figure.
-
-    The line twin of ``/run/{uid}/image.png``.  A camera shot is
-    served as a rendered PNG because a 2048² frame as JSON is
-    absurd; a scope trace is a few thousand numbers and wants the
-    hover readout, so it travels as figure JSON like every other
-    plot here.  Same refusals as the image endpoint: a shot beyond
-    the recorded events, and a device that missed the shot, both
-    404 rather than serving a neighbour's trace.
-    """
-    detail = portal.load_run(uid)
-    folder, _ = _image_folder(detail, day, device)
-    if detail.data is not None and shot > len(detail.data):
-        raise HTTPException(
-            status_code=404, detail="shot beyond the run's recorded events"
-        )
-    acq, column_present = _acq_timestamp(detail, device, shot, folder)
-    if column_present and acq is None:
-        raise HTTPException(
-            status_code=404, detail="device missed this shot (no timestamp)"
-        )
-    resolved = shot_images.load_shot_trace(folder, device, shot, acq_timestamp=acq)
-    if resolved.result is None:
-        raise HTTPException(status_code=404, detail=resolved.reason or resolved.kind)
-    trace = resolved.result
-    x_title = trace.x_label or ""
-    if x_title and trace.x_units:
-        x_title = f"{x_title} ({trace.x_units})"
-    figure = figures.trace_figure(
-        trace.data[:, 0],
-        trace.data[:, 1],
-        name=device,
-        x_title=x_title,
-        # The stack names the VARIABLE it captured but not its units
-        # (those ride in the analyzer config), so the axis is titled
-        # with the quantity and claims no unit it was not told.
-        y_title=trace.y_label or "",
-        palette=figures.THEMED_PALETTE,
-    )
-    # A running scan's stack grows, so a trace is as mutable as the
-    # union frame — the same no-cache headers every other /api
-    # response here carries.
-    return JSONResponse(
-        {
-            "figure": figures.page_figure(figure),
-            "content": resolved.content,
-            "points": int(trace.data.shape[0]),
-        },
-        headers=_UNION_HEADERS,
-    )
 
 
 @router.get("/run/{uid}/image.png")
@@ -183,105 +117,6 @@ def run_image(
         _png_headers(detail) if result.cacheable else {"Cache-Control": "no-cache"}
     )
     return Response(content=result.png, media_type="image/png", headers=headers)
-
-
-def _refused(found: shot_images.ShotArray):
-    """*found*'s pixels or ``None``; a device-level refusal is a 404.
-
-    A vendor format or a non-image file is the same for every shot, so
-    the bin has no image at all rather than a short average.
-    """
-    if found.kind in ("vendor", "unrenderable"):
-        raise HTTPException(status_code=404, detail=found.reason or found.kind)
-    return found.array
-
-
-def _processed_bin(portal, folder, frame, device, shots, processing, load):
-    """Process-then-average: each member through the pipeline, then the mean.
-
-    ``average_rows`` averages first, so it does not fit here; the per-row
-    refusals are still ``load_row_array``'s.
-    """
-    arrays = []
-    for shot in shots:
-        found = shot_images.load_row_array(folder, frame, device, shot, **load)
-        if _refused(found) is not None:
-            arrays.append(found.array)
-    if arrays:
-        arrays = portal.apply_processing(arrays, processing)
-    return average_frames(arrays, label=f"{device} bin")
-
-
-@router.get("/run/{uid}/bin-image.png")
-def run_bin_image(
-    uid: str,
-    device: str,
-    bin_index: int = Query(default=0, alias="bin"),
-    filters: str = "",
-    bincfg: str = "",
-    day: str = "",
-    processing: str = "",
-    display: str = "",
-    portal: PortalState = Depends(get_state),
-) -> Response:
-    """One bin's ``nanmean``-averaged device image, display-rendered.
-
-    ``bin`` is the bin's INDEX in ``/api/.../bin-images`` order
-    (same ``_bin_groups`` call, so the two always agree). Member
-    shots that resolve to pixels are averaged
-    (``shot_images.average_rows``, the plotter's own) and windowed
-    once; shots the device missed (no timestamp), past the event
-    table, or that fail to load are skipped — the JSON's ``count`` is the
-    membership, the pixels are what actually loaded. With
-    ``processing``, each member is ephemeral-processed FIRST and
-    the processed images average (process-then-average — the
-    correct order for nonlinear pipeline steps like thresholding).
-    """
-    detail = portal.load_run(uid)
-    disp = _display(display)
-    render = _render_opts(disp)
-    folder, _ = _image_folder(detail, day, device)
-    pf = scan_frame(detail, folder)
-    _, mask = _masked(pf, filters)
-    _, groups = _bin_groups(pf, mask, bincfg)
-    if not 0 <= bin_index < len(groups):
-        raise HTTPException(
-            status_code=404, detail=f"bin index {bin_index} of {len(groups)}"
-        )
-    _, shots = groups[bin_index]
-    complete = bool(detail.summary.exit_status)
-    # Shot numbers are rows of the event table; with none (the folder
-    # catalog's runs) the announced shot comes off the s-file.
-    load = {
-        "file_frame": _sfile_rows(folder) if detail.data is None else None,
-        "data_cache": portal.data_cache if complete else None,
-        "cache_key": (uid, device) if complete else None,
-    }
-    if processing:
-        averaged = _processed_bin(
-            portal, folder, detail.data, device, shots, processing, load
-        )
-    else:
-        averaged = _refused(
-            shot_images.average_rows(folder, detail.data, device, shots, **load)
-        )
-    if averaged is None:
-        raise HTTPException(status_code=404, detail="no renderable frames in this bin")
-    if processing and _rendered(disp):
-        # An average of several results is not one result: the base
-        # renderer (axes + colorbar), per-shot overlays dropped.
-        png = portal.render_frame_figure(averaged, render)
-    else:
-        try:
-            png = to_display_png(averaged, **render)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=404, detail=f"render failed: {exc}"
-            ) from exc
-    # Never immutable: bin membership comes off the union frame
-    # (mutable s-file), and the diagnostic YAML behind ``processing``
-    # is likewise a mutable input the URL does not key (see run_image).
-    return Response(content=png, media_type="image/png", headers=_UNION_HEADERS)
 
 
 @router.get("/run/{uid}/plot.png")

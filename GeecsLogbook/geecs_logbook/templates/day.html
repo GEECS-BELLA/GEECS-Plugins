@@ -93,7 +93,7 @@
       <span class="twisty" aria-hidden="true"></span>
       <span class="scanid">{{ s.label }}</span>
       <span class="scantime{% if s.started_approximate %} approx{% endif %}"
-            {%- if s.started_approximate %} title="Approximate: no scan.log, so this is when ScanInfo was last written"{% endif %}>
+            {%- if s.started_approximate %} title="Approximate: no shot timestamp or scan.log, so this is when ScanInfo was last written"{% endif %}>
         {%- if s.started -%}
           {{ '~' if s.started_approximate }}{{ s.started.strftime('%H:%M:%S') }}
         {%- else -%}&mdash;{%- endif -%}
