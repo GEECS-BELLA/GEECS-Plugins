@@ -270,8 +270,8 @@ geecs_portal/
   state.py       # PortalState on app.state (catalog, caches, config, the
                  #   helpers that need them); get_state = the one Depends
   routes/        # one APIRouter per family: browse (health + browsing
-                 #   JSON), pages (HTML), plot_api (plot and grid JSON + bin
-                 #   membership), images (shot/bin images, traces,
+                 #   JSON), pages (HTML), plot_api (columns + binned
+                 #   JSON), images (the per-shot image and
                  #   plot.png), runs (analysis runs + artifacts), logbook
                  #   (plot send), analysis_configs (the analysis documents' schema,
                  #   validate and previews);

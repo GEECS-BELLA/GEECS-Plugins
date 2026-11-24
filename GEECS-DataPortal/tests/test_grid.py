@@ -1,6 +1,9 @@
-"""The scan page over a grid scan: no grid tab, scripts that parse."""
+"""A grid scan: the 2-D map's figures, and the scan page with no grid tab."""
+
+import json
 
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from geecs_data_utils.tiled_catalog import RunDetail, summary_from_metadata
@@ -58,3 +61,40 @@ def test_rendered_grid_script_parses():
     html = client.get("/run/uid-002", params={"tab": "grid"}).text
     for script in inline_scripts(html):
         assert javascript_syntax_error(script) is None
+
+
+def _map_document(cfg: dict) -> dict:
+    """The planned 2x2 grid through ``grid_scan`` and ``figures.grid_document``.
+
+    The same calls ``/plot/api/map`` makes, in the page palette.
+    """
+    from geecs_data_utils.scan_grid import grid_scan
+    from geecs_portal import analysis, figures
+
+    _, catalog = grid_client()
+    detail = catalog.details["uid-002"]
+    result = grid_scan(
+        detail.data, detail.start_doc, analysis.parse_gridcfg(json.dumps(cfg))
+    )
+    return figures.grid_document(result, {}, "")
+
+
+def test_a_planned_grid_is_a_heatmap_with_cell_statuses():
+    data = _map_document({"value": "signal"})
+    assert len(data["cells"]) == 4
+    assert data["cells"][-1]["status"] == "unacquired"
+    assert data["cells"][-2]["error"] is None
+    assert data["cells"][0]["center"] == 2
+    center = data["figures"]["center"]
+    assert center["data"][0]["type"] == "heatmap"
+    assert center["data"][0]["zsmooth"] is False
+    assert center["layout"]["paper_bgcolor"] == "$tok:--surface"
+
+
+def test_log_and_index_axes_place_the_cells():
+    data = _map_document({"value": "signal", "yscale": "log", "xscale": "index"})
+    fig = data["figures"]["center"]
+    assert fig["layout"]["yaxis"]["tickvals"] == [1, 10]
+    assert fig["layout"]["xaxis"]["ticktext"] == ["2", "4"]
+    assert fig["data"][0]["x"] == [-0.5, 0.5, 1.5]
+    assert fig["data"][0]["y"] == pytest.approx([10**-0.5, 10**0.5, 10**1.5])
