@@ -260,16 +260,28 @@ def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional
     return _device_companion_column(columns, device, "acq_timestamp")
 
 
-def carries_stamps(values: Any) -> bool:  # Any: any iterable of cells (a pandas column)
-    """Whether an ``acq_timestamp`` column holds any shot stamp at all.
+def is_stamp(value: Any) -> bool:  # Any: one table cell, of any type
+    """Whether one ``acq_timestamp`` cell is a shot stamp: finite and above zero."""
+    import math
 
-    A stamp is a finite value above zero. A column with none (every row 0,
-    NaN or empty) says nothing about which shot a file belongs to: it is a
-    device that never sets its ``acq_timestamp``, sampled as a plain reading
-    (a run where it was not in scan mode records its constant 0). Every
-    shot-to-file join treats such a column as absent, so the files map by
-    shot number; one positive stamp makes the column real, and its
-    non-positive rows are shots the device missed.
+    try:
+        stamp = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(stamp) and stamp > 0
+
+
+def carries_stamps(values: Any) -> bool:  # Any: any iterable of cells (a pandas column)
+    """Whether an ``acq_timestamp`` column says anything about shots.
+
+    Only one column says nothing: ``0.0`` on every row, the placeholder of a
+    LabVIEW device that never sets its ``acq_timestamp``, sampled as a plain
+    reading (outside scan mode, where ``shot_stamp_systimestamp`` would have
+    stood in for it). Every shot-to-file join treats such a column as
+    absent, so the files map by shot number. Any other column is real: a
+    ``NaN`` cell is the event schema's "no frame for this shot" and a
+    non-positive one a miss, both refused — never a neighbour's file, even
+    when every row missed.
 
     Parameters
     ----------
@@ -279,17 +291,17 @@ def carries_stamps(values: Any) -> bool:  # Any: any iterable of cells (a pandas
     Returns
     -------
     bool
+        ``False`` only for a non-empty column whose every cell is exactly 0.
     """
-    import math
-
+    cells = 0
     for value in values:
+        cells += 1
         try:
-            stamp = float(value)
+            if float(value) != 0.0:
+                return True
         except (TypeError, ValueError):
-            continue
-        if math.isfinite(stamp) and stamp > 0:
             return True
-    return False
+    return cells == 0
 
 
 def device_valid_column(columns: Sequence[str], device: str) -> Optional[str]:

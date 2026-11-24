@@ -65,4 +65,3 @@ def test_a_stamp_column_with_no_stamp_maps_by_shot_number(tmp_path):
         1: "Scan030_scope_001.dat",
         2: "Scan030_scope_002.dat",
     }
-

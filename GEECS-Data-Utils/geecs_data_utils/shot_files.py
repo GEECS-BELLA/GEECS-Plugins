@@ -266,7 +266,7 @@ class _ShotFileMapper:
         every spelling — ``"<Device> acq_timestamp"`` (s-file header),
         ``"<Device>:acq_timestamp"`` (in-memory frame), ``"<device>-acq_timestamp"``
         (raw event key). Returns ``None`` (→ legacy shot-number mapping) when absent,
-        or when no row holds a stamp (:func:`~geecs_data_utils.tiled_schema.carries_stamps`).
+        or when it is 0.0 on every row (:func:`~geecs_data_utils.tiled_schema.carries_stamps`).
         """
         if self.rows is None:
             return None

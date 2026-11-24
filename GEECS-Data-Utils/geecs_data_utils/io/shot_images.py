@@ -41,7 +41,6 @@ shot the same way.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Protocol, Sequence
@@ -322,7 +321,7 @@ def row_acq_timestamp(
     tuple of (float or None, bool)
         ``(value, column_present)``. No column (or no such row) →
         ``(None, False)``, and a loader may fall back to file order; so
-        does a column with no stamp on any row
+        does a column that is 0.0 on every row
         (:func:`~geecs_data_utils.tiled_schema.carries_stamps`).
         Column present but the row invalid (NaN or non-positive: the
         device missed this shot; or its ``valid`` companion false: the
@@ -349,12 +348,12 @@ def row_acq_timestamp(
         except (TypeError, ValueError):  # pd.NA: unknown, not false
             pass
     if column is None or not tiled_schema.carries_stamps(frame[column]):
-        return (None, False)  # no stamp on any row: the files map by number
+        return (None, False)  # 0.0 on every row: the files map by number
     try:
         value = float(frame[column].iloc[shot - 1])
     except (TypeError, ValueError):
         return (None, True)
-    if not math.isfinite(value) or value <= 0:
+    if not tiled_schema.is_stamp(value):
         return (None, True)
     return (value, True)
 
