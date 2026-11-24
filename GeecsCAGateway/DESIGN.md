@@ -208,16 +208,14 @@ Recorded so the next build phase doesn't relitigate them.
   one context-wide task hands each update to each subscribed circuit with
   an awaited `put` on that circuit's bounded queue, so one client that
   stops reading parks delivery for all of them, permanently once that
-  client disconnects (reproduced in `tests/test_watchdog.py`). Today the
-  gateway detects it (a counting queue swapped into the `Context`, no
-  progress for 30 s), logs its evidence and exits for a systemd restart
-  (`watchdog.py`). The fix is upstream-shaped: in
-  `Context._subscription_queue_send`, `put_nowait` and handle `QueueFull`,
-  or disconnect that circuit. The drop path already there is not enough
-  as it stands: it calls `subscription_queue.clear()`, which
-  `asyncio.Queue` does not have, so it would raise in the delivery task.
-  Until a fix lands, a slow client costs everyone a restart rather than
-  hours.
+  client disconnects (reproduced in `tests/test_watchdog.py`). The
+  gateway bounds that wait (`circuits.py`): a full circuit queue that
+  takes no entry for `UNREAD_GRACE_S` (2 s) has its client disconnected,
+  so a stopped client costs the others one pause of at most that long. A
+  slow client that still reads paces delivery for everyone, as in
+  caproto; nothing disconnects it. The watchdog (`watchdog.py`: no
+  progress for 30 s, evidence logged, exit for a systemd restart) stays as
+  the backstop for a stall of any other cause.
 - **Fuller metadata contract** — curated value-based alarm limits (HIHI/…)
   landed in 0.7.0 (`ca_alarm_limits` overlay, PV_CONTRACT.md §5); archive
   deadbands remain future, beyond the units/precision/control-limits already

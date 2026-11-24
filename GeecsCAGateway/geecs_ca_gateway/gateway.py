@@ -1189,7 +1189,8 @@ class GeecsCaGateway:
         """Run the CA server (serves ``self.pvdb``) under the delivery watchdog.
 
         The context is a ``GatewayContext``: a client that stops reading its
-        monitors is disconnected rather than waited on (``circuits``).
+        monitors is waited on for ``circuits.UNREAD_GRACE_S`` at most, then
+        disconnected.
         The caproto context's subscription queue is swapped for a counting
         one before the server starts, and a ``DeliveryWatchdog`` reads it
         every ``watchdog.CHECK_PERIOD_S``. If monitor delivery stalls for

@@ -619,18 +619,23 @@ this state (the preflight's `gateway_monitors` check).
 **The known cause is handled per client.** A client that stops reading
 its socket (a busy Jupyter kernel, a sleeping laptop with the
 connection still open) used to park caproto's one monitor-delivery
-loop for every client. The gateway now disconnects that one client
-once its circuit's queue is full (10000 updates) and logs one WARNING:
+loop for every client. The gateway now disconnects a client whose
+circuit queue is full (10000 updates) and that takes no update for 2 s
+(`circuits.UNREAD_GRACE_S`); every other client's monitors pause for at
+most those 2 s. It logs one WARNING:
 
 ```
-CA client 192.168.6.42:51234 has not read its monitors: its queue is full (10000 updates, 512 subscriptions). Disconnecting it so delivery to every other client continues; it must reconnect.
+CA client 192.168.6.42:51234 took no monitor update for 2.0 s with its queue full (10000 updates, 512 subscriptions). Disconnecting it so delivery to every other client continues; it must reconnect.
 ```
 
-followed by caproto's `Disconnected from client at ...`. The same
-address repeating means that client reconnects and stops reading again;
-it affects only itself, but find and fix it. A slow client (one that
-reads, but slower than its updates arrive) is disconnected the same
-way once its queue fills, instead of pacing everyone else.
+followed by caproto's `Disconnected from client at ...`. The same host
+repeating (on a new port each time: a reconnect is a new connection)
+means that client reconnects and stops reading again; find and fix it.
+A slow client (one that reads, but slower than its updates arrive) is
+not disconnected: while its queue is full it paces delivery to every
+client, as caproto does, without tripping the watchdog. To find it,
+`ss -tn state established '( sport = :<CA port> )'` on the host lists
+each client with its send queue; the slow one holds a large `Send-Q`.
 
 **The watchdog is the backstop.** A watchdog in the process
 (`geecs_ca_gateway/watchdog.py`) reads caproto's context-wide monitor
