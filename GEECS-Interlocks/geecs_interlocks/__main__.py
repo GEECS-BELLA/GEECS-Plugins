@@ -29,6 +29,9 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
+from pydantic import ValidationError
+
 from geecs_interlocks.config import (
     Settings,
     configuration_names,
@@ -53,7 +56,8 @@ LISTEN_RETRY_S = 2.0
 WEB_START_S = 5.0
 #: How long ``--arm-at-start`` waits for the settings to arrive.
 ARM_WAIT_S = 30.0
-#: Exit status of a refused start (the unit's RestartPreventExitStatus).
+#: Exit status of a refused start (the unit's RestartPreventExitStatus): a
+#: missing or invalid configuration, or ``--arm-at-start`` under systemd.
 EXIT_REFUSED = 2
 
 
@@ -62,9 +66,15 @@ def _parser() -> argparse.ArgumentParser:
         prog="geecs-interlocks", description=__doc__.split("\n")[0]
     )
     parser.add_argument("--log-level", default="INFO")
+    # Also accepted after the subcommand (a unit's extra args come last); the
+    # suppressed default keeps a value given before it.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--log-level", default=argparse.SUPPRESS)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    serve = commands.add_parser("serve", help="run the interlock server")
+    serve = commands.add_parser(
+        "serve", parents=[common], help="run the interlock server"
+    )
     where = serve.add_mutually_exclusive_group()
     where.add_argument(
         "--config",
@@ -98,7 +108,9 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
 
-    listen = commands.add_parser("listen", help="print the frames a server sends")
+    listen = commands.add_parser(
+        "listen", parents=[common], help="print the frames a server sends"
+    )
     listen.add_argument("address", help="HOST:PORT of a running server")
     listen.add_argument(
         "--every", action="store_true", help="print every frame, not only state changes"
@@ -117,7 +129,8 @@ def _settings(args: argparse.Namespace) -> Settings:
             "web_host",
             "web_port",
         )
-        if (value := getattr(args, key)) is not None
+        # A blank value (an empty site.env key) is no value: never "every interface".
+        if (value := getattr(args, key)) not in (None, "")
     }
     return settings.model_copy(update=overrides)
 
@@ -131,7 +144,7 @@ def _path(args: argparse.Namespace, settings: Settings) -> Path | None:
             "no experiment: pass --experiment or --interlocks, or set "
             "config.ini [Experiment] expt"
         )
-    if args.config is None:
+    if not args.config:
         names = configuration_names(experiment)
         raise SystemExit(
             "which configuration? pass --config NAME (saved: "
@@ -213,6 +226,28 @@ def _wait_for_stop() -> None:
         pass
 
 
+def _open(
+    args: argparse.Namespace, settings: Settings, notifier: Notifier
+) -> tuple[Engine, FakeDevices | None] | str:
+    """The engine and its fake devices, or why the start is refused.
+
+    A missing or invalid configuration is refused (exit 2): a restart cannot
+    fix it, so the unit stops in a plain failed state.
+    """
+    try:
+        path = _path(args, settings)
+    except SystemExit as exc:  # no experiment or no configuration named
+        return str(exc)
+    if path is None or not path.is_file():
+        return f"no interlocks file at {path}"
+    try:
+        make_source, fakes = _sources(args, path)
+        engine = Engine(path, make_source, settings, on_tick=notifier.watchdog)
+    except (ValidationError, yaml.YAMLError) as exc:
+        return f"{path} does not validate: {exc}"
+    return engine, fakes
+
+
 def serve(args: argparse.Namespace) -> int:
     """Run the server until SIGTERM or Ctrl-C."""
     notifier = Notifier()
@@ -222,9 +257,11 @@ def serve(args: argparse.Namespace) -> int:
         logger.error("--arm-at-start is refused under systemd: arm from the web page")
         return EXIT_REFUSED
     settings = _settings(args)
-    path = _path(args, settings)
-    make_source, fakes = _sources(args, path)
-    engine = Engine(path, make_source, settings, on_tick=notifier.watchdog)
+    opened = _open(args, settings, notifier)
+    if isinstance(opened, str):
+        logger.error("not starting: %s", opened)
+        return EXIT_REFUSED
+    engine, fakes = opened
     engine.start()
     sender = None
     if args.fake_devices:

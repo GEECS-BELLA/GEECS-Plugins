@@ -657,3 +657,45 @@ def test_a_site_naming_the_analysis_workers_port_gets_its_clone_env_and_unit(
     assert "analysis-worker-checkout/GeecsAnalysisWorker" in out  # the env step
     assert "GeecsAnalysisWorker/deploy/geecs-analysis-worker.service" in out
     assert "enable --now geecs-analysis-worker" in out
+
+
+def _run_interlocks(tmp_path: Path, **keys: str) -> subprocess.CompletedProcess[str]:
+    """Dry-run ``--only interlocks`` with these ``GEECS_INTERLOCKS_*`` keys replaced."""
+    site = _site_env(tmp_path)
+    lines = site.read_text().splitlines()
+    for key, value in keys.items():
+        name = f"GEECS_INTERLOCKS_{key}="
+        lines = [f"{name}{value}" if line.startswith(name) else line for line in lines]
+    site.write_text("\n".join(lines) + "\n")
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    (stub_dir / "systemctl").write_text("#!/usr/bin/env bash\nexit 1\n")
+    (stub_dir / "systemctl").chmod(0o755)
+    env = dict(os.environ, PATH=f"{stub_dir}:{os.environ.get('PATH', '')}")
+    return subprocess.run(
+        ["bash", str(BOOTSTRAP), str(site), "--dry-run", "--only", "interlocks"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+
+
+def test_interlocks_renders_its_unit(tmp_path: Path) -> None:
+    """``--only interlocks`` renders the unit it then tells you to enable."""
+    r = _run_interlocks(tmp_path, CONFIG="main")
+    assert r.returncode == 0, r.stderr
+    assert "GEECS-Interlocks/deploy/geecs-interlocks.service" in r.stdout
+    assert "enable --now geecs-interlocks" in r.stdout
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [{}, {"CONFIG": "main", "STATUS_PORT": ""}, {"CONFIG": "main", "WEB_HOST": ""}],
+    ids=["no-config", "blank-port", "blank-host"],
+)
+def test_interlocks_refuses_a_missing_key(tmp_path: Path, keys: dict[str, str]) -> None:
+    """No configuration, or a blank port or host, fails before anything runs."""
+    r = _run_interlocks(tmp_path, **keys)
+    assert r.returncode == 2, r.stdout
+    assert "site.env is missing GEECS_INTERLOCKS_" in r.stderr
