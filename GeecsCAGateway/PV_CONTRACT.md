@@ -704,19 +704,32 @@ indistinguishable from a real pair boundary and will be truncated there. (The
 legacy GEECS-PythonAPI parser truncates at the *first* ` nvar` regardless, so
 this parser is strictly more tolerant.)
 
+### A client that does not read its monitors is disconnected
+
+A CA client must keep reading its circuit. Each circuit queues at most
+10000 monitor updates (caproto's `MAX_TOTAL_SUBSCRIPTION_BACKLOG`)
+waiting to be sent. A client whose queue is full and that takes no
+update for 2 s is disconnected, and the gateway logs one WARNING naming
+it. Its channels go disconnected; if the client is alive it reconnects,
+resubscribes, and gets the current value on subscribe, never a stale
+value presented as live. Other clients' monitors pause for at most
+those 2 s per client disconnected. "Takes an update" is measured at
+the gateway's queue, which moves one send batch (up to about 64 kB) at
+a time: a client that is more than 10000 updates behind and reads less
+than about one batch every 2 s is disconnected even though it is
+reading. One that keeps up with that is not, but while its queue is
+full it paces delivery to every client.
+
 ### Monitor-delivery stall: the gateway restarts itself
 
-If the gateway's CA server stops delivering monitor events (updates
-queued for clients and none taken for 30 s, while gets still answer),
-the gateway logs the evidence and exits with code 87; the service
-manager relaunches it. A client sees what any gateway restart looks
-like: every channel disconnects, then reconnects within seconds of the
-relaunch, and monitors resume with the current value on subscribe. The
-known cause is one client that stops reading its socket (DEPLOYMENT.md
-§6, "Gets answer, no monitors"): a CA client must keep reading its
-circuit or it holds monitors up for every other client until the stall
-limit. A gateway with nothing changing, or nobody subscribed, never
-trips it.
+The backstop: if the gateway's CA server stops delivering monitor
+events anyway (updates queued for clients and none taken for 30 s,
+while gets still answer), the gateway logs the evidence and exits with
+code 87; the service manager relaunches it. A client sees what any
+gateway restart looks like: every channel disconnects, then reconnects
+within seconds of the relaunch, and monitors resume with the current
+value on subscribe. A gateway with nothing changing, or nobody
+subscribed, never trips it.
 
 ### Stream-value fan-out failures
 
@@ -741,6 +754,7 @@ that branch and are part of this contract's target behavior.
 | Genuine collision raises; exact duplicates tolerated | `test_gateway.py::test_pv_name_collision_raises`; `test_config_from_db.py::test_from_db_metadata_dedupes_duplicate_variables` |
 | Reserved `CAGateway`/status namespace guarded | `test_gateway.py::test_pvdb_has_connected_and_gateway_status_pvs`; `test_pv_contract.py::test_status_pv_namespace_is_collision_guarded` |
 | `cagateway:restart` triggers clean shutdown; `Idle` is a no-op; exit code 86 | `test_pv_contract.py::test_restart_pv_requests_clean_shutdown`; `test_gateway.py::test_run_returns_the_restart_code_on_restart_request`; `test_entrypoint.py::test_main_exits_with_the_run_status` |
+| A client whose queue is full and takes nothing for the grace is disconnected with one WARNING; the others pause about one grace; a reading client rides out bursts above its backlog; no circuit or task is left by any disconnect | `test_watchdog.py::test_the_gateway_disconnects_an_unread_client_and_delivers_on`, `::test_a_reading_client_rides_out_bursts_above_its_backlog`, `::test_unread_circuits_are_cleaned_up`, `::test_reading_clients_that_hang_up_mid_traffic_leave_nothing`, `::test_a_busy_then_quiet_gateway_runs_on` |
 | Monitor-delivery stall (updates queued, none taken for 30 s): evidence logged, exit 87 for a relaunch; a busy or quiet gateway runs on | `test_watchdog.py::test_one_unread_client_parks_monitors_for_every_client`, `::test_the_gateway_logs_the_evidence_and_exits_on_a_stall`, `::test_a_busy_then_quiet_gateway_runs_on`, `::test_a_stalled_queue_trips_at_the_limit`, `::test_a_busy_queue_never_trips`, `::test_a_quiet_queue_never_trips`, `::test_startup_is_not_a_stall`; `test_entrypoint.py::test_main_exits_with_the_run_status`, `::test_the_two_exit_statuses_differ` |
 | Readbacks client-read-only; setpoints writable | `test_gateway.py::test_readback_channels_deny_client_writes` |
 | Stream → readback; caput `:SP` → GEECS → readback | `test_gateway.py::test_stream_updates_readback`, `::test_setpoint_write_reaches_geecs` |

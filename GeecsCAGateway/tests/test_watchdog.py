@@ -9,7 +9,9 @@ Two layers:
   caproto server and raw CA clients: the reproduction of the stall (one
   client that stops reading parks monitor delivery for every client, and the
   park outlives that client's disconnect), and the gateway exiting with the
-  watchdog's status on that stall while a healthy busy or quiet gateway runs on.
+  watchdog's status on that stall while a healthy busy or quiet gateway runs on;
+  and the repair (``geecs_ca_gateway.circuits``): the gateway's context
+  disconnects the unread client and delivery to the others goes on.
 
 The stall needs a client's bounded per-circuit queue to fill. caproto sizes it
 from ``caproto.MAX_TOTAL_SUBSCRIPTION_BACKLOG`` (10000) when a circuit opens;
@@ -32,7 +34,8 @@ from caproto import ChannelDouble
 from caproto.asyncio.server import Context
 
 import geecs_ca_gateway.gateway as gateway_module
-from geecs_ca_gateway import watchdog
+from geecs_ca_gateway import circuits, watchdog
+from geecs_ca_gateway.circuits import GatewayContext
 from geecs_ca_gateway.config import GatewayConfig
 from geecs_ca_gateway.gateway import RESTART_EXIT_CODE, GeecsCaGateway
 from geecs_ca_gateway.watchdog import (
@@ -103,8 +106,7 @@ def test_a_busy_queue_never_trips() -> None:
 
     Deliberate: one take per read counts as healthy, so a client that reads
     slowly but not zero paces every client without tripping the watchdog.
-    A restart would not cure that (the client reconnects and paces again);
-    dropping or disconnecting the slow circuit would, in caproto.
+    A restart would not cure that (the client reconnects and paces again).
     """
     clock = FakeClock()
     queue = CountingQueue()
@@ -358,6 +360,7 @@ class RawClient:
         self.circ = ca.VirtualCircuit(ca.CLIENT, ("127.0.0.1", port), 0)
         self.events = 0
         self.reads: list[float] = []
+        self.event_times: list[float] = []
 
     def send(self, *commands: Any) -> None:
         self.sock.sendall(b"".join(self.circ.send(*commands)))
@@ -381,6 +384,7 @@ class RawClient:
                 self.circ.process_command(command)
                 if isinstance(command, ca.EventAddResponse):
                     self.events += 1
+                    self.event_times.append(loop.time())
                 elif isinstance(command, ca.ReadNotifyResponse):
                     self.reads.append(float(command.data[0]))
         return True
@@ -551,6 +555,193 @@ async def test_one_unread_client_parks_monitors_for_every_client(localhost_ca) -
         await _stop(server, [context])
 
 
+GRACE_S = 0.3
+
+
+@pytest.fixture
+def short_grace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 0.3 s grace for a full circuit queue, so a disconnect comes fast."""
+    monkeypatch.setattr(circuits, "UNREAD_GRACE_S", GRACE_S)
+
+
+def _keep_reading(clients: list[RawClient]) -> tuple[asyncio.Task, asyncio.Event]:
+    """Read every client in turn until the returned event is set.
+
+    Stopped by an event, not by cancel: on Python 3.11, wait_for (in pump)
+    can swallow a cancel that lands as its read completes.
+    """
+    stop = asyncio.Event()
+
+    async def read() -> None:
+        while not stop.is_set():
+            for client in clients:
+                await client.pump(lambda: False, 0.01)
+
+    return asyncio.create_task(read()), stop
+
+
+async def _until(condition, timeout: float = 5.0) -> None:
+    for _ in range(int(timeout / 0.02)):
+        if condition():
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError("the condition never held")
+
+
+@pytestmark_sockets
+async def test_the_gateway_disconnects_an_unread_client_and_delivers_on(
+    localhost_ca, short_grace, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The repair: a full circuit that takes nothing for the grace is cut off.
+
+    The same stuck client as above, on the gateway's context: once its queue
+    has been full for the grace it is disconnected with one WARNING, the
+    healthy client's monitors pause for about one grace at most, and the
+    stuck circuit leaves nothing behind.
+    """
+    caplog.set_level(logging.WARNING, logger="geecs_ca_gateway.circuits")
+    pvs = _test_pvs()
+    context = GatewayContext(pvs, ["127.0.0.1"])
+    server = asyncio.create_task(context.run())
+    try:
+        port = await _await_port(lambda: context)
+        healthy = RawClient(port)
+        await healthy.monitor("test:beat")
+        assert await healthy.pump(lambda: healthy.events >= 1, 5.0)
+
+        stuck = RawClient(port, rcvbuf=4096)
+        await stuck.monitor("test:big")  # and never reads again
+        stuck_circuit = _circuit_for(context, stuck)
+        reading, stop_reading = _keep_reading([healthy])
+        await _flood_until(pvs, lambda: not stuck_circuit.connected, limit=20_000)
+        before = healthy.events
+        for i in range(100):
+            await pvs["test:beat"].write(float(10_000 + i))
+            await asyncio.sleep(0.005)
+        stop_reading.set()
+        await asyncio.wait_for(reading, timeout=5.0)
+        assert healthy.events - before > SMALL_BACKLOG  # monitors flowed on
+        gaps = [b - a for a, b in zip(healthy.event_times, healthy.event_times[1:])]
+        assert max(gaps) < GRACE_S + 0.5  # the pause is about one grace
+
+        await _until(lambda: stuck_circuit not in context.circuits)
+        assert context.subscription_queue.qsize() == 0
+        healthy.close()
+        stuck.close()
+    finally:
+        await _stop(server, [context])
+
+    warnings = [r for r in caplog.records if r.name == "geecs_ca_gateway.circuits"]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert f"127.0.0.1:{stuck.local_port} took no monitor update for 0.3 s" in message
+    assert f"({SMALL_BACKLOG} updates, 1 subscriptions)" in message
+
+
+@pytestmark_sockets
+async def test_a_reading_client_rides_out_bursts_above_its_backlog(
+    localhost_ca, short_grace, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A burst the loop queues without yielding, and a subscribe burst, both
+    larger than the circuit's backlog, are paced, not cut off: the client
+    receives every update and is never disconnected.
+    """
+    caplog.set_level(logging.WARNING, logger="geecs_ca_gateway.circuits")
+    pvs = {f"test:{i}": ChannelDouble(value=0.0) for i in range(2 * SMALL_BACKLOG)}
+    context = GatewayContext(pvs, ["127.0.0.1"])
+    server = asyncio.create_task(context.run())
+    try:
+        port = await _await_port(lambda: context)
+        client = RawClient(port)
+        for name in pvs:
+            await client.monitor(name)
+        expected = len(pvs)  # the values on subscribe
+        assert await client.pump(lambda: client.events >= expected, 5.0)
+
+        rounds = 5
+        for r in range(rounds):  # no yield: 10 backlogs queued at once
+            for i, pv in enumerate(pvs.values()):
+                await pv.write(float(1 + r * len(pvs) + i))
+        expected += rounds * len(pvs)
+        assert await client.pump(lambda: client.events >= expected, 5.0)
+
+        chan = await client.open("test:0")  # subscribed 2 backlogs deep at once
+        client.send(
+            *(chan.subscribe(data_type=ca.ChannelType.DOUBLE) for _ in range(100))
+        )
+        expected += 100
+        assert await client.pump(lambda: client.events >= expected, 5.0)
+        assert _circuit_for(context, client).connected
+        client.close()
+    finally:
+        await _stop(server, [context])
+    assert not [r for r in caplog.records if r.name == "geecs_ca_gateway.circuits"]
+
+
+@pytestmark_sockets
+async def test_unread_circuits_are_cleaned_up(localhost_ca, short_grace) -> None:
+    """Clients that stop reading are all removed and leave no task running."""
+    pvs = _test_pvs()
+    context = GatewayContext(pvs, ["127.0.0.1"])
+    server = asyncio.create_task(context.run())
+    try:
+        port = await _await_port(lambda: context)
+        server_tasks = asyncio.all_tasks()
+        stuck = [RawClient(port, rcvbuf=4096) for _ in range(4)]
+        for client in stuck:
+            await client.monitor("test:beat")
+            await client.monitor("test:big")
+        await _flood_until(pvs, lambda: not context.circuits, limit=20_000)
+        await asyncio.sleep(0.2)
+        assert asyncio.all_tasks() <= server_tasks  # no circuit task left running
+        assert context.subscription_queue.qsize() == 0
+        for client in stuck:
+            client.close()
+    finally:
+        await _stop(server, [context])
+
+
+@pytestmark_sockets
+async def test_reading_clients_that_hang_up_mid_traffic_leave_nothing(
+    localhost_ca,
+) -> None:
+    """An ordinary disconnect under load removes the circuit and its tasks."""
+    pvs = _test_pvs()
+    context = GatewayContext(pvs, ["127.0.0.1"])
+    server = asyncio.create_task(context.run())
+    try:
+        port = await _await_port(lambda: context)
+        server_tasks = asyncio.all_tasks()
+        readers = [RawClient(port) for _ in range(20)]
+        for client in readers:
+            await client.monitor("test:beat")
+        reading, stop_reading = _keep_reading(readers)
+        stop_flood = asyncio.Event()
+
+        async def flood() -> None:
+            value = 0.0
+            while not stop_flood.is_set():
+                value += 1.0
+                await pvs["test:beat"].write(value)
+                await asyncio.sleep(0.001)
+
+        flooding = asyncio.create_task(flood())
+        await asyncio.sleep(0.3)
+        stop_reading.set()
+        await asyncio.wait_for(reading, timeout=5.0)
+        for client in readers:  # hang up with updates in flight
+            client.close()
+            await asyncio.sleep(0.02)
+        await asyncio.sleep(0.5)
+        stop_flood.set()
+        await flooding
+        await _until(lambda: not context.circuits)
+        await asyncio.sleep(0.2)
+        assert asyncio.all_tasks() <= server_tasks  # no circuit task left running
+    finally:
+        await _stop(server, [context])
+
+
 def _gateway_with_test_pvs() -> tuple[GeecsCaGateway, dict[str, ChannelDouble]]:
     gw = GeecsCaGateway(GatewayConfig(devices=[]))
     pvs = _test_pvs()
@@ -580,9 +771,18 @@ def served(monkeypatch: pytest.MonkeyPatch) -> list[Context]:
 
 @pytestmark_sockets
 async def test_the_gateway_logs_the_evidence_and_exits_on_a_stall(
-    localhost_ca, fast_watchdog, served, caplog: pytest.LogCaptureFixture
+    localhost_ca,
+    fast_watchdog,
+    served,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """On the reproduced stall, run() logs one ERROR block and returns 87."""
+    """On the reproduced stall, run() logs one ERROR block and returns 87.
+
+    The stall is reproduced on caproto's stock context: the gateway's own
+    disconnects the stuck client before any stall.
+    """
+    monkeypatch.setattr(gateway_module, "GatewayContext", Context)
     caplog.set_level(logging.ERROR, logger="geecs_ca_gateway.gateway")
     gw, pvs = _gateway_with_test_pvs()
     run = asyncio.create_task(gw.run())
@@ -619,9 +819,18 @@ async def test_the_gateway_logs_the_evidence_and_exits_on_a_stall(
 
 @pytestmark_sockets
 async def test_a_busy_then_quiet_gateway_runs_on(
-    localhost_ca, fast_watchdog, served
+    localhost_ca,
+    fast_watchdog,
+    served,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Healthy clients under a flood, then silence, never trip the watchdog."""
+    """Healthy clients under a flood, then silence, never trip the watchdog.
+
+    At caproto's default backlog none of them is disconnected for slowness.
+    """
+    monkeypatch.setattr(ca, "MAX_TOTAL_SUBSCRIPTION_BACKLOG", 10_000)
+    caplog.set_level(logging.WARNING, logger="geecs_ca_gateway.circuits")
     gw, pvs = _gateway_with_test_pvs()
     run = asyncio.create_task(gw.run())
     try:
@@ -649,7 +858,9 @@ async def test_a_busy_then_quiet_gateway_runs_on(
         assert not run.done()
         stop_reading.set()
         await asyncio.wait_for(reading, timeout=5.0)
+        assert isinstance(served[0], GatewayContext)
         assert all(reader.events > 10 for reader in readers)
+        assert not [r for r in caplog.records if r.name == "geecs_ca_gateway.circuits"]
 
         await gw.pvdb["cagateway:restart"].write("Restart")
         assert await asyncio.wait_for(run, timeout=5.0) == RESTART_EXIT_CODE
