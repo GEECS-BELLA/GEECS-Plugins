@@ -103,6 +103,20 @@ class ExperimentDefaults(VersionedSchemaModel):
             "scan without reopening its environment."
         ),
     )
+    ecs_live_dump: bool = Field(
+        False,
+        description=(
+            "Write Master Control's ECS live dump at every scan's start: "
+            "'ECS Live dumps/Scan<N>.txt' beside the day's scans folder, every "
+            "settable variable of the experiment read once before the scan's "
+            "first move, in Master Control's file format (a variable that "
+            "cannot be read is left out). Where Master Control still runs, its "
+            "own Scan<N>.txt is moved aside to Scan<N>.master_control.txt. Off "
+            "by default; when the defaults cannot be read it stays off. The "
+            "worker reads this at every scan, so an edit takes effect at the "
+            "next scan without reopening its environment."
+        ),
+    )
     description: str = Field(
         "",
         description="Optional note about what these defaults are for.",

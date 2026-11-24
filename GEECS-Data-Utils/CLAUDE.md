@@ -281,7 +281,10 @@ and calendar use it). Pinned by `tests/test_data_root_experiment.py`.
   └── scan_info.ini          (scan parameters)
   └── analysis/              (created by ScanAnalysis)
 {base_path}/{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/
-  └── ECS Live dumps/        (device state snapshots, one per scan)
+  └── ECS Live dumps/        (every settable at a scan's start, Scan{N}.txt —
+                               written by GeecsBluesky's opt-in
+                               ecs_dump_preprocessor, or
+                               LabVIEW Master Control where it still runs)
 ```
 
 `ScanPaths` validates this convention and raises if the path doesn't conform.

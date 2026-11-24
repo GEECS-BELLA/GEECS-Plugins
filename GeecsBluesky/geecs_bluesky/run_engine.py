@@ -15,12 +15,12 @@ What ``claim=True`` installs, each with one job:
 - :func:`~geecs_bluesky.preprocessors.scalar_headers` — the ``Device
   Variable`` header map into the start document;
 - the four output callbacks
-  (:func:`geecs_bluesky.callbacks.subscribe_scan_outputs`).
+  (:func:`geecs_bluesky.callbacks.subscribe_scan_outputs`);
+- with ``ecs_dump_targets``, the ECS live dump after a claimed open
+  (:func:`~geecs_bluesky.plans.ecs_dump.ecs_dump_preprocessor`).
 
-Background telemetry is not the engine's: every bound scan verb reads it
-into its own rows
-(:class:`~geecs_bluesky.devices.background.BackgroundSnapshot`); there is
-no run-level baseline stream.  ``connect_on_demand`` goes in
+Background telemetry is the bound verbs' own (no baseline stream).
+``connect_on_demand`` goes in
 last, outermost, so it also sees the messages the other preprocessors
 inject.
 """
@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import logging
 from functools import partial
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from bluesky import RunEngine
 
@@ -36,7 +38,11 @@ from geecs_bluesky.plans.claim_scan import (
     GeecsScanPathProvider,
     claim_scan_preprocessor,
 )
+from geecs_bluesky.plans.ecs_dump import ecs_dump_preprocessor
 from geecs_bluesky.preprocessors import install_connect_on_demand, scalar_headers
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from geecs_bluesky.plans.ecs_dump import EcsTargets
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +54,8 @@ def make_run_engine(
     tiled: bool = False,
     claim: bool = False,
     path_provider: GeecsScanPathProvider | None = None,
+    ecs_dump_targets: EcsTargets | None = None,
+    ecs_dump_enabled: Callable[[], bool] | None = None,
 ) -> RunEngine:
     """Build the RunEngine every GEECS plan runs on.
 
@@ -74,6 +82,14 @@ def make_run_engine(
     path_provider :
         The provider the namespace's native-saving detectors hold (built
         by the caller, shared with the namespace).
+    ecs_dump_targets :
+        With *claim*: the settables every run's ECS live dump reads
+        (:func:`~geecs_bluesky.plans.ecs_dump.ecs_dump_targets` over the
+        namespace's roster); ``None`` writes no dump.
+    ecs_dump_enabled :
+        Asked at each claimed open whether to write the dump (the worker
+        passes ``ExperimentDefaults.ecs_live_dump``, off by default);
+        ``None`` writes it for every claimed run.
 
     Returns
     -------
@@ -100,6 +116,15 @@ def make_run_engine(
             )
         )
         RE.preprocessors.append(scalar_headers)
+        if ecs_dump_targets is not None:
+            # Outside the claim: it reads the claimed folder off open_run.
+            RE.preprocessors.append(
+                partial(
+                    ecs_dump_preprocessor,
+                    targets=ecs_dump_targets,
+                    enabled=ecs_dump_enabled,
+                )
+            )
         # Kept on the RunEngine so a shutdown (or a caller that wants the
         # s-file on disk before it moves on) can wait for the stack reads
         # and the joined s-file write, which finish on their own threads.
