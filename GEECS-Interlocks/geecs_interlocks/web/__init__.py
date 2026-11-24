@@ -38,7 +38,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from geecs_web_theme.web import (
     ForwardedPrefixMiddleware,
@@ -191,8 +191,18 @@ def _add_page(app: FastAPI, engine: Engine, experiment: str | None) -> None:
         )
 
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+    def healthz() -> JSONResponse:
+        # Healthy only while it evaluates something: a stalled loop or a
+        # configuration with no armed interlock answers 503 with the reason.
+        snapshot = engine.snapshot()
+        stalled = stall_age(snapshot)
+        if stalled is not None:
+            reason = f"evaluation stopped {stalled:.0f} s ago"
+        elif snapshot.armed_count == 0:
+            reason = f"no interlocks ({snapshot.source})"
+        else:
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"status": "failed", "reason": reason}, status_code=503)
 
 
 def _add_api(app: FastAPI, engine: Engine) -> None:
@@ -243,8 +253,22 @@ def _add_api(app: FastAPI, engine: Engine) -> None:
         )
 
 
+def _json_only(request: Request) -> None:
+    """Refuse a body not sent as JSON (415).
+
+    A page on another origin can POST ``text/plain`` without the browser
+    asking first; only ``application/json`` needs a preflight this server
+    never answers. Checked here rather than left to the FastAPI version.
+    """
+    kind = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if kind != "application/json":
+        raise HTTPException(415, "send the action as application/json")
+
+
 def _add_actions(app: FastAPI, engine: Engine) -> None:
-    @app.post("/api/arm", response_model=ActionOut)
+    json_only = [Depends(_json_only)]
+
+    @app.post("/api/arm", response_model=ActionOut, dependencies=json_only)
     def arm(body: ActionIn) -> JSONResponse:
         operator = _operator(body)
         name = (body.interlock or "").strip() or None
@@ -257,7 +281,7 @@ def _add_actions(app: FastAPI, engine: Engine) -> None:
         logger.info("%s by %s", message, operator)
         return _answer(ActionOut(ok=True, message=message, armed=armed))
 
-    @app.post("/api/reload", response_model=ActionOut)
+    @app.post("/api/reload", response_model=ActionOut, dependencies=json_only)
     def reload(body: ActionIn) -> JSONResponse:
         operator = _operator(body)
         logger.info("reload asked by %s", operator)

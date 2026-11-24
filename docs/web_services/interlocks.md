@@ -143,7 +143,7 @@ log records who did what.
 
 | Button | What it does | Refused when |
 |---|---|---|
-| **Arm all** | Records what every settings check sees now as the values to hold | A setting has no value yet or its device is disconnected (nothing is armed then), or no interlock holds settings |
+| **Arm all** (shown only when the configuration has a settings check) | Records what every settings check sees now as the values to hold | A setting has no value yet or its device is disconnected (nothing is armed then) |
 | **Arm this interlock** (in the inspector, for an interlock that holds settings) | The same, for that interlock only | As above |
 | **Reload** | Re-reads the running configuration file; every interlock waits for fresh values and every settings check is unarmed again | The file does not validate: the running interlocks are kept |
 

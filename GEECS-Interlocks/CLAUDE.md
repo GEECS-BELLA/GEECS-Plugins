@@ -42,7 +42,9 @@ the code.
   refuse a blank operator (400), log the operator with the outcome, and
   answer the engine's own message (`ActionOut`: 200 done, 409 refused). The
   page asks for the name (remembered in the browser), confirms in
-  the kit's dialog, sends once and never retries. A reload, like a start,
+  the kit's dialog, sends once and never retries. The Arm buttons show only
+  when an enabled interlock holds settings (`armable`): limits come from the
+  file, so a configuration without a settings check has nothing to arm. A reload, like a start,
   leaves every settings check unarmed.
 - **One snapshot, many readers.** The stream and the page draw the
   monitor's snapshot and compute no verdict of their own, so they never
@@ -87,6 +89,16 @@ the code.
   `ExecStart`): it would arm a setting someone had just changed. The server
   refuses it when `NOTIFY_SOCKET` is set (under systemd), exit 2, which the
   unit's `RestartPreventExitStatus` keeps from looping.
+- **A start a restart cannot fix exits 2.** A missing or invalid file, a
+  blank `--config`, no experiment: `serve` logs why and returns
+  `EXIT_REFUSED`, so the unit stops `failed` instead of looping. A blank
+  host argument is no value (the config.ini or `127.0.0.1` default), never
+  every interface. At run time a missing file still reads as no interlocks.
+- **`/healthz` is healthy only while it evaluates something:** 503 with a
+  `reason` when the snapshot is stalled or no interlock is armed.
+- **The actions take JSON only** (`_json_only`, 415 otherwise): a
+  cross-origin `text/plain` POST needs no preflight, so the check is the
+  server's own, not left to the FastAPI version.
 - **The watchdog is fed by evaluations, not by the process.** Under the
   unit (`Type=notify`, `WatchdogSec`), `Monitor._loop` calls `on_tick` after
   each evaluation that succeeds (rate-limited in `Notifier.watchdog`), so a
