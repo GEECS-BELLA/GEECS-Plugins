@@ -643,7 +643,7 @@
         };
         input.addEventListener("change", drawExtra);
         drawExtra();
-        kids.push(field("device", device, "the data folder its frames are read from (the name when empty)"), field("frames", input, "what the input reads: the default measure for those frames is chosen"), extra);
+        kids.push(field("device", device, "the data folder its frames are read from (the name when empty); analysis:<folder> reads an earlier analysis's per-shot files"), field("frames", input, "what the input reads: the default measure for those frames is chosen"), extra);
       }
       var go = button("Open the draft", "primary", function () {
         var stem = String(name.value || "").trim().replace(/\.ya?ml$/i, "");

@@ -67,6 +67,15 @@ Things to check in the preview:
   reports "No file found for shot N".
 - **Does the trace need joining?** A spectrometer split across cameras uses
   `input.siblings` to join them into one trace before the steps run.
+- **Is the input an earlier analysis's output?** Per-shot images or lineouts
+  another analysis wrote under `analysis/ScanNNN/<folder>/` (for example
+  `Scan075_py-magspec-interpSpec_005.txt`) are read by setting
+  `input.folder: analysis:<folder>`, or `analysis:<folder>/<series>` when the
+  folder holds several series. In the new-recipe form, type that name in the
+  device box. The device stays a plain name of your own: it names the
+  columns and the folder the run writes. A shot that analysis did not write
+  is skipped, so run (or rerun) the recipe after that analysis has finished
+  writing its files.
 
 ## 3. Run it on the scan
 

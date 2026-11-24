@@ -74,7 +74,12 @@ top-level `kind` starting `scalar` as a scalar job, any other `kind` as a
 `.himg` job (a recipe has none), else validates a recipe, which refuses
 another `schema_version` and the retired v2 layout (`analyzer:` +
 `image:`); every loader goes through it. `processing_1d` keeps only
-`Data1DType` / `Data1DLoading`, the line input's loading section. Every document carries
+`Data1DType` / `Data1DLoading`, the line input's loading section. A recipe's
+`input.folder` may name an earlier analysis's per-shot outputs,
+`analysis:<folder>[/<series>]` (`ANALYSIS_OUTPUT_PREFIX`, data-utils'
+`OUTPUT_PREFIX` by test; `reads_analysis_output`); its rules are the
+recipe's validator (`_analysis_output_input`), its reading ScanAnalysis'.
+Every document carries
 the same neutral names (`device`, `data_folder`, `effective_output_name`,
 `destructive`, `scan.priority`, `source_id`) so a host lists them
 without asking which it holds. The recipe types the document's frame —

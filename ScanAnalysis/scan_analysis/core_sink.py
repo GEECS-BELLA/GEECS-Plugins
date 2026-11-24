@@ -432,7 +432,7 @@ def _shot_location(
     ``scans/ScanNNN/Dev/Dev.h5`` takes the legacy shot-number stem
     ``ScanNNN_Dev_<number:03d>`` — a name data-utils' shot mapping resolves.
     In a scan-mode run (``file_numbers`` given: the announced shots,
-    ``core_scan.file_numbers``) the number is the shot's announced one, as
+    ``core_source.file_numbers``) the number is the shot's announced one, as
     the mapping reads it back; a shot without one raises ``ValueError``
     rather than take a name that maps to another row. Otherwise it is the
     shot.

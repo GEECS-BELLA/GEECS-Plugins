@@ -299,3 +299,87 @@ class TestBandSummary:
         (band,) = doc.summaries
         assert isinstance(band, BandSummary) and band.percentiles == (0.1, 0.9)
         assert AnalysisRecipe.model_validate(doc.model_dump()) == doc
+
+
+# ------------------------------------------------- an analysis output as input
+
+
+def _output_recipe(**over):
+    document = {
+        "schema_version": 3,
+        "device": "MagSpecLineout",
+        "input": {
+            "kind": "line",
+            "folder": "analysis:py-magspec-interpSpec",
+            "loading": {"data_type": "tsv"},
+        },
+    }
+    for key, value in over.items():
+        if key == "input":
+            document["input"] = {**document["input"], **value}
+        else:
+            document[key] = value
+    return document
+
+
+def test_an_input_may_name_an_analysis_output():
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    recipe = AnalysisRecipe.model_validate(_output_recipe())
+    assert recipe.reads_analysis_output
+    assert recipe.data_folder == "analysis:py-magspec-interpSpec"
+    series = AnalysisRecipe.model_validate(
+        _output_recipe(input={"folder": "analysis:py-ebeam/py-ebeamX"})
+    )
+    assert series.reads_analysis_output
+    plain = AnalysisRecipe.model_validate(
+        _output_recipe(input={"folder": "UC_Cam-interpSpec"})
+    )
+    assert not plain.reads_analysis_output
+
+
+@pytest.mark.parametrize(
+    "over, words",
+    [
+        ({"device": "analysis:py-magspec-interpSpec"}, "put it in input.folder"),
+        ({"input": {"folder": "analysis:"}}, "is not analysis:<folder>"),
+        ({"input": {"folder": "analysis:a/b/c"}}, "is not analysis:<folder>"),
+        ({"input": {"folder": "analysis:../x"}}, "is not analysis:<folder>"),
+        ({"input": {"folder": "analysis:a/.."}}, "is not analysis:<folder>"),
+        ({"output_name": "py-magspec-interpSpec"}, "the folder this recipe writes to"),
+        ({"input": {"file_tail": ".txt"}}, "leave file_tail unset"),
+        ({"input": {"siblings": ["Other"]}}, "siblings does not apply"),
+        (
+            {"inputs": {"bg": {"from_scan": {"statistic": "median"}}}},
+            "from_scan background",
+        ),
+    ],
+)
+def test_an_analysis_output_input_is_refused_in_words(over, words):
+    from pydantic import ValidationError
+
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    with pytest.raises(
+        ValidationError, match=words.replace(".", r"\.").replace("<", "<")
+    ):
+        AnalysisRecipe.model_validate(_output_recipe(**over))
+
+
+def test_a_capture_stack_does_not_apply_to_an_analysis_output():
+    from pydantic import ValidationError
+
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    with pytest.raises(ValidationError, match="device_hdf5 does not apply"):
+        AnalysisRecipe.model_validate(
+            {
+                "schema_version": 3,
+                "device": "Ebeam",
+                "input": {
+                    "kind": "camera",
+                    "folder": "analysis:py-ebeam",
+                    "format": "device_hdf5",
+                },
+            }
+        )
