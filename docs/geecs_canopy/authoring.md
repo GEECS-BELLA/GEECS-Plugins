@@ -271,8 +271,9 @@ unreadable and every write denied. It is not a pattern: `a*`, or a star
 beside names, fails the file's validation, with the same result.
 A grant never widens a device's allow
 list. `hazards` marks roles that need the confirm; its device, family
-and role names match whatever their case and punctuation (`u_shutterplc`
-`do_ch1` marks `U_ShutterPLC` `DO.Ch1`), while a grant's match exactly. A native device's
+and role names match whatever their case, and whatever separator stands
+between words (`.`, space, `-` or `_`): `u_shutterplc` `do_ch1` marks
+`U_ShutterPLC` `DO.Ch1`, but `doch1` does not. A grant's match exactly. A native device's
 family file can also mark a role `confirm: hazard`, a device's `hazard`
 list in `panel_devices.yaml` marks roles of that one device, and a screen
 widget's `confirm` note asks too. Any of the four makes the page ask; the

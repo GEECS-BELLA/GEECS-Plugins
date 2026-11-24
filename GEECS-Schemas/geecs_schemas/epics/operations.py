@@ -85,9 +85,11 @@ class HazardRule(_Scope):
     def asks(self, device: str, family: str | None, role: str) -> bool:
         """Whether this rule names ``role`` of ``device``, by name or by its family (``None``: unknown).
 
-        Every name is compared by the GEECS normalization (case and
-        punctuation folded), because a device binds whatever its spelling:
-        a rule naming ``u_plc`` asks about ``U_PLC``. It fails toward asking.
+        Every name is compared by the GEECS normalization (whatever its case,
+        and whatever separator stands between words: ``.``, space, ``-`` or
+        ``_``), because a device binds whatever that spelling: a rule naming
+        ``u_plc`` ``do_ch1`` asks about ``U_PLC`` ``DO.Ch1``, while ``doch1``
+        names another role. It fails toward asking.
         """
         from geecs_schemas.epics import _normalised as fold
 

@@ -173,7 +173,7 @@ async def test_a_policy_hazard_demands_the_confirm_and_the_route_says_so(env):
 @pytest.mark.parametrize(
     "rule",
     [
-        "{devices: [u_plc], roles: [do.ch1]}",
+        "{devices: [u_plc], roles: [do_ch1]}",
         "{families: [plc digital output], roles: [DO.Ch1]}",
     ],
 )

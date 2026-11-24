@@ -106,7 +106,7 @@ def test_a_grant_and_a_hazard_name_a_db_device_type_and_its_variables():
     assert policy.permits("ann", "U_PLC", "PLC Digital Output", "DO.Ch1")
     assert not policy.permits("ann", "U_PLC", "PLC Digital Output", "DO.Ch2")
     assert policy.hazardous("U_PLC", "PLC Digital Output", "Position.Axis 1")
-    # hazards fold names as GEECS binds them (case, punctuation); grants do not
+    # hazards fold names as GEECS binds them (case, separators); grants do not
     assert policy.hazardous("u_plc", "plc digital output", "position_axis_1")
     assert not policy.permits("ann", "U_PLC", "plc digital output", "DO.Ch1")
     assert not OperatorPolicy().hazardous("U_PLC", "PLC Digital Output", "DO.Ch1")
