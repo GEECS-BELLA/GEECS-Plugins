@@ -607,9 +607,10 @@ design rules"). The rules that are the portal's own:
   (422), never saved where it is: the page asks the name before a first
   change on a shared link. `/plot/api/settings/{name}` names its target
   in the URL, like Save as, and so takes no owner. The name is kept under
-  its own browser key,
-  first borrowing the operator's name every surface shares
-  (`theme-boot.js`'s `GeecsOperator`, only read) when it fits. A link
+  its own browser key (`geecs-portal:set`, the day page's "Plot these
+  scans" too) and asked once; it is never borrowed from the operator's
+  name every surface shares, which would put a write under whoever typed
+  last and trap the "Change" link. A link
   carries `set=`, which opens that set as
   it is now (ruling 3 of the brief: the portal's old URL-carried plot
   state is retired for this page).

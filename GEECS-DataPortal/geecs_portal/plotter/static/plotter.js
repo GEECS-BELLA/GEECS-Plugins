@@ -7,20 +7,19 @@
 
 (function () {
   // The viewer's own settings set: their name, asked once and remembered
-  // by the browser in the form the server stores (settings.set_name). A
-  // first visit borrows the operator's name every surface shares when it
-  // fits (theme-boot.js's GeecsOperator); that name is only read here,
-  // never written or cleared. A page whose script cannot store the name
-  // asks again.
+  // by the browser in the form the server stores (settings.set_name). It is
+  // never borrowed from the operator's name (theme-boot.js's GeecsOperator):
+  // a set chosen from that would put the plot under whoever typed a name
+  // last on any surface, and "Change" could not leave it. A page whose
+  // script cannot store the name asks again.
   const OWN_KEY = "geecs-portal:set";
   const folded = (name) => name.trim().split(/\s+/).join(" ").toLowerCase();
   const SET_NAME = /^[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?$/;
   function ownName() {
-    let own = "";
-    try { own = localStorage.getItem(OWN_KEY) || ""; } catch (_) { /* no storage: asked */ }
-    for (const name of [folded(own), folded(window.GeecsOperator.get())]) {
+    try {
+      const name = folded(localStorage.getItem(OWN_KEY) || "");
       if (SET_NAME.test(name)) return name;
-    }
+    } catch (_) { /* no storage: asked */ }
     return "";
   }
   function remember(name) {

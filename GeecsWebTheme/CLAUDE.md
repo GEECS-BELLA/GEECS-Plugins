@@ -76,8 +76,8 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   through it; what a write sends, and whether a name is required, stay the
   surface's own. Its `OLD_OPERATOR_KEYS` read-through copies a name from the
   per-surface keys it replaced while the shared key is unset. Pinned in
-  `tests/test_operator_name.py`: the helper under node, no surface naming an
-  old key, and every page that uses it loading the boot script undeferred.
+  `tests/test_operator_name.py`: the helper under node, no surface's
+  `localStorage` call naming the shared or an old key, and every page that uses it loading the boot script undeferred.
 
 ## Line plots are Plotly (the maintainer's ruling, 2026-11-05)
 

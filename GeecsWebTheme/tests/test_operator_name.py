@@ -8,8 +8,9 @@ script now owns the one key and the helper. Pinned here:
 - the helper itself, run under node: the shared key, the read-through of the
   old per-surface keys while it is unset, a cleared name staying cleared,
   storage that throws;
-- no surface script or template names the shared key or an old key: the
-  boot script's fallback list is their only copy;
+- no surface script or template reads or writes ``localStorage`` under the
+  shared key or an old key: the boot script's fallback list is the only
+  copy of the old ones;
 - every page that uses the helper loads ``theme-boot.js`` undeferred, so the
   helper exists before any page script runs.
 """
@@ -24,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from geecs_web_theme import theme_boot_js
-from geecs_web_theme.testing import node_available
+from geecs_web_theme.testing import _JINJA_COMMENT, node_available
 
 _REPO = Path(__file__).resolve().parents[2]
 
@@ -38,7 +39,8 @@ _OLD_KEYS = (
     "geecs.author",
 )
 
-#: Each surface's template and static folders.
+#: Each surface's template and static folders. Its own list: the colour
+#: guard's ``_SURFACES`` names files, not folders, and lives in a test module.
 _SURFACES = {
     "GeecsScanner": ["GeecsScanner/geecs_scanner"],
     "GEECS-DataPortal": [
@@ -56,7 +58,7 @@ def _files(root: str, folder: str, suffix: str) -> list[Path]:
 
 
 def _strip_jinja_comments(text: str) -> str:
-    return re.sub(r"\{#.*?#\}", " ", text, flags=re.S)
+    return _JINJA_COMMENT.sub(" ", text)
 
 
 # ---------------------------------------------------------------- the helper
@@ -160,14 +162,36 @@ def _surface_sources() -> list[Path]:
 @pytest.mark.parametrize(
     "path", _surface_sources(), ids=lambda p: str(p.relative_to(_REPO))
 )
-def test_no_surface_names_an_operator_key(path: Path) -> None:
-    """A surface reads and writes the name through ``GeecsOperator`` only."""
-    text = path.read_text()
-    for key in _OLD_KEYS:
-        assert key not in text, f"{path.name} still names {key!r}"
-    assert not re.search(rf"[\"'`]{re.escape(_KEY)}[\"'`]", text), (
-        f"{path.name} names the shared key; use window.GeecsOperator"
+def test_no_surface_stores_under_an_operator_key(path: Path) -> None:
+    """A surface reads and writes the name through ``GeecsOperator`` only.
+
+    Only a ``localStorage`` access is judged: its key written in the call,
+    or a constant the call names. A quoted ``geecs.operator`` elsewhere (the
+    run metadata key of that name) is not a storage access.
+    """
+    assert _storage_keys(path.read_text()) & {_KEY, *_OLD_KEYS} == set(), path.name
+
+
+def _storage_keys(text: str) -> set[str]:
+    """Every key a script's ``localStorage`` calls name, constants resolved."""
+    constants = dict(
+        re.findall(r"(?:const|let|var)\s+(\w+)\s*=\s*[\"'`]([^\"'`]+)[\"'`]", text)
     )
+    keys = set()
+    for arg in re.findall(r"localStorage\.\w+\(\s*([^,)]+)", text):
+        arg = arg.strip()
+        literal = re.fullmatch(r"[\"'`]([^\"'`]+)[\"'`]", arg)
+        keys.add(literal.group(1) if literal else constants.get(arg, arg))
+    return keys
+
+
+def test_the_storage_guard_bites() -> None:
+    """The guard sees a literal key, a constant, and not a metadata string."""
+    assert _storage_keys('localStorage.getItem("geecs.author")') == {"geecs.author"}
+    assert _storage_keys(
+        'const K = "geecs.operator"; try { localStorage.setItem(K, v); } catch (e) {}'
+    ) == {"geecs.operator"}
+    assert _storage_keys('md["geecs.operator"] = name;') == set()
 
 
 def _users(root: str) -> set[str]:
