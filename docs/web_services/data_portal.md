@@ -32,7 +32,14 @@ number, mode, shot count, status, start time) and how to move:
 The open tab is in the page's URL, so a link you copy opens the same tab.
 The Plot and Images tabs keep your choices in your settings set instead:
 a small file on the portal's own host (its service state directory), not
-on the data share.
+on the data share, saved as you click. To keep a set for others, or for
+yourself on another portal, use **Save as** in the Settings drawer: it is
+committed to the configs repo under your name (as a scanner preset is) and
+opens as `shared/<name>` on every portal of the experiment. The drawer's
+set picker searches as you type, every word in any order, so a long list
+of shared sets stays easy to find. Changing a shared set copies it into
+your own set; the shared one changes only by another Save as onto its name,
+which asks first.
 
 ## The tabs
 

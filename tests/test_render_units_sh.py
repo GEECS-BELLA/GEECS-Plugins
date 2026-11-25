@@ -41,6 +41,7 @@ TEMPLATES = [
     REPO_ROOT / "GeecsControlRoom/deploy/geecs-control-room.service",
     REPO_ROOT / "GeecsConfigurator/deploy/geecs-configurator.service",
     REPO_ROOT / "GeecsAnalysisWorker/deploy/geecs-analysis-worker.service",
+    REPO_ROOT / "GEECS-Interlocks/deploy/geecs-interlocks.service",
 ]
 # The per-experiment instance templates (`<unit>@<Instance>`), beside the above.
 INSTANCE_TEMPLATES = [
@@ -50,6 +51,7 @@ INSTANCE_TEMPLATES = [
     REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service",
     REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service",
     REPO_ROOT / "GeecsScanner/deploy/geecs-scanner@.service",
+    REPO_ROOT / "GEECS-Interlocks/deploy/geecs-interlocks@.service",
 ]
 TEMPLATES += INSTANCE_TEMPLATES
 
@@ -304,6 +306,9 @@ def test_bootstrap_instance_mode_enables_only_instance_units(tmp_path: Path) -> 
     assert sorted(units) == sorted(
         f"{t.name.removesuffix('.service')}PulsedWire.service"
         for t in INSTANCE_TEMPLATES
+        # Rendered by render_units.sh, not yet stood up by --experiment
+        # (GEECS-Interlocks/DEPLOYMENT.md: its instance path is owed).
+        if t.name != "geecs-interlocks@.service"
     )
     assert "config.ini" not in result.stdout  # the shared account file is never touched
 

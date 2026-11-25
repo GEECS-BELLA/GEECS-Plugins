@@ -68,11 +68,11 @@ def test_a_scope_alone_is_a_row_of_trace_tiles(client: TestClient, scope: Path) 
     assert 'data-bin="1"' in page and 'data-bin="2"' in page
     assert "only camera" not in page
     # A scope's own controls: its channel; no colour map, clean-ups or ROI.
-    assert 'name="channel"' in page and ">Channel 1<" in page
+    assert 'name="channel"' in page and "data-channel-box> Channel 1<" in page
     assert 'name="cmap"' not in page and 'name="hits"' not in page
     assert "data-roi-open" not in page
     assert 'id="bigview"' in page and 'id="big-trace"' in page
-    assert "images.trace_tile(" in page  # the notebook code reads the traces
+    assert "images.channel_traces(" in page  # the notebook code reads the traces
 
 
 def test_a_scope_stacks_under_a_camera(
@@ -93,8 +93,10 @@ def test_the_channel_saves_per_row(
 ) -> None:
     page = post(client, scan=1, page="images", device=SCOPE, channel="1")
     saved = json.loads((settings_dir / "default.json").read_text())
-    assert saved["image_channel"] == 1
-    assert '<option value="1" selected>Channel 1</option>' in page
+    assert saved["image_channels"] == [1] and "image_channel" not in saved
+    assert (
+        '<input type="checkbox" value="1" data-channel-box checked> Channel 1' in page
+    )
     assert "channel=1" in page
 
 
@@ -167,7 +169,7 @@ def test_the_strip_route_lists_a_scopes_tiles(client: TestClient, scope: Path) -
     assert response.status_code == 200, response.text
     body = response.json()
     assert len(body["tiles"]) == 2 and "channel=1" in body["tiles"][0]["url"]
-    assert "trace_tile" in body["code"]
+    assert "channel_traces" in body["code"]
 
 
 def test_a_camera_has_no_trace_route(client: TestClient, scope: Path) -> None:
@@ -325,3 +327,34 @@ def test_other_units_tick_as_plain_numbers(units):
     from geecs_portal.plotter.routes.images import tick_formatter
 
     assert tick_formatter(units) is None
+
+
+def test_a_one_channel_spectrometer_ignores_a_scopes_saved_channel(
+    client: TestClient, camera: Path, settings_dir: Path
+) -> None:
+    # A spectrometer's per-shot text files: one channel (wavelength, counts).
+    spectro = camera / "SPEC-Thorlabs"
+    spectro.mkdir()
+    for shot in (1, 2, 3, 4):
+        (spectro / f"Scan001_SPEC-Thorlabs_{shot:03d}.txt").write_text(
+            "".join(f"{700 + i}\t{shot * i}\r\n" for i in range(5))
+        )
+    # The row last showed a scope on channel 3, then the spectrometer.
+    post(client, scan=1, page="images", device=SCOPE, channel="3")
+    page = post(client, scan=1, page="images", device="SPEC-Thorlabs", strip="shots")
+    assert "channel=0" in page and "channel=3" not in page
+    tile = client.get(
+        "/api/images/tile.png",
+        params={
+            "day": DAY,
+            "scan": 1,
+            "device": "SPEC-Thorlabs",
+            "strip": "shots",
+            "index": 2,
+            "channel": 0,
+        },
+    )
+    assert tile.status_code == 200, tile.text
+    # The saved channel stays the scope's.
+    saved = json.loads((settings_dir / "default.json").read_text())
+    assert saved["image_channels"] == [3]

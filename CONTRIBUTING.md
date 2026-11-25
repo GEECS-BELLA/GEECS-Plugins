@@ -354,8 +354,8 @@ CI (`.github/workflows/unit-tests.yml`, one Ubuntu job) runs: root
 `tests/`, ScanAnalysis, GEECS-Data-Utils and GEECS-Schemas
 from the **root env**, and GeecsWebTheme, GeecsLogbook, GeecsScanner,
 GeecsControlRoom, GeecsConfigurator, GeecsAnalysisWorker, GEECS-DataPortal, GEECS-Core, GeecsCAGateway, GeecsBluesky (pure unit
-tests, `qs-client` extra included), GEECS-MCP and GeecsPvaGateway each
-from its **own env**. Not in CI — run locally via `scripts/check.sh` when
+tests, `qs-client` extra included), GEECS-Interlocks, GEECS-MCP and
+GeecsPvaGateway each from its **own env**. Not in CI — run locally via `scripts/check.sh` when
 touching it: GEECS-LogTriage. Everything is hermetic — no lab network, no
 hardware.
 `integration`-marked tests need the lab and are deselected by default;

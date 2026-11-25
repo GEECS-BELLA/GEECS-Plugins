@@ -532,12 +532,36 @@ def home(request: Request, experiment: str = "", kind: str = "", id: str = "") -
         docs = store.list(kind, experiment) if kind else []
     except NotFound:
         docs = []
+    try:
+        folder = store.folder(kind, experiment) if kind else None
+    except NotFound:  # a kind kept in code (the family files) has no folder
+        folder = None
+    docs = _own_first(request.app.state.commit, folder, docs)
     return _TEMPLATES.TemplateResponse(request, "home.html", {
         "settings": settings, "experiments": known, "experiment": experiment, "catalogue": catalogue,
         "kind": kind, "docs": docs, "doc_id": id if id in {d.id for d in docs} else "",
         "commits": request.app.state.repo is not None, "scanner": experiment in request.app.state.consumers.scanners, "applies": setups.applies_for(settings, experiment),
-        "not_owned": _not_owned(request.app.state.commit, catalogue, kind, experiment, store.folder(kind, experiment) / id if id in {d.id for d in docs} else None),
+        "not_owned": _not_owned(request.app.state.commit, catalogue, kind, experiment, folder / id if folder is not None and id in {d.id for d in docs} else None),
     })  # fmt: skip
+
+
+def _own_first(commit: CommitPath | None, folder: Path | None, docs: list[Entry]) -> list[Entry]:  # fmt: skip
+    """The documents this box may save first, each half in the store's order.
+
+    In the shared analysis tree a box owns a few facility folders among many,
+    and a listing sorted by name put its own documents below every other
+    facility's. Without the commit path, or where it owns all or none, the
+    order is the store's, as it is for a kind with no folder (kept in code).
+    """
+    if commit is None or folder is None or not docs:
+        return docs
+    root = commit.store.root
+
+    def owned(doc: Entry) -> bool:
+        path = folder / doc.id
+        return path.is_relative_to(root) and commit.ownership.owns_file(root, path.relative_to(root).as_posix())  # fmt: skip
+
+    return sorted(docs, key=lambda d: not owned(d))
 
 
 def _not_owned(commit: CommitPath | None, catalogue: list[KindInfo], kind: str, experiment: str, opened: Path | None = None) -> str:  # fmt: skip

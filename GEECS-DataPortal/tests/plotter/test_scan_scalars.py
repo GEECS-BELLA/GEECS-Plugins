@@ -10,12 +10,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from geecs_portal.plotter.settings import (
-    MAX_SCALARS,
-    PlotterSettings,
-    SettingsError,
-    merged,
-)
+from geecs_schemas.plot_settings import MAX_SCALARS, PlotterSettings
+from geecs_portal.plotter.settings import SettingsError, merged
 from tests.plotter.conftest import CAM, SCAN_VARIABLE, post
 
 CHARGE = "U_ICT charge"  # 10, 12, NaN, 30 in Scan001

@@ -125,6 +125,30 @@ is the one allowance for that (the harness's `--nonuniform-axis`), and
 `tests/test_core_stitch.py` compares the two routes through it, everything
 else exact.
 
+An **earlier analysis's per-shot outputs** are an input too: `input.folder`
+`analysis:<folder>` (the folder's own series) or `analysis:<folder>/<series>`
+reads `analysis/ScanNNN/<folder>/` — the `Scan{NNN}_{stem}_{shot}.{ext}`
+files a pipeline wrote there, `py-magspec-interpSpec`'s spectra or an image
+series — through data-utils' reader of them (`io.analysis_outputs`, the one
+the portal's Images page draws them with). `source_directory` resolves the
+folder by path; `output_references` maps each row's shot to its series' file
+of that number (the announced shot on a scan-mode run, `file_numbers`), only
+when it exists — a shot the earlier run did not write is missing, never a
+neighbour's file — and an output the scan has no files of raises
+`OutputUnavailable`, which the analyzer reports as `no_data`. The recipe's
+`device` stays a plain name, since it names what the run writes; the schema
+refuses an `analysis:` device, an output folder equal to the input's, a
+`file_tail` (the series picks the files), a capture stack and stitched
+siblings for such an input, and a `from_scan` background, which is a
+device's raw frames (pinned in GEECS-Schemas' `tests/test_analysis_recipe.py`;
+the reading in `tests/test_core_analysis_input.py`). Its `{scan_dir}`
+is that output folder. The producer is outside this run (no recipe writes
+`Scan{NNN}_{stem}_{shot}` files; the `py-*` folders are another pipeline's),
+so nothing orders the two: run before the producer, the task is `no_data`;
+mid-way, it analyses the shots present and logs how many have no file. A
+task queue or watch records either and does not come back, so such a recipe
+is rerun (redo) once its producer has finished.
+
 `core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
 for one explicit run. A measure that reads a recorded column per shot
 (`pipeline.shot_scalar_columns`: the magspec field) gets its finite cells on
@@ -163,7 +187,12 @@ it** (`geecs_analysis.summaries.waterfall.display_trace`: block means above
 recorded length with any one reduced skip the waterfall with a note); a scanned per-shot run
 keeps one `RunningAverage` per bin, folded in row order — the order the old
 `group_shots`/`average_results` pair reduced in, so the numbers are
-identical; a raw-bin run keeps each bin's measurement. A camera frame is
+identical; a raw-bin run keeps each bin's measurement. A line recipe with a
+kind that consumes `shots` (the `band`) also keeps every shot's display
+trace with its bin (`ProductPlan.shots`, the bin's position, or `None` on
+a noscan; a sorted waterfall's unbinned scan still groups them by bin; a
+bin whose recordings differ in length with any one reduced is left out
+with a note) — a raw-bin run has no shots and keeps none. A camera frame is
 folded and dropped, so a camera scan holds one running frame per product
 however long it is (memory target: bins × one frame or trace + the
 waterfall's display rows + the in-flight window; `test_core_streaming.py`
@@ -182,7 +211,7 @@ resolves the sibling `analysis/ScanNNN/<output_name>/Array{1,2}DScanAnalyzer/`
 directory from an existing raw scan folder, refuses path components and
 symlinks that escape it, and never creates `scans/ScanNNN/`. File names keep
 the legacy shapes (`{device}_{id}_processed.h5`, `_processed_visual.png`,
-`_averaged_image_grid.png`, `_summary_waterfall.png`) so `parse_output_filename`
+`_averaged_image_grid.png`, `_summary_waterfall.png`, `_summary_band.png`) so `parse_output_filename`
 and MCP's display-file contract are unchanged. A summary kind that computes
 scan-level numbers (`scalar_fit`) also gets `<stem>.json` beside its PNG
 (nonfinite as `null`; never a display file; classified `summary` by the
@@ -390,7 +419,7 @@ AnalysisRecipe                    # One YAML per diagnostic (schema_version 3)
   scan: RecipeRuntime             # priority (100 default; lower runs first),
                                   #   average_frames_first, save, workers
   figure: FigureStyle             # the per-frame draw
-  summaries: [Summary]            # image_grid | waterfall | average | scalar_fit
+  summaries: [Summary]            # image_grid | waterfall | average | band | scalar_fit
 
 AnalysisGroup                     # One YAML per group under groups/
   analyzers: List[AnalyzerRef]    # bare stems or {ref, enabled, priority}
@@ -645,8 +674,8 @@ In practice:
   the shot's raw file (`core_sink.write_shot_table`), where the legacy
   analyzer wrote it and follow-on analyzers read it through a recipe
   input's `folder`. It creates no directory. Moving derived artifacts
-  under `analysis/` and letting inputs read from there is a separate,
-  undecided design question. The second exception (the HASO arc brief the
+  under `analysis/` is a separate, undecided design question; reading them
+  from there is not (an `analysis:<folder>` input, above). The second exception (the HASO arc brief the
   owner approved 2026-09-28): the `himg_to_stack` job writes
   the device's capture stack `<device>/<device>.h5` beside the `.himg`
   sources — the one place every stack reader looks, by the file-plugin
@@ -671,7 +700,7 @@ In practice:
   into `scans/ScanNNN/<output_name><suffix>/<raw stem>.png|.tsv` by
   `core_sink.write_sibling_outputs`, byte for byte the legacy analyzer's
   per-shot files (a capture-stack frame gets the shot-number stem — the
-  announced shot in scan mode, `core_scan.file_numbers`, as data-utils maps
+  announced shot in scan mode, `core_source.file_numbers`, as data-utils maps
   it back; the FROG sidecar too — where legacy overwrote one file named by
   the stack), whatever `save` says: the scan folder must exist and the suffix
   folder is the one directory created (`mkdir(exist_ok=True)`). A failed

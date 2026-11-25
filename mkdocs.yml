@@ -52,6 +52,7 @@ nav:
       - Logbook: web_services/logbook.md
       - Control Room: web_services/control_room.md
       - Configurator: web_services/configurator.md
+      - Interlocks: web_services/interlocks.md
 
   # Purpose-grouped tabs. Each group opens on its section-index landing
   # page (navigation.indexes) and holds one section per package, so the

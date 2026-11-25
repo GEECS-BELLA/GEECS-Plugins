@@ -325,7 +325,8 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
     Every single product stores its data; each bin's figure is the recipe's
     per-frame draw titled by position. The scan-level figures are the
     recipe's ``summaries`` in order, each drawn by its registered kind from
-    the products it consumes (the ordered panels, or the noscan average) and
+    the products it consumes (the ordered panels, the noscan average, or
+    every shot at its bin's position) and
     skipped without a note when this run produced none of those. Summary
     figures are the display files, except a trace's averaged figure: the
     legacy line wrapper never listed it, and the route comparison holds the
@@ -337,7 +338,7 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
     figure and are returned as notes; data/write errors propagate. Scalar
     persistence is independent of this sink and of ``save``.
     """
-    if not spec.save or not (plan.singles or plan.summary):
+    if not spec.save or not (plan.singles or plan.summary or plan.shots):
         return SavedProducts((), (), plan.notes)
     device = _component(spec.device, "Diagnostic name")
     line = spec.line
@@ -386,6 +387,10 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
             if average is None:
                 continue
             panels = (average,)
+        elif definition.consumes == "shots":
+            if not plan.shots:
+                continue
+            panels = plan.shots
         else:
             if not plan.summary:
                 continue
@@ -427,7 +432,7 @@ def _shot_location(
     ``scans/ScanNNN/Dev/Dev.h5`` takes the legacy shot-number stem
     ``ScanNNN_Dev_<number:03d>`` — a name data-utils' shot mapping resolves.
     In a scan-mode run (``file_numbers`` given: the announced shots,
-    ``core_scan.file_numbers``) the number is the shot's announced one, as
+    ``core_source.file_numbers``) the number is the shot's announced one, as
     the mapping reads it back; a shot without one raises ``ValueError``
     rather than take a name that maps to another row. Otherwise it is the
     shot.

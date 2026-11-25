@@ -6,11 +6,12 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from geecs_portal.plotter import settings as settings_module
+from geecs_schemas.plot_settings import PlotterSettings
 from geecs_portal.plotter.settings import (
-    PlotterSettings,
     SettingsError,
     SettingsStore,
     merged,
@@ -161,32 +162,44 @@ def test_a_pick_saves_the_set_and_the_url_stays_short(
     assert saved["y"] == "U_ICT charge"
 
 
-def test_save_as_writes_a_new_set_and_opens_it(
-    client: TestClient, settings_dir: Path
+def test_save_as_shares_the_set_and_opens_it(
+    client: TestClient, settings_dir: Path, shared_dir: Path, configurator
 ) -> None:
-    page = post(client, "/save-as", scan=1, yf="gas", save_as="Gas-Scan")
-    assert 'name="set" value="gas-scan"' in page
-    assert '<option value="gas-scan" selected>gas-scan</option>' in page
-    assert json.loads((settings_dir / "gas-scan.json").read_text())["y_filter"] == "gas"
+    """Save as commits the set through the configurator under the viewer's name."""
+    page = post(client, "/save-as", scan=1, yf="gas", save_as="Gas Scan", owner="ada")
+    assert 'name="set" value="shared/gas-scan"' in page
+    assert '<option value="shared/gas-scan" selected>shared/gas-scan</option>' in page
+    saved = yaml.safe_load((shared_dir / "gas-scan.yaml").read_text())
+    assert saved["y_filter"] == "gas"
+    assert configurator.saves == [("gas-scan", "ada")]
+    assert not (settings_dir / "gas-scan.json").exists()  # never this host's file
     assert not (settings_dir / "default.json").exists()  # the source is untouched
 
 
-def test_save_as_refuses_a_name_already_saved(
-    client: TestClient, settings_dir: Path
+def test_save_as_refuses_a_name_already_shared(
+    client: TestClient, shared_dir: Path
 ) -> None:
     post(client, "/save-as", scan=1, yf="first", save_as="mine")
     response = client.post(
         "/save-as",
-        data={"day": "2026-10-02", "scan": "1", "set": "default", "save_as": "mine"},
+        data={
+            "day": "2026-10-02",
+            "scan": "1",
+            "set": "default",
+            "owner": "default",
+            "save_as": "mine",
+        },
     )
     assert response.status_code == 422
     assert "already saved" in response.text
-    assert json.loads((settings_dir / "mine.json").read_text())["y_filter"] == "first"
+    assert yaml.safe_load((shared_dir / "mine.yaml").read_text())["y_filter"] == "first"
 
 
 def test_switching_sets_opens_the_other_one(client: TestClient) -> None:
     post(client, "/save-as", scan=1, y="U_ICT charge", xauto="false", x="", save_as="b")
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1, "set": "b"}).text
+    page = client.get(
+        "/", params={"day": "2026-10-02", "scan": 1, "set": "shared/b"}
+    ).text
     assert '<option value="" selected>shot #</option>' in page
     other = client.get(
         "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
@@ -225,7 +238,10 @@ def test_the_api_lists_and_saves_sets(client: TestClient, settings_dir: Path) ->
     assert saved.json()["x_filter"] == "jet"
     assert client.get("/api/settings/default").json()["x_filter"] == "jet"
     listing = client.get("/api/settings").json()
-    assert listing == {"folder": str(settings_dir), "sets": ["default"]}
+    assert listing == {"folder": str(settings_dir), "sets": ["default"], "shared": []}
+    post(client, "/save-as", scan=1, xf="jet", save_as="jet")
+    assert client.get("/api/settings").json()["shared"] == ["shared/jet"]
+    assert client.get("/api/settings/shared/jet").json()["x_filter"] == "jet"
 
 
 def test_the_api_refuses_a_bad_name(client: TestClient) -> None:
@@ -266,6 +282,7 @@ def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> 
             "day": "2026-10-02",
             "scan": "1",
             "set": "default",
+            "owner": "default",
             "save_as": "jet/scan",
         },
     )
@@ -282,15 +299,16 @@ def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> 
     assert closed in client.get("/?set=default").text  # otherwise it stays shut
 
 
-def test_the_set_list_says_how_to_add_one(client: TestClient) -> None:
-    """With only "default", the rail says picks save themselves and how to add a set."""
+def test_the_set_list_says_what_save_as_does(client: TestClient) -> None:
+    """The drawer says picks save themselves here and Save as shares a copy."""
     page = client.get("/?set=default").text
-    assert "saves into your own set" in page
-    assert "Use Save as" in page
+    assert "saves into your own set on this host" in page
+    assert "Save as shares a copy" in page
+    assert 'label="Shared (configs repo)"' not in page  # no group with none shared
     post(client, "/save-as", scan=1, save_as="HTU jet scan")
     page = client.get("/?set=default").text
-    assert '<option value="htu jet scan">htu jet scan</option>' in page
-    assert "Use Save as" not in page
+    shared = page.split('label="Shared (configs repo)"')[1].split("</optgroup>")[0]
+    assert '<option value="shared/htu-jet-scan">shared/htu-jet-scan</option>' in shared
 
 
 def test_a_store_problem_does_not_blame_the_name(
@@ -318,7 +336,13 @@ def test_a_taken_name_is_marked_on_the_box(client: TestClient) -> None:
     post(client, "/save-as", scan=1, save_as="mine")
     response = client.post(
         "/save-as",
-        data={"day": "2026-10-02", "scan": "1", "set": "default", "save_as": "mine"},
+        data={
+            "day": "2026-10-02",
+            "scan": "1",
+            "set": "default",
+            "owner": "default",
+            "save_as": "mine",
+        },
     )
     assert 'aria-invalid="true"' in response.text
     assert "already saved" in response.text
@@ -350,9 +374,9 @@ def test_starting_bare_reopens_the_last_scan(client: TestClient) -> None:
 def test_switching_sets_opens_that_sets_scan(client: TestClient) -> None:
     post(client, "/save-as", scan=2, save_as="second")
     post(client, scan=1)  # default moves on to Scan001
-    page = client.get("/", params={"set": "second"}).text
+    page = client.get("/", params={"set": "shared/second"}).text
     assert "Scan002" in page
-    assert 'name="set" value="second"' in page
+    assert 'name="set" value="shared/second"' in page
 
 
 def test_a_set_that_never_opened_a_scan_is_the_empty_form(client: TestClient) -> None:
@@ -428,20 +452,27 @@ def test_a_bad_y_count_is_refused(value: str) -> None:
         merged(PlotterSettings(), {"ycount": value})
 
 
-def test_replacing_a_saved_set_needs_the_dialogs_yes(
-    client: TestClient, settings_dir: Path
+def test_replacing_a_shared_set_needs_the_dialogs_yes(
+    client: TestClient, shared_dir: Path, configurator
 ) -> None:
-    """Save as onto a saved name replaces it only with overwrite=true."""
-    post(client, "/save-as", scan=1, yf="first", save_as="mine")
+    """Save as onto a shared name replaces it only with overwrite=true."""
+    post(client, "/save-as", scan=1, yf="first", save_as="mine", owner="ada")
     page = post(
-        client, "/save-as", scan=2, yf="second", save_as="Mine", overwrite="true"
+        client,
+        "/save-as",
+        scan=2,
+        yf="second",
+        save_as="Mine",
+        overwrite="true",
+        owner="bo",
     )
-    assert 'name="set" value="mine"' in page
-    saved = json.loads((settings_dir / "mine.json").read_text())
+    assert 'name="set" value="shared/mine"' in page
+    saved = yaml.safe_load((shared_dir / "mine.yaml").read_text())
     assert (saved["y_filter"], saved["scan"]) == ("second", 2)
+    assert configurator.saves == [("mine", "ada"), ("mine", "bo")]
 
 
-def test_the_page_offers_saved_names_and_asks_before_replacing(
+def test_the_page_offers_shared_names_and_asks_before_replacing(
     client: TestClient,
 ) -> None:
     post(client, "/save-as", scan=1, save_as="htu jet scan")
@@ -449,7 +480,7 @@ def test_the_page_offers_saved_names_and_asks_before_replacing(
         "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
     ).text
     assert 'list="saved-sets"' in page
-    assert '<option value="htu jet scan">' in page.split('id="saved-sets"')[1]
+    assert '<option value="htu-jet-scan">' in page.split('id="saved-sets"')[1]
     dialog = page.split('<dialog id="replace-set"')[1].split("</dialog>")[0]
     assert "autofocus>Keep it</button>" in dialog  # focus never on Replace
     assert 'name="overwrite" value="true">Replace</button>' in dialog

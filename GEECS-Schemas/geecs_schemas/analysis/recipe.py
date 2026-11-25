@@ -93,6 +93,24 @@ class MeasureRef(SchemaModel):
 
 # -------------------------------------------------------------------- input
 
+#: What starts an input folder that names an analysis run's per-shot outputs
+#: (``{day}/analysis/ScanNNN/<folder>/``) instead of a folder under
+#: ``scans/ScanNNN/``: ``analysis:<folder>`` (the folder's own series) or
+#: ``analysis:<folder>/<series>``. The same prefix as data-utils'
+#: ``io.analysis_outputs.OUTPUT_PREFIX``, the reader that resolves it.
+ANALYSIS_OUTPUT_PREFIX = "analysis:"
+
+
+def is_analysis_output(folder: Optional[str]) -> bool:
+    """Whether an input folder names an analysis output rather than a scan subfolder."""
+    return bool(folder) and str(folder).startswith(ANALYSIS_OUTPUT_PREFIX)
+
+
+def _one_part(part: str) -> bool:
+    return (
+        bool(part) and part not in {".", ".."} and "/" not in part and "\\" not in part
+    )
+
 
 class _InputBase(SchemaModel):
     #: Declared here so ``kind`` stays the first key of every input; each
@@ -102,7 +120,10 @@ class _InputBase(SchemaModel):
         None,
         description=(
             "Data subfolder under scans/ScanNNN/ when it differs from the "
-            "device (stitched or post-processed outputs in a sibling folder)."
+            "device (stitched or post-processed outputs in a sibling folder), "
+            "or analysis:<folder> to read the per-shot files an earlier "
+            "analysis wrote under analysis/ScanNNN/<folder>/ "
+            "(analysis:<folder>/<series> when the folder holds several)."
         ),
     )
     file_tail: Optional[str] = Field(
@@ -402,6 +423,76 @@ class AverageSummary(_SummaryBase):
     )
 
 
+class BandSummary(_SummaryBase):
+    """A centre line with the shot-to-shot spread as a band, per bin or per scan.
+
+    Every shot's trace is kept; per sample, ``mean`` draws ± ``sigma``
+    standard deviations (ddof 1) and ``median`` the band between
+    ``percentiles``, each over the shots whose sample is not NaN. On a
+    parameter scan each bin gets its own line and band (``layout``); on a
+    noscan, one line and band over every shot. A run that averages frames
+    before analysis has no shots, so draws none.
+    """
+
+    frame_ndim: ClassVar[frozenset[int]] = frozenset({1})
+
+    kind: Literal["band"] = Field(
+        "band",
+        description="A centre line with the shot-to-shot spread as a band.",
+    )
+    statistic: Literal["mean", "median"] = Field(
+        "mean",
+        description=(
+            "'mean' draws mean ± sigma standard deviations; 'median' draws "
+            "the median between the percentiles."
+        ),
+    )
+    sigma: float = Field(
+        1.0,
+        gt=0,
+        description="Band half-width in standard deviations (statistic: mean).",
+    )
+    percentiles: Tuple[float, float] = Field(
+        (0.25, 0.75),
+        description=(
+            "Band (low, high) as fractions in [0, 1] (statistic: median); "
+            "the default is the quartiles."
+        ),
+    )
+    layout: Literal["overlay", "panels"] = Field(
+        "overlay",
+        description=(
+            "On a parameter scan: 'overlay' draws every bin on one axes, a "
+            "colour per bin; 'panels' one panel per bin with a shared y axis."
+        ),
+    )
+    columns: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Panels per row (layout: panels); unset squares the grid.",
+    )
+    band_color: Optional[str] = Field(
+        None,
+        description=(
+            "Band colour (any matplotlib colour); unset is gray, except "
+            "overlay bands, which take their line's colour."
+        ),
+    )
+    band_alpha: float = Field(0.3, gt=0, le=1, description="Band opacity, 0 to 1.")
+    min_shots: int = Field(
+        2,
+        ge=1,
+        description="Draw a bin only when at least this many shots reached it.",
+    )
+
+    @model_validator(mode="after")
+    def _ordered_percentiles(self) -> "BandSummary":
+        low, high = self.percentiles
+        if not 0 <= low < high <= 1:
+            raise ValueError("percentiles must satisfy 0 <= low < high <= 1")
+        return self
+
+
 class ScalarFitSummary(_SummaryBase):
     """A straight-line fit of measured scalars against the scan position.
 
@@ -434,7 +525,13 @@ class ScalarFitSummary(_SummaryBase):
 
 
 Summary = Annotated[
-    Union[ImageGridSummary, WaterfallSummary, AverageSummary, ScalarFitSummary],
+    Union[
+        ImageGridSummary,
+        WaterfallSummary,
+        AverageSummary,
+        BandSummary,
+        ScalarFitSummary,
+    ],
     Field(discriminator="kind"),
 ]
 
@@ -443,6 +540,7 @@ SUMMARY_KINDS: Dict[str, type[_SummaryBase]] = {
     "image_grid": ImageGridSummary,
     "waterfall": WaterfallSummary,
     "average": AverageSummary,
+    "band": BandSummary,
     "scalar_fit": ScalarFitSummary,
 }
 
@@ -584,8 +682,13 @@ class AnalysisRecipe(VersionedSchemaModel):
 
     @property
     def data_folder(self) -> str:
-        """The subfolder under scans/ScanNNN/ holding the files: ``input.folder`` or the device."""
+        """Where the files are: ``input.folder`` or the device (a subfolder of scans/ScanNNN/, or an ``analysis:`` output)."""
         return self.input.folder or self.device
+
+    @property
+    def reads_analysis_output(self) -> bool:
+        """Whether the input is an earlier analysis's per-shot outputs (``analysis:<folder>``)."""
+        return is_analysis_output(self.input.folder)
 
     @property
     def destructive(self) -> bool:
@@ -644,6 +747,55 @@ class AnalysisRecipe(VersionedSchemaModel):
         return self
 
     @model_validator(mode="after")
+    def _analysis_output_input(self) -> "AnalysisRecipe":
+        """An ``analysis:`` input names one output folder (and series), read file by file.
+
+        ``device`` names what the run writes (its s-file columns and output
+        folder), so it is never an ``analysis:`` name, and the output folder
+        is never the one the input reads. The files are the output's own
+        per-shot files: no capture stack, no file tail, no stitched siblings,
+        and no ``from_scan`` background (it is a device's raw frames).
+        """
+        if is_analysis_output(self.device):
+            raise ValueError(
+                f"device {self.device!r} names an analysis output; put it in "
+                "input.folder and give the device a plain name (it names the "
+                "s-file columns and the output folder)"
+            )
+        if not self.reads_analysis_output:
+            return self
+        folder = str(self.input.folder)
+        output, _, series = folder[len(ANALYSIS_OUTPUT_PREFIX) :].partition("/")
+        if not _one_part(output) or (series and not _one_part(series)):
+            raise ValueError(
+                f"input.folder {folder!r} is not analysis:<folder> or "
+                "analysis:<folder>/<series>"
+            )
+        if output == self.effective_output_name:
+            raise ValueError(
+                f"input.folder reads analysis output {output!r}, the folder this "
+                "recipe writes to; give it another output_name"
+            )
+        if self.input.format == "device_hdf5":
+            raise ValueError(
+                "an analysis output is per-shot files: format device_hdf5 does not apply"
+            )
+        if self.input.file_tail is not None:
+            raise ValueError(
+                "an analysis output's series picks its files: leave file_tail unset "
+                "(name the series, analysis:<folder>/<series>)"
+            )
+        if self.sibling_folders:
+            raise ValueError("input.siblings does not apply to an analysis output")
+        scanned = sorted(k for k, v in self.inputs.items() if v.from_scan is not None)
+        if scanned:
+            raise ValueError(
+                f"inputs {', '.join(scanned)}: a from_scan background is taken from a "
+                "device's raw frames, which an analysis output input has none of"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _summaries_fit_the_input(self) -> "AnalysisRecipe":
         """Every summary kind must accept the input's dimensionality."""
         ndim = type(self.input).ndim
@@ -677,6 +829,7 @@ class AnalysisRecipe(VersionedSchemaModel):
 
 
 __all__ = [
+    "ANALYSIS_OUTPUT_PREFIX",
     "CURRENT_RECIPE_VERSION",
     "SUMMARY_KINDS",
     "AnalysisRecipe",
@@ -695,4 +848,5 @@ __all__ = [
     "Summary",
     "WaterfallSummary",
     "declared_schema_version",
+    "is_analysis_output",
 ]

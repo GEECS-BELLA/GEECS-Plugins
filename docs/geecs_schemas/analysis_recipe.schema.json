@@ -16,6 +16,109 @@
       "title": "AverageSummary",
       "type": "object"
     },
+    "BandSummary": {
+      "additionalProperties": false,
+      "description": "A centre line with the shot-to-shot spread as a band, per bin or per scan.\n\nEvery shot's trace is kept; per sample, ``mean`` draws \u00b1 ``sigma``\nstandard deviations (ddof 1) and ``median`` the band between\n``percentiles``, each over the shots whose sample is not NaN. On a\nparameter scan each bin gets its own line and band (``layout``); on a\nnoscan, one line and band over every shot. A run that averages frames\nbefore analysis has no shots, so draws none.",
+      "properties": {
+        "kind": {
+          "const": "band",
+          "default": "band",
+          "description": "A centre line with the shot-to-shot spread as a band.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "statistic": {
+          "default": "mean",
+          "description": "'mean' draws mean \u00b1 sigma standard deviations; 'median' draws the median between the percentiles.",
+          "enum": [
+            "mean",
+            "median"
+          ],
+          "title": "Statistic",
+          "type": "string"
+        },
+        "sigma": {
+          "default": 1.0,
+          "description": "Band half-width in standard deviations (statistic: mean).",
+          "exclusiveMinimum": 0,
+          "title": "Sigma",
+          "type": "number"
+        },
+        "percentiles": {
+          "default": [
+            0.25,
+            0.75
+          ],
+          "description": "Band (low, high) as fractions in [0, 1] (statistic: median); the default is the quartiles.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Percentiles",
+          "type": "array"
+        },
+        "layout": {
+          "default": "overlay",
+          "description": "On a parameter scan: 'overlay' draws every bin on one axes, a colour per bin; 'panels' one panel per bin with a shared y axis.",
+          "enum": [
+            "overlay",
+            "panels"
+          ],
+          "title": "Layout",
+          "type": "string"
+        },
+        "columns": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Panels per row (layout: panels); unset squares the grid.",
+          "title": "Columns"
+        },
+        "band_color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Band colour (any matplotlib colour); unset is gray, except overlay bands, which take their line's colour.",
+          "title": "Band Color"
+        },
+        "band_alpha": {
+          "default": 0.3,
+          "description": "Band opacity, 0 to 1.",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Band Alpha",
+          "type": "number"
+        },
+        "min_shots": {
+          "default": 2,
+          "description": "Draw a bin only when at least this many shots reached it.",
+          "minimum": 1,
+          "title": "Min Shots",
+          "type": "integer"
+        }
+      },
+      "title": "BandSummary",
+      "type": "object"
+    },
     "CameraInput": {
       "additionalProperties": false,
       "description": "Frames are camera images (2D).",
@@ -37,7 +140,7 @@
             }
           ],
           "default": null,
-          "description": "Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder).",
+          "description": "Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder), or analysis:<folder> to read the per-shot files an earlier analysis wrote under analysis/ScanNNN/<folder>/ (analysis:<folder>/<series> when the folder holds several).",
           "title": "Folder"
         },
         "file_tail": {
@@ -134,7 +237,7 @@
           "additionalProperties": {
             "type": "integer"
           },
-          "description": "Extra named columns to load alongside y, for analyzers that need them (name -> column index).",
+          "description": "Extra named columns to load alongside y, for analyzers that need them (name -> column index; for 'tek_scope_hdf5', name -> trace index of another channel on the same time axis).",
           "title": "Auxiliary Columns",
           "type": "object"
         }
@@ -346,7 +449,7 @@
             }
           ],
           "default": null,
-          "description": "Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder).",
+          "description": "Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder), or analysis:<folder> to read the per-shot files an earlier analysis wrote under analysis/ScanNNN/<folder>/ (analysis:<folder>/<series> when the folder holds several).",
           "title": "Folder"
         },
         "file_tail": {
@@ -837,6 +940,7 @@
         "discriminator": {
           "mapping": {
             "average": "#/$defs/AverageSummary",
+            "band": "#/$defs/BandSummary",
             "image_grid": "#/$defs/ImageGridSummary",
             "scalar_fit": "#/$defs/ScalarFitSummary",
             "waterfall": "#/$defs/WaterfallSummary"
@@ -852,6 +956,9 @@
           },
           {
             "$ref": "#/$defs/AverageSummary"
+          },
+          {
+            "$ref": "#/$defs/BandSummary"
           },
           {
             "$ref": "#/$defs/ScalarFitSummary"

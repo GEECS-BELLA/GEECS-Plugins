@@ -248,3 +248,21 @@ def test_the_source_notes_names_are_the_recipes_own() -> None:
             f"Reads scans/ScanNNN/{r.data_folder}/; writes {r.effective_output_name}_<scalar>{r.scalar_suffix or ''} "
             f"s-file columns and analysis/ScanNNN/{r.effective_output_name}/."
         )
+
+
+def test_save_as_shares_a_plot_set_through_the_configurators_route(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    """The portal's Save as against this app: a create, a refused create, a replace."""
+    from geecs_portal.plotter.settings import SettingsError
+    from geecs_portal.plotter.shared_sets import ConfiguratorSets
+
+    saver = ConfiguratorSets(str(committing.base_url), "Bench", client=committing)
+    doc = {"schema_version": 1, "y": "charge", "day": "2026-11-23", "scan": 4, "added_later": [1]}  # fmt: skip
+    saver.save("team", doc, operator="Ada", overwrite=False)
+    assert git("log", "-1", "--format=%an", "main", cwd=origin) == "Ada via configurator"  # fmt: skip
+    path = "scanner_configs/experiments/Bench/plot_settings/team.yaml"
+    assert "added_later" in git("show", f"main:{path}", cwd=origin)  # kept, not refused
+    with pytest.raises(SettingsError, match="already saved"):
+        saver.save("team", {**doc, "y": "other"}, operator="Bo", overwrite=False)
+    saver.save("team", {**doc, "y": "other"}, operator="Bo", overwrite=True)
+    assert git("log", "-1", "--format=%an", "main", cwd=origin) == "Bo via configurator"  # fmt: skip
+    assert "y: other" in git("show", f"main:{path}", cwd=origin)

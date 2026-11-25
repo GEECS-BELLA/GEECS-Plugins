@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 from tests.plotter.conftest import EXPERIMENT, SCAN_VARIABLE, post
 
 from geecs_portal.plotter import figures, multi
-from geecs_portal.plotter.settings import PlotterSettings, ScanRef, merged
+from geecs_schemas.plot_settings import PlotterSettings, ScanRef
+from geecs_portal.plotter.settings import merged
 
 CHARGE = "U_ICT charge"
 #: A column only the other day's scan has.

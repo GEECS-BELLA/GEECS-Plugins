@@ -382,6 +382,7 @@ Per-experiment fallbacks applied where a scan request is silent.
 | `native_image_save` | `bool` | no | True | Whether cameras whose frames the PVA gateway's file plugin captures also write their LabVIEW per-shot files (PNGs) when a scan does not say (the preset's 'native_image_save' unset). On by default: the dual-write is the rollout's parity evidence until PNG retirement (GEECS-Plugins#738). Set false to run the experiment on the plugin's HDF5 stacks alone; a device without a file plugin always keeps its native files. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
 | `apply_db_scan_defaults` | `bool` | no | True | RESERVED AND NOT HONORED. The DB's scan start/end writes (MySQL table expt_device_variable: rows with set='yes', their startvalue/endvalue) are applied by the DEVICE itself on the ScanStart/ScanEnd commands of GEECS scan mode, never by the engine: under a trigger profile with use_scan_mode they take effect exactly as under Master Control, and without one they do not. This flag changes neither. Kept for a possible future engine-side application. This is the set-side only: the get-side 'db_scalars' (standard telemetry) and 'background_telemetry' are separate and remain active. |
 | `background_telemetry` | `bool` | no | True | Read every logged scalar of the experiment that is not in a scan's device group — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — into every row of the scan as well, the way Master Control did: softly, from the gateway's monitor cache, never waited on. A device that does not answer when the scan starts is left out of that scan with a log line (and named in the run's start document), one the gateway marks INVALID reads NaN; nothing here can stall or fail a scan. On by default so no data is silently lost; a preset can override it with its own 'background_telemetry'. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
+| `ecs_live_dump` | `bool` | no | False | Write Master Control's ECS live dump at every scan's start: 'ECS Live dumps/Scan<N>.txt' beside the day's scans folder, every settable variable of the experiment read once before the scan's first move, in Master Control's file format (a variable that cannot be read is left out). Where Master Control still runs, its own Scan<N>.txt is moved aside to Scan<N>.master_control.txt. Off by default; when the defaults cannot be read it stays off. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
 | `description` | `str` | no | '' | Optional note about what these defaults are for. |
 
 Example:
@@ -393,6 +394,123 @@ trigger_profile: htu_shot_control
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 ```
+
+## `interlocks`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/interlocks/<name>.yaml`
+
+### InterlockSet
+
+The experiment's software interlocks, watched by the interlock server.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `interlocks` | `list[Interlock]` | no | empty | The interlocks, in display order. |
+| `stale_after_s` | `float (optional)` | no | 5.0 | Seconds without an update from a device before every interlock reading it trips. Leave empty for devices that publish only on a change (a disconnect still trips). |
+
+Example:
+
+```yaml
+schema_version: 1
+# interlocks/<name>.yaml: one named configuration. An interlock is unsafe
+# while any of its conditions is; a disconnected device, or one silent
+# for stale_after_s, is always unsafe
+stale_after_s: 5
+interlocks:
+  - name: chamber vacuum
+    conditions:
+      - kind: threshold
+        device: U_HP_Vacuum
+        variable: Pressure
+        operator: ">"
+        limit: 1.0e-5
+        hysteresis: 2.0e-6
+    settle_s: 5
+  - name: tape camera
+    description: saturation and pointing, reported as one
+    conditions:
+      - {kind: threshold, device: UC_TapeCam, variable: MaxCounts, operator: ">=", limit: 4095}
+      - {kind: alignment, device: UC_TapeCam, variable: CentroidX, target_variable: TargetX, tolerance: 5}
+      - {kind: alignment, device: UC_TapeCam, variable: CentroidY, target_variable: TargetY, tolerance: 5}
+  - name: stage motion
+    conditions:
+      - {kind: external, port: 5050, source: stage motion controller}
+  - name: windmill settings
+    conditions:
+      - {kind: config_change, device: U_Windmill, variables: [Position, Speed]}
+```
+
+### Interlock
+
+One interlock: a name and the conditions that make it unsafe (any one is enough).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | Short name shown to operators and on the status stream. |
+| `description` | `str` | no | '' | Optional note on what this interlock protects. |
+| `enabled` | `bool` | no | True | Set false to keep the entry without arming it (shown as not armed, never counted in the verdict). |
+| `conditions` | `list[ThresholdCondition \| AlignmentCondition \| StaleCondition \| ExternalCondition \| ConfigChangeCondition]` | yes | — | The conditions watched; the interlock is unsafe while any one of them is. List several to report them under one name. |
+| `settle_s` | `float` | no | 0.0 | Seconds every condition must stay safe after a trip before the interlock reports OK again. |
+
+### ThresholdCondition
+
+Unsafe when a variable crosses a limit.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'threshold'` | yes | — | Condition type. 'threshold' compares one variable to a limit. |
+| `device` | `str` | yes | — | Device to watch, e.g. 'U_HP_Vacuum'. |
+| `variable` | `str` | yes | — | Variable on the device, e.g. 'Pressure'. |
+| `operator` | `'<' \| '<=' \| '>' \| '>=' \| '==' \| '!='` | yes | — | The reading is UNSAFE when 'value <operator> limit' holds, e.g. '>' trips above the limit. |
+| `limit` | `float` | yes | — | The limit the reading is compared against. |
+| `hysteresis` | `float` | no | 0.0 | How far back past the limit the reading must come before the interlock counts as safe again (0 = resume as soon as it is back). |
+
+### AlignmentCondition
+
+Unsafe when a variable strays from a target variable by ``tolerance`` or more.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'alignment'` | yes | — | Condition type. 'alignment' compares a variable with a target variable. |
+| `device` | `str` | yes | — | Device carrying the watched variable. |
+| `variable` | `str` | yes | — | The watched variable, e.g. 'CentroidX'. |
+| `target_device` | `str (optional)` | no | None | Device carrying the target variable (default: the same device). |
+| `target_variable` | `str` | yes | — | The target variable, e.g. 'TargetX'. |
+| `tolerance` | `float` | yes | — | UNSAFE when \|value - target\| is this large or larger (in the variable's units). |
+| `hysteresis` | `float` | no | 0.0 | How much closer than the tolerance the value must come before the interlock counts as safe again. |
+
+### StaleCondition
+
+Unsafe when a device stops publishing.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'stale'` | yes | — | Condition type. 'stale' trips when a device stops publishing. |
+| `device` | `str` | yes | — | Device to watch. |
+| `max_age_s` | `float (optional)` | no | None | Seconds without a new update before the device counts as stale. Leave empty to trip only on a disconnect. |
+
+### ExternalCondition
+
+Unsafe while an external program says so over UDP.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'external'` | yes | — | Condition type. 'external' follows UDP status packets. |
+| `port` | `int` | yes | — | UDP port the interlock server listens on for this signal. Conditions naming the same port share one signal. |
+| `source` | `str` | no | '' | Optional name of the sending program, shown to operators. |
+| `sender` | `str` | no | '' | The sending computer's IPv4 address. When set, a packet from any other address is unsafe: no other host can clear the signal. Leave empty to accept any sender. |
+| `max_age_s` | `float (optional)` | no | None | Seconds without a packet before the signal counts as lost. Leave empty when the sender transmits only on a change (silence is normal). |
+
+### ConfigChangeCondition
+
+Unsafe when device settings change from the values they had when armed.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'config_change'` | yes | — | Condition type. 'config_change' trips when settings move from their armed values. |
+| `device` | `str` | yes | — | Device carrying the settings. |
+| `variables` | `list[str]` | yes | — | The settings to hold, e.g. ['Exposure', 'Gain']. |
 
 ## `derived_channels`
 
@@ -1054,6 +1172,128 @@ A device-page entry: a picker over the roster's devices of these families.
 | `title` | `str` | yes | — | What the entry reads, e.g. 'Cameras'. |
 | `families` | `list[str]` | yes | — | Family file names whose devices the picker lists. |
 
+## `plot_settings`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/plot_settings/<name>.yaml`
+
+### PlotterSettings
+
+Every control of the Plot and Images pages, each with its default.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `x` | `str (optional)` | no | None | The X column; empty: the scan variable; '' the shot number. |
+| `y` | `str (optional)` | no | None | Y1's column; empty: the first measurement. |
+| `y2` | `str (optional)` | no | None | Y2's column, on its own axis; empty: not picked. |
+| `y3` | `str (optional)` | no | None | Y3's column, on its own axis; empty: not picked. |
+| `y_count` | `int` | no | 1 | How many of Y1, Y2, Y3 are shown; the others keep their picks. |
+| `x_filter` | `str` | no | '' | The X list's filter text. |
+| `y_filter` | `str` | no | '' | Y1's list filter text. |
+| `y2_filter` | `str` | no | '' | Y2's list filter text. |
+| `y3_filter` | `str` | no | '' | Y3's list filter text. |
+| `x_alias` | `bool` | no | True | Show X's columns by their aliases. |
+| `y_alias` | `bool` | no | True | Show Y1's columns by their aliases. |
+| `y2_alias` | `bool` | no | True | Show Y2's columns by their aliases. |
+| `y3_alias` | `bool` | no | True | Show Y3's columns by their aliases. |
+| `x_auto` | `bool` | no | True | X follows the open scan's variable (GEECSplotter's autofill par1). |
+| `y_fit` | `str` | no | 'none' | Y1's fit ('none': no fit). |
+| `y2_fit` | `str` | no | 'none' | Y2's fit ('none': no fit). |
+| `y3_fit` | `str` | no | 'none' | Y3's fit ('none': no fit). |
+| `y_fit_order` | `int` | no | 2 | Y1's polynomial fit order. |
+| `y2_fit_order` | `int` | no | 2 | Y2's polynomial fit order. |
+| `y3_fit_order` | `int` | no | 2 | Y3's polynomial fit order. |
+| `day` | `date (optional)` | no | None | The day of the scan last opened. |
+| `scan` | `int (optional)` | no | None | The number of the scan last opened. |
+| `extra_scans` | `list[ScanRef]` | no | empty | Scans plotted beside the main one, from any day. |
+| `scan_view` | `str` | no | 'overlay' | Several scans: one trace each ('overlay') or pooled ('merged'). |
+| `overlay_y` | `int` | no | 1 | Which Y list the overlay draws (1-3). |
+| `tab` | `str` | no | 'xy' | The Plot page's view: the XY plot or the 2-D map. |
+| `image_device` | `str (optional)` | no | None | The first camera; empty: the scan's first. |
+| `image_device_filter` | `str` | no | '' | The camera picker's filter text. |
+| `image_strip` | `str` | no | 'bins' | One tile per bin, per shot, or one picked shot per bin. |
+| `image_pick` | `str` | no | 'first' | The picked shot of a bin: its first, or highest Y1. |
+| `image_hits` | `str` | no | 'none' | The X-ray-hit filter applied to each shot. |
+| `image_centre` | `float (optional)` | no | None | Centre each shot on its peak above this threshold (1 or more: counts; below 1: a fraction of the peak); empty: not centred. |
+| `image_layout` | `str` | no | 'grid' | The strip as a grid or one row. |
+| `image_columns` | `int` | no | 5 | Tiles across. |
+| `image_cmap` | `str` | no | 'white_blue_yellow' | The colour map's name. |
+| `image_zscale` | `str` | no | 'shared' | The z scale: per tile, shared by the row, or fixed. |
+| `image_zmin` | `float (optional)` | no | None | The fixed z scale's black. |
+| `image_zmax` | `float (optional)` | no | None | The fixed z scale's white. |
+| `image_cbar` | `bool` | no | True | Draw colour bars. |
+| `image_axes` | `bool` | no | False | The first camera draws a calibrated output (a magspec image) on its physical axes (momentum, angle) as charge density; off: pixels. |
+| `image_bg` | `ScanRef (optional)` | no | None | The background scan, whose average comes off each shot; empty: none. |
+| `image_bgsub` | `bool` | no | True | The first camera subtracts the background. |
+| `image_channels` | `list[int]` | no | [0] | The first row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named. |
+| `image_xmin` | `float (optional)` | no | None | The first trace row's x window, low side; empty: no limit. |
+| `image_xmax` | `float (optional)` | no | None | The first trace row's x window, high side; empty: no limit. |
+| `image_rois` | `dict[str, list[int]]` | no | empty | Each camera's region of interest, [x0, y0, x1, y1] in pixels. |
+| `image_more` | `list[ImageCamera]` | no | empty | The cameras stacked under the first, one row each. |
+| `image_scalars` | `list[str]` | no | empty | The scan scalars summarized on the Images page, in order. |
+| `image_tile_max` | `int (optional)` | no | None | The widest a tile is drawn, in CSS pixels; empty: no limit. |
+| `image_scalar_stat` | `str` | no | 'mean_std' | The statistic the scan scalars share. |
+| `image_scalar_filter` | `str` | no | '' | The scalar picker's filter text. |
+| `merge_tolerance` | `float (optional)` | no | None | Merged scans: bins this close in X are one bin; empty: half the smallest step of any one scan. |
+| `xy_view` | `str` | no | 'shot' | The XY plot per shot or binned. |
+| `shot_filters` | `str` | no | '' | The shot filters, as JSON; empty: none. |
+| `bin_config` | `str` | no | '' | The bin settings, as JSON; empty: defaults. |
+| `display` | `str` | no | '' | The plot cosmetics, as JSON; empty: defaults. |
+| `map_value` | `str (optional)` | no | None | The 2-D map's scalar; empty: Y1. |
+| `map_x` | `str (optional)` | no | None | The 2-D map's X; empty: the scan's first variable. |
+| `map_y` | `str (optional)` | no | None | The 2-D map's Y; empty: the scan's second variable. |
+| `map_filter` | `str` | no | '' | The map scalar picker's filter text. |
+| `map_config` | `str` | no | '' | The 2-D map's statistics, as JSON; empty: defaults. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/plot_settings/<name>.yaml: a set of the portal's Plot and Images pages.
+# Every field has a default; a field this portal does not know is kept, not refused.
+day: 2026-11-23                  # the scan the set reopens
+scan: 12
+x_auto: true                     # X is the open scan's variable
+y: U_BCaveICT Python Results.ChA Beam Charge (pC)
+y_fit: gaussian
+xy_view: bin
+extra_scans:
+  - {day: 2026-11-22, scan: 4}
+image_device: UC_TopView
+image_zscale: shared
+image_rois: {UC_TopView: [100, 80, 500, 400]}   # x0, y0, x1, y1 in pixels
+```
+
+### ScanRef
+
+One scan named by its day and its scan number.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `day` | `date` | yes | — | The scan's day. |
+| `scan` | `int` | yes | — | The scan's number on that day. |
+
+### ImageCamera
+
+A camera stacked under the first on the Images page, and how its row looks.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str (optional)` | no | None | The camera's device folder. |
+| `device_filter` | `str` | no | '' | The camera picker's filter text. |
+| `cmap` | `str` | no | 'white_blue_yellow' | The colour map's name. |
+| `zscale` | `str` | no | 'shared' | The z scale: per tile, shared by the row, or fixed. |
+| `zmin` | `float (optional)` | no | None | The fixed z scale's black. |
+| `zmax` | `float (optional)` | no | None | The fixed z scale's white. |
+| `hits` | `str` | no | 'none' | The X-ray-hit filter applied to each shot. |
+| `centre` | `float (optional)` | no | None | Centre each shot on its peak above this threshold (1 or more: counts; below 1: a fraction of the peak); empty: not centred. |
+| `cbar` | `bool` | no | True | Draw colour bars. |
+| `axes` | `bool` | no | False | Draw a calibrated output (a magspec image) on its physical axes (momentum, angle) as charge density; off: pixels and raw values. |
+| `bgsub` | `bool` | no | True | Subtract the set's background scan. |
+| `channels` | `list[int]` | no | [0] | The row's scope channels (from 0), overlaid on each trace tile; a device with one channel reads it whatever is named. |
+| `xmin` | `float (optional)` | no | None | A trace row's x window, low side; empty: no limit. |
+| `xmax` | `float (optional)` | no | None | A trace row's x window, high side; empty: no limit. |
+
 ## `analysis_recipe`
 
 Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
@@ -1076,7 +1316,7 @@ One device's analysis: input, ordered steps, a measure, the draw, the summaries.
 | `measure` | `MeasureRef` | no | MeasureRef(kind='none') | What is measured on each processed frame. |
 | `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True, workers=1) | How the recipe runs over a scan. |
 | `figure` | `FigureStyle` | no | FigureStyle(imshow={}, pcolormesh={}, plot={}, colorbar={}, axes={}, fig={}, overlays={}) | The per-frame draw, reused by every summary kind. |
-| `summaries` | `list[ImageGridSummary \| WaterfallSummary \| AverageSummary \| ScalarFitSummary]` | no | empty | Scan-level figures, each a frozen kind with its own options; an empty list draws no summary. |
+| `summaries` | `list[ImageGridSummary \| WaterfallSummary \| AverageSummary \| BandSummary \| ScalarFitSummary]` | no | empty | Scan-level figures, each a frozen kind with its own options; an empty list draws no summary. |
 
 Example:
 
@@ -1109,7 +1349,7 @@ Frames are camera images (2D).
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'camera'` | no | 'camera' | Image input. |
-| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder). |
+| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder), or analysis:<folder> to read the per-shot files an earlier analysis wrote under analysis/ScanNNN/<folder>/ (analysis:<folder>/<series> when the folder holds several). |
 | `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.txt', '_postprocessed.tsv'); unset uses the kind's default. |
 | `format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes; a camera falls back to per-shot files when no stack can be mapped, a 'pva_stack' trace does not. |
 
@@ -1120,7 +1360,7 @@ Frames are traces (1D): how one file is read and scaled.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'line'` | no | 'line' | Trace input. |
-| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder). |
+| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder), or analysis:<folder> to read the per-shot files an earlier analysis wrote under analysis/ScanNNN/<folder>/ (analysis:<folder>/<series> when the folder holds several). |
 | `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.txt', '_postprocessed.tsv'); unset uses the kind's default. |
 | `format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes; a camera falls back to per-shot files when no stack can be mapped, a 'pva_stack' trace does not. |
 | `loading` | `Data1DLoading` | yes | — | How to read one trace file. |
@@ -1144,7 +1384,7 @@ How to read one trace file into an x-vs-y array.
 | `delimiter` | `str (optional)` | no | None | Column delimiter for csv/tsv; unset uses the format's default. |
 | `x_column` | `int` | no | 0 | Column index of x (text formats). |
 | `y_column` | `int` | no | 1 | Column index of y (text formats). |
-| `auxiliary_columns` | `dict[str, int]` | no | empty | Extra named columns to load alongside y, for analyzers that need them (name -> column index). |
+| `auxiliary_columns` | `dict[str, int]` | no | empty | Extra named columns to load alongside y, for analyzers that need them (name -> column index; for 'tek_scope_hdf5', name -> trace index of another channel on the same time axis). |
 
 ### FrameInput
 
@@ -1241,6 +1481,22 @@ The scan's averaged frame (a noscan or count scan), drawn with ``figure``.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'average'` | no | 'average' | The scan's averaged frame. |
+
+### BandSummary
+
+A centre line with the shot-to-shot spread as a band, per bin or per scan.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'band'` | no | 'band' | A centre line with the shot-to-shot spread as a band. |
+| `statistic` | `'mean' \| 'median'` | no | 'mean' | 'mean' draws mean ± sigma standard deviations; 'median' draws the median between the percentiles. |
+| `sigma` | `float` | no | 1.0 | Band half-width in standard deviations (statistic: mean). |
+| `percentiles` | `tuple[float, float]` | no | (0.25, 0.75) | Band (low, high) as fractions in [0, 1] (statistic: median); the default is the quartiles. |
+| `layout` | `'overlay' \| 'panels'` | no | 'overlay' | On a parameter scan: 'overlay' draws every bin on one axes, a colour per bin; 'panels' one panel per bin with a shared y axis. |
+| `columns` | `int (optional)` | no | None | Panels per row (layout: panels); unset squares the grid. |
+| `band_color` | `str (optional)` | no | None | Band colour (any matplotlib colour); unset is gray, except overlay bands, which take their line's colour. |
+| `band_alpha` | `float` | no | 0.3 | Band opacity, 0 to 1. |
+| `min_shots` | `int` | no | 2 | Draw a bin only when at least this many shots reached it. |
 
 ### ScalarFitSummary
 

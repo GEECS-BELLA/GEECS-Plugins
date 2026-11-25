@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from geecs_data_utils.data.binning import bin_rows
 from geecs_data_utils.data.row_filters import filter_mask
-from geecs_data_utils.io import shot_images
+from geecs_data_utils.io import analysis_outputs, shot_images
 from geecs_data_utils.io.display_png import safe_cmap, window_percentiles
 from geecs_data_utils.data.sfile import (
     read_sfile,
@@ -359,6 +359,11 @@ def _image_folder(detail, day: str, device: str):
     folder = resolve_scan_folder(detail, run_day) if run_day else None
     if folder is None:
         raise HTTPException(status_code=404, detail="scan folder not resolvable")
-    if device not in shot_images.image_devices(folder):
+    # an analysis output (analysis:<folder>[/<series>]) is checked against the
+    # scan's analysis folder by its own reader, the same path-traversal guard
+    if analysis_outputs.is_output_name(device):
+        if analysis_outputs.resolve_output(folder, device) is None:
+            raise HTTPException(status_code=404, detail=f"no analysis output {device!r} in this scan")  # fmt: skip
+    elif device not in shot_images.image_devices(folder):
         raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
     return folder, (run_day.isoformat() if run_day else None)

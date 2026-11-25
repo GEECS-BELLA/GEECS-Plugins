@@ -25,10 +25,12 @@ from geecs_schemas.analysis.scalar import (
 )
 from geecs_schemas.analysis.processing_1d import Data1DLoading, Data1DType
 from geecs_schemas.analysis.recipe import (
+    ANALYSIS_OUTPUT_PREFIX,
     CURRENT_RECIPE_VERSION,
     SUMMARY_KINDS,
     AnalysisRecipe,
     AverageSummary,
+    BandSummary,
     CameraInput,
     FigureStyle,
     FrameInput,
@@ -42,10 +44,13 @@ from geecs_schemas.analysis.recipe import (
     StepRef,
     Summary,
     WaterfallSummary,
+    is_analysis_output,
 )
 from geecs_schemas._base import declared_schema_version
 
 __all__ = [
+    "ANALYSIS_OUTPUT_PREFIX",
+    "is_analysis_output",
     "CURRENT_RECIPE_VERSION",
     "SUMMARY_KINDS",
     "AnalysisDocument",
@@ -55,6 +60,7 @@ __all__ = [
     "AnalysisGroup",
     "AnalysisRecipe",
     "AverageSummary",
+    "BandSummary",
     "AnalyzerRef",
     "CameraInput",
     "Data1DLoading",

@@ -106,9 +106,22 @@ browser and open one run's image gallery (exercises the share mount).
 
 ## The Plot tab's settings sets
 
-The Plot tab (GEECSplotter's page, `/plot`) saves each viewer's named
-settings set as a JSON file — the portal's one durable write outside the
-analysis tree. The folder is the service's own state directory: the unit
+Two kinds. **Shared sets** (`shared/<name>` on the page) are files in the
+configs repo, `scanner_configs/experiments/<experiment>/plot_settings/<name>.yaml`:
+the unit reads them from `--configs-root "${GEECS_CONFIGS_ROOT}"`, and
+**Save as** shares one through the configurator, a commit to the repo's main
+under the viewer's name (the operator tier), which every portal reading the
+repo then lists. Save as needs `--configurator-url http://127.0.0.1:<the
+configurator's port>` in `GEECS_PORTAL_EXTRA_ARGS` (the configurator as this
+process reaches it; deploy the configurator with GEECS-Schemas' `plot_settings`
+kind first); without it Save as is refused, saying so. The portal never
+writes the configs tree. Sets this host kept before shared sets existed stay
+listed under "On this host"; share one by opening it and using Save as onto
+its name, once.
+
+**Working copies** are each viewer's own set, saved on every pick and never
+committed: a JSON file per viewer — the portal's one durable write outside
+the analysis tree. The folder is the service's own state directory: the unit
 declares `StateDirectory=geecs-data-portal geecs-data-portal/settings`
 and passes `--settings-dir %S/geecs-data-portal/settings`
 (`/var/lib/geecs-data-portal/settings`). The unit names the `settings`

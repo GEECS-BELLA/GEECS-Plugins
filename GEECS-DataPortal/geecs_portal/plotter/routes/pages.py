@@ -16,6 +16,12 @@ into the viewer's own set and switches to it, so a shared link never
 lets one person rewrite another's plots. The owner's set changes only
 by "Save as" onto its name, which asks before replacing.
 
+"Save as" **shares** the set: a commit to the configs repo under the
+viewer's name, through the configurator, opened from then on as
+``shared/<name>`` on every portal that reads the repo
+(:mod:`geecs_portal.plotter.shared_sets`). The viewer's own set stays this
+host's, saved on every pick and never committed.
+
 With ``x_auto`` on (the default) X is the open scan's variable; a hand
 pick on X saves ``x_auto`` off. The page renders the pick lists
 server-side; its script fetches the figure from ``/api/figure`` and
@@ -51,19 +57,21 @@ from geecs_portal.plotter.routes.images import (
     strip_tiles,
     trace_code,
 )
-from geecs_portal.plotter.settings import (
-    CHOICES,
-    DEFAULT_SET,
+from geecs_schemas.plot_settings import (
+    ImageCamera,
     MAX_CAMERAS,
     MAX_FIT_ORDER,
     MAX_IMAGE_COLUMNS,
-    MAX_OVERLAY_SCANS,
     MAX_SCALARS,
-    TILE_MAX_RANGE,
     MAX_Y_LISTS,
-    NameRefused,
-    ImageCamera,
     PlotterSettings,
+    TILE_MAX_RANGE,
+)
+from geecs_portal.plotter.settings import (
+    CHOICES,
+    DEFAULT_SET,
+    MAX_OVERLAY_SCANS,
+    NameRefused,
     SettingsError,
     camera_field,
     form_value,
@@ -157,6 +165,7 @@ def _entry(
                 "ask_name": True,
                 "set": "",
                 "sets": [],
+                "shared_sets": [],
             },
         )
     if day is None and scan is None:
@@ -202,7 +211,8 @@ def _render(
     page.update(
         {
             "set": name,
-            "sets": ctx.store.names(),
+            "sets": ctx.store.local_names(),
+            "shared_sets": ctx.store.shared_names(),
             "settings_folder": str(ctx.store.folder),
             "settings_error": problem,
             "save_as": save_as,
@@ -271,14 +281,16 @@ def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
             )
         target = set_name(owner)
     if as_new:
-        try:
-            target = set_name(form.get("save_as", ""))
-        except SettingsError as bad:
-            raise NameRefused(str(bad)) from None
-        # Replacing a saved set is a choice the page asks about first (its
-        # dialog posts overwrite=true); without it a taken name is refused.
-        if ctx.store.exists(target) and form.get("overwrite") != "true":
-            raise NameRefused(f"a set named {target!r} is already saved")
+        # Save as shares the set: a commit to the configs repo under the
+        # viewer's name, through the configurator (shared_sets). Replacing a
+        # shared set is a choice the page asks about first (its dialog posts
+        # overwrite=true); without it a taken name is refused.
+        return ctx.store.save_as(
+            form.get("save_as", ""),
+            merged(ctx.store.load(source), form),
+            operator=form.get("owner", ""),
+            overwrite=form.get("overwrite") == "true",
+        )
     ctx.store.save(target, merged(ctx.store.load(source), form))
     return target
 
@@ -436,6 +448,7 @@ def _page(
         "display_query": "",
         "levels_url": "",
         "devices": [],
+        "device_labels": {},
         "device": "",
         "device_kept": "",
         "device_problem": None,
@@ -676,8 +689,11 @@ def _fill_images(
     and background are the open scan's.
     """
     folder = scans.scan_folder(run)
-    devices = images.devices(folder)
+    looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
+    # The analysis output folders a row picked are looked into, for their series.
+    devices = images.devices(folder, [look.device or "" for look in looks])
     page["devices"] = devices
+    page["device_labels"] = {d: images.device_label(d) for d in devices}
     page["conditions"] = scans.conditions(run, frame)
     # the same lines as text, for the exported grid's picture (strip_export.js)
     page["condition_lines"] = [
@@ -686,7 +702,6 @@ def _fill_images(
         + (f" ({c['detail']})" if c["detail"] else "")
         for c in page["conditions"]
     ]
-    looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
     # The strip's X is the Plot page's (the scan variable while autofill
     # is on): the captions' values, and where pooled bins are placed.
     x = page["x"]  # "": the shot number, so the captions carry no value
@@ -748,7 +763,7 @@ def _fill_images(
             first["device"],
             page["strip"],
             experiment,
-            first["channel"],
+            first["channels"],
             first["pick_by"],
             _strip_refs(page, extras),
             settings.merge_tolerance,
@@ -822,8 +837,9 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
         hits=_choice(settings, "image_hits"),
         centre=settings.image_centre,
         cbar=settings.image_cbar,
+        axes=settings.image_axes,
         bgsub=settings.image_bgsub,
-        channel=settings.image_channel,
+        channels=settings.image_channels,
         xmin=settings.image_xmin,
         xmax=settings.image_xmax,
     )
@@ -861,7 +877,8 @@ def _camera_row(
     next pick does not erase it. With none saved the row asks for one:
     probing every folder for a camera costs tens of seconds cold over the
     share. A device that records traces (a scope) is a row of trace tiles
-    (``trace``: what it records; ``channels``: the scope's), on the same
+    (``trace``: what it records; ``channel_names``: the scope's channels,
+    ``channels`` the ones the row overlays), on the same
     bins; a camera's clean-ups, background, ROI and colour map do not
     apply to it.
     """
@@ -877,7 +894,7 @@ def _camera_row(
         "trace": "",
         "window": None,
         "window_problem": "",
-        "channels": [],
+        "channel_names": [],
         "tiles": [],
         "roi": ",".join(str(v) for v in roi) if roi else "",
         "pick_by": page.get("y", "") if page["pick"] == "ymax" else "",
@@ -889,6 +906,11 @@ def _camera_row(
         ),
         "display_query": "",
         "levels_url": "",
+        # A calibrated output (a magspec image): the row may draw it on its
+        # physical axes (``axes_on``, its unit ``axes_unit``).
+        "calibrated": False,
+        "axes_on": False,
+        "axes_unit": "",
     }
     if device and device not in devices:
         row.update(kept=device, device="", problem=f"{device} is not in this scan")
@@ -902,11 +924,16 @@ def _camera_row(
             # Traces: none of a camera's clean-ups, background or ROI.
             row.update(
                 trace=probe.content,
-                channels=list(probe.channels),
+                channel_names=list(probe.channels),
                 bg="",
                 roi="",
                 cbar=False,
             )
+            if len(probe.channels) <= 1:
+                # One channel (a spectrometer's file, a stack): read it,
+                # whatever this row saved for a scope it showed before.
+                # The saved value stays, for when it shows that scope again.
+                row["channels"] = [0]
         else:
             row["problem"] = (
                 f"{device} has no pictures (a vendor format or a file the page cannot draw)"
@@ -914,6 +941,8 @@ def _camera_row(
     if row["problem"]:
         return row
     trace = bool(row["trace"])
+    if not trace:
+        row.update(_axes_choice(folder, device, look.axes))
     row["window"] = _row_window(row) if trace else None
     prep = ImagePrep() if trace else ImagePrep(hits=row["hits"], centre=row["centre"])
     try:
@@ -929,7 +958,7 @@ def _camera_row(
             prep=prep,
             filters=settings.shot_filters,
             bg=row["bg"],
-            channel=row["channel"] if trace else None,
+            channels=row["channels"] if trace else None,
             source=source,
             extra=page["scans_text"],
             mtol=settings.merge_tolerance,
@@ -956,12 +985,25 @@ def _camera_row(
             # Bins and shots: the strip is the shots the shot filters keep.
             **({"filters": settings.shot_filters} if settings.shot_filters else {}),
             **({"bg": row["bg"]} if row["bg"] else {}),
-            **({"channel": row["channel"]} if trace else {}),
+            **({"channel": row["channels"]} if trace else {}),
             **multi_query(page["scans_text"], settings.merge_tolerance, x or ""),
             **window_query(row["window"]),
-        }
+            **({"axes": "true"} if row["axes_on"] else {}),
+        },
+        doseq=True,  # a trace row's channels: channel= once each
     )
     return row
+
+
+def _axes_choice(folder, device: str, wanted: bool) -> dict:
+    """A camera row's physical-axes fields: offered for a calibrated output only."""
+    if not images.calibrated_device(folder, device):
+        return {}
+    return {
+        "calibrated": True,
+        "axes_on": wanted,
+        "axes_unit": images.CALIBRATED_UNIT if wanted else "",
+    }
 
 
 def _row_window(row: dict) -> Optional[tuple]:
@@ -983,12 +1025,15 @@ def display_query(page: dict) -> str:
     """The display half of a camera row's tile URLs (plotter.js builds the same).
 
     The colour map, the ROI and, on a fixed z scale with both values set,
-    the black and white; a shared z scale's values come from
+    the black and white (with ``axes``, a calibrated output's physical
+    axes and charge density); a shared z scale's values come from
     ``/api/images/levels`` in the browser. A tile that scales itself
     carries its own colour bar (``cbar``) when bars are on; on one scale
     the grid has one bar instead (``api/images/colourbar.png``).
     """
     query = {"cmap": page["cmap"]}
+    if page.get("axes_on"):
+        query["axes"] = "true"  # a calibrated output on its physical axes
     if page["roi"]:
         query["roi"] = page["roi"]
     if page["zscale"] == "fixed" and None not in (page["zmin"], page["zmax"]):

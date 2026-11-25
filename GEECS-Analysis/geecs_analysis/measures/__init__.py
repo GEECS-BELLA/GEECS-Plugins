@@ -2,6 +2,7 @@
 
 from . import (
     beam,
+    discharge_delay,
     downramp_phase,
     frog,
     frog_spectral_phase,
@@ -17,6 +18,7 @@ from . import (
 
 __all__ = [
     "beam",
+    "discharge_delay",
     "downramp_phase",
     "frog",
     "frog_spectral_phase",

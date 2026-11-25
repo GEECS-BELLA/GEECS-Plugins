@@ -12,11 +12,15 @@ import pandas as pd
 from geecs_analysis.engine.stream import ShotGroup, UnitResult, run_units
 from geecs_analysis.pipeline import shot_scalar_columns
 from geecs_data_utils.frames import ShotMeta
-from geecs_data_utils.tiled_schema import announced_shots
 
 from scan_analysis.core_inputs import PreparedRecipe, prepare_recipe
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
-from scan_analysis.core_source import RecipeShotSource, prepare_source, source_directory
+from scan_analysis.core_source import (
+    RecipeShotSource,
+    file_numbers,
+    prepare_source,
+    source_directory,
+)
 
 
 def _integer(value: object, label: str, *, positive: bool = False) -> int:
@@ -102,28 +106,6 @@ def shot_metadata(
         if scalars:
             metadata[number] = ShotMeta(device, number, scalars=scalars)
     return metadata
-
-
-def file_numbers(rows: pd.DataFrame) -> dict[int, int] | None:
-    """Each shot's number in a shot-number file name, in a scan-mode run.
-
-    A scan-mode run numbers its ``ScanNNN_<device>_SSS`` files by the
-    announced shot, and data-utils' shot mapping reads such names back
-    through that column (``announced_shots``), so a file the host names for
-    a shot (a capture-stack frame's sidecar or sibling output) carries the
-    same number. A row without a usable announced shot is left out: no
-    shot-number name maps back to it. ``None`` outside scan mode, where the
-    number is the shot.
-    """
-    numbers = announced_shots(rows)
-    if numbers is None:
-        return None
-    shots = pd.to_numeric(rows["Shotnumber"], errors="coerce")
-    return {
-        int(shot): int(number)
-        for shot, number in zip(shots, numbers)
-        if pd.notna(shot) and pd.notna(number)
-    }
 
 
 @dataclass(frozen=True)

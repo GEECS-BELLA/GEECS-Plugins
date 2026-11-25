@@ -107,3 +107,24 @@ def test_summary_preview_is_the_sinks_summary_figure(scan):
         preview_summary(document, frames, [1.0, 2.0, 3.0], "shot", 2, scan_folder=scan)
     with pytest.raises(ValueError, match="one position per frame"):
         preview_summary(document, frames, [1.0], "shot", 0, scan_folder=scan)
+
+
+def test_band_preview_draws_the_shots_as_one_group(tmp_path):
+    """A shots kind previews as a noscan: one line over every frame, whatever the positions."""
+    document = load_analysis_document(
+        {
+            "schema_version": 3,
+            "device": "Spec",
+            "input": {"kind": "line", "loading": {"data_type": "npy"}},
+            "measure": {"kind": "line"},
+            "figure": {"fig": {"dpi": 30}},
+            "summaries": [{"kind": "band"}],
+        }
+    )
+    x = np.linspace(0, 1, 20)
+    arrays = [np.column_stack([x, x * k]) for k in (1.0, 2.0, 3.0)]
+    fig = preview_summary(document, arrays, [1.0, 2.0, 3.0], "Shot Number", 0)
+    (ax,) = fig.axes
+    assert len(ax.lines) == 1
+    np.testing.assert_allclose(ax.lines[0].get_ydata(), 2 * x)
+    assert "over 3 shots" in ax.get_title()

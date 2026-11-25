@@ -87,3 +87,15 @@ def test_the_catalogue_says_which_kinds_start_blank(client: TestClient) -> None:
     assert bool(blank["analysis_recipe"]) and bool(blank["analysis_group"])
     assert bool(blank["scalar_job"])
     assert (blank["himg_job"], blank["setup"], blank["preset"]) == ("", "", "")
+
+
+def test_the_schema_blank_reads_an_analysis_output_from_the_input_folder() -> None:
+    """With the portal silent, the fallback draft makes the same split as the core's."""
+    from geecs_configurator.blank import schema_blank
+
+    doc = schema_blank("analysis_recipe", "Lineout", "line", "analysis:py-spec", {"loading": {"data_type": "tsv"}})  # fmt: skip
+    assert doc["device"] == "Lineout" and doc["input"]["folder"] == "analysis:py-spec"
+    assert (
+        schema_blank("analysis_recipe", "N", "camera", "UC_Cam", {})["device"]
+        == "UC_Cam"
+    )

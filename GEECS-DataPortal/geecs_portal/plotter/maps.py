@@ -18,7 +18,7 @@ from geecs_data_utils.scan_grid import GridConfig, grid_axes
 from geecs_data_utils.tiled_catalog import RunDetail
 
 from geecs_portal import analysis
-from geecs_portal.plotter.settings import PlotterSettings
+from geecs_schemas.plot_settings import PlotterSettings
 
 #: The column fields of ``GridConfig``: the set names them on their own.
 _COLUMNS = ("value", "x", "y")

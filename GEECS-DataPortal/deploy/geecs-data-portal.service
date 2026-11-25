@@ -49,9 +49,13 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # tab's edit opens (GeecsConfigurator/DEPLOYMENT.md). --tiled lists Tiled's
 # runs beside the scan folders; without it the portal reads the folders
 # alone (the default, for a machine that cannot reach Tiled).
-ExecStart=@POETRY@ run geecs-data-portal --tiled --browser none --experiment ${GEECS_EXPERIMENT} --settings-dir %S/geecs-data-portal/settings --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
-# The portal's one durable write of its own: the Plot tab's settings sets,
-# in <state directory>/settings (--settings-dir above; %S is systemd's
+# --configs-root is the same configs repo: the Plot tab's shared settings
+# sets are read from <experiment>/plot_settings/ there. Sharing one (Save as)
+# also needs --configurator-url, the configurator as this process reaches it
+# (a site value: GEECS_PORTAL_EXTRA_ARGS); without it Save as is refused.
+ExecStart=@POETRY@ run geecs-data-portal --tiled --browser none --experiment ${GEECS_EXPERIMENT} --settings-dir %S/geecs-data-portal/settings --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" --configs-root "${GEECS_CONFIGS_ROOT}" $GEECS_PORTAL_EXTRA_ARGS
+# The portal's one durable write of its own: each viewer's working copy of
+# the Plot tab's settings, in <state directory>/settings (--settings-dir above; %S is systemd's
 # state root, /var/lib). StateDirectory= names the settings folder itself
 # as well as its parent, so systemd creates both at every start and owns
 # them to the service account (the parent alone would leave settings/ to

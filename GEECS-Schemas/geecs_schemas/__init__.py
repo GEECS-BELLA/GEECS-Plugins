@@ -86,9 +86,26 @@ from geecs_schemas.home_layout import (
     HomeLayout,
     HomeLink,
 )
+from geecs_schemas.plot_settings import (
+    PLOT_SETTINGS_FOLDER,
+    ImageCamera,
+    PlotterSettings,
+    ScanRef,
+)
 from geecs_schemas.experiment_defaults import (
     EXPERIMENT_DEFAULTS_FILENAME,
     ExperimentDefaults,
+)
+from geecs_schemas.interlocks import (
+    INTERLOCKS_FOLDER,
+    AlignmentCondition,
+    ConfigChangeCondition,
+    ExternalCondition,
+    Interlock,
+    InterlockCondition,
+    InterlockSet,
+    StaleCondition,
+    ThresholdCondition,
 )
 from geecs_schemas.preset import PRESETS_FOLDER, PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
@@ -283,9 +300,24 @@ __all__ = [
     "HomeLink",
     "HOME_LAYOUT_FILENAME",
     "resolve_screen",
+    # plot_settings (the Data Portal plotter's named sets: <experiment>/plot_settings/<name>.yaml)
+    "PlotterSettings",
+    "ImageCamera",
+    "ScanRef",
+    "PLOT_SETTINGS_FOLDER",
     # experiment_defaults
     "ExperimentDefaults",
     "EXPERIMENT_DEFAULTS_FILENAME",
+    # interlocks
+    "AlignmentCondition",
+    "ConfigChangeCondition",
+    "ExternalCondition",
+    "Interlock",
+    "InterlockCondition",
+    "InterlockSet",
+    "StaleCondition",
+    "ThresholdCondition",
+    "INTERLOCKS_FOLDER",
     # analysis
     "AnalysisGroup",
     "AnalysisRecipe",
@@ -357,6 +389,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "scan_variables": ScanVariables,
     "trigger_profile": TriggerProfile,
     "experiment_defaults": ExperimentDefaults,
+    "interlocks": InterlockSet,
     "derived_channels": DerivedChannels,
     "archive_policy": ArchivePolicy,
     "shot_offsets": ShotOffsets,
@@ -367,6 +400,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "journal_entry": JournalEntry,
     "screen": Screen,
     "home_layout": HomeLayout,
+    "plot_settings": PlotterSettings,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,

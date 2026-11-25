@@ -617,7 +617,30 @@ design rules"). The rules that are the portal's own:
   carries `set=`, which opens that set as
   it is now (ruling 3 of the brief: the portal's old URL-carried plot
   state is retired for this page).
-- **The settings folder** is chosen once at start
+- **Shared sets** (`plotter/shared_sets.py`, the author, 2026-11-23): Save
+  as **shares** a set, never writes one here: a `PUT` to the configurator
+  (`--configurator-url`, server to server, `ConfiguratorSets`, the scanner's
+  preset-saver shape: list, read the etag, the whole document with the
+  viewer as operator) commits `plot_settings/<stem>.yaml` to the configs
+  repo's main (GEECS-Schemas' `plot_settings` kind, operator tier), and
+  every portal reads the experiment's folder from `--configs-root` (the unit:
+  `${GEECS_CONFIGS_ROOT}`). On the page and in a link a shared set is
+  `shared/<stem>` (`settings.SHARED_PREFIX`; the stem is the Save-as name
+  folded, spaces to `-`, `shared_stem`), so a name means one store, never
+  both; `SetBook` routes every load, and this host's store refuses a shared
+  name. Only Save as commits: a pick under a shared set copies it into the
+  viewer's own set (the rule below), `/plot/api/settings/shared/…` refuses a
+  live save (422), and replacing one asks first (`overwrite=true`; a 409 from
+  the configurator is "changed while it was saved"). A set just saved is
+  answered from memory until the configs root shows the same document or
+  `PENDING_S` passes (the share fast-forwards on a thread after the commit).
+  No configurator or no configs root: Save as is refused, naming the flag;
+  the working copies still save. The portal never writes the configs tree.
+  The drawer's set picker is a `.combo` whose search keeps the sets holding
+  every word typed (`plotter.js`), the two groups (this host's, shared)
+  kept. Contract-tested against the configurator's app in
+  `GeecsConfigurator/tests/test_contract_portal.py`.
+- **The settings folder** (each viewer's working copy) is chosen once at start
   (`plotter.settings.resolve_store`): `--settings-dir`, which the unit
   sets to its systemd `StateDirectory`
   (`%S/geecs-data-portal/settings`), else the user's own state folder
@@ -641,7 +664,12 @@ design rules"). The rules that are the portal's own:
   the portal's `/api/run/{uid}/logbook` with the run's uid (only with an
   absolute `--logbook-url`). `plot_tools.js` holds them; `/plot/api/figure`
   takes `view`, `filters`, `bincfg` and `display`, and its `code` rebuilds
-  either view.
+  either view. Where the browser gives the page no clipboard (plain
+  `http://` off localhost), copy — the plot's and the strip's Copy grid —
+  downloads the PNG and opens `clipboard_help.js`' rung-3 `<dialog>`,
+  never a toast: it stays until read, names the page's address, the https
+  address as the fix and the Chrome/Edge flag as the fallback (on a secure
+  page, that the browser lacks picture copy).
 - **One figure code.** `plotter/figures.py` keeps only what is the
   page's own (GEECSplotter's axis ladder, its layout without a legend,
   the fits) and imports the rest from `figures.py`: the palettes,
@@ -710,9 +738,14 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   the server merges them into the set's file (`settings.merged`: a field
   the page does not send keeps its saved value), saves it, and redirects
   back (303) to the page the form came from (`page`). A list filter saves
-  as it is typed through `POST /plot/api/settings/{name}`. A new control
-  is a new `PlotterSettings` field with a default, so older files still
-  load; a change of meaning bumps `schema_version`. With `x_auto` on, X is
+  as it is typed through `POST /plot/api/settings/{name}`. The model is
+  GEECS-Schemas' `plot_settings` kind (`geecs_schemas.plot_settings`:
+  `PlotterSettings`, `ScanRef`, `ImageCamera` and the bounds its fields
+  use), so a new control is a new `PlotterSettings` field with a default
+  and a `description` there, in its own GEECS-Schemas change, so older
+  files still load; a change of meaning bumps `schema_version`. The page's
+  form rules over it (`CHOICES`, `merged`, the camera fields, the store)
+  stay in `plotter/settings.py`. With `x_auto` on, X is
   the open scan's variable ("autofill par1"); a hand pick saves it off,
   and then X `""` is the shot number.
 - **Set names** are lower-cased letters, digits, spaces, `-`, `_` and
@@ -842,13 +875,19 @@ they left open is here, for Sam at the promotion PR to `master`.
   `filters=` … open the scan but no longer reproduce the plot, including
   links stored in logbook entries; a new entry links the live set and
   carries the settings as sent, above).
-- Whether `PlotterSettings` stays in the portal or moves to GEECS-Schemas.
+- `PlotterSettings` moved to GEECS-Schemas as the `plot_settings` kind
+  (operator tier, `<experiment>/plot_settings/<name>.yaml`; the author,
+  2026-11-23), so a named set can be a configs-repo file saved through the
+  configurator; for the maintainer to confirm. The portal still keeps every
+  set in its settings folder until it reads and saves the repo's.
 - **A run's status word has three tables**: the scanner (`EXIT_WORDS`:
   abort → failed), the logbook (`KIT_STATE`: aborted → degraded) and the
   portal (`app.run_state`: abort → degraded, no stop document → unknown);
   one table in GEECS-Data-Utils needs a ruling on abort first.
-- Settings sets are one host's files with no revisions: two people editing
-  one set overwrite each other, as with LabVIEW's settings files.
+- Working copies are one host's files with no revisions (each viewer's own,
+  so nobody else writes them); shared sets have git's revisions, and a
+  Save as onto one replaces it whole (the etag guards only the save's own
+  read-then-write, as the scanner's preset save does).
 - **For the author:** the LabVIEW settings file format — sets could be
   imported from it if it is readable.
 - **Still to build** (the author's lists): clicking a plot point to open
@@ -967,7 +1006,11 @@ Two rules for anyone extending this:
   scan page's trace route a trace device shows one shot at a time. The
   Images strip's bin tile (below) is the one average, and it is only
   sample by sample over shots that share one x axis
-  (`geecs_data_utils.io.shot_traces.average_traces`), refused otherwise.
+  (`geecs_data_utils.io.shot_traces.average_traces`), refused otherwise —
+  except an analysis output's tables, whose axis follows each shot's own
+  calibration (a magspec spectrum's momentum, the author 2026-11-23):
+  shots of one length average index-wise, x too, as the analysis core
+  averages that measure, and the big view says so (`TraceResponse.note`).
 
 ## The 2-D map (the Plot page's view; the Grid tab until 2026-10-29)
 
@@ -1078,9 +1121,18 @@ Copy/Save grid keep working); a bin's tile is its shots' mean **sample by
 sample, only when they share one x axis** (`shot_traces.average_traces`:
 same length, same x values; a bin whose axes differ has no tile and says
 why — nothing is resampled). The row's z scale is its y range (each tile,
-shared over every tile through the same `levels` route, or typed in); its
-channel is `image_channel` / `ImageCamera.channel` (`channel@N`), one per
-row — stack the scope again for another channel. Its **x window** (the
+shared over every tile through the same `levels` route, or typed in).
+**Its channels** (the author, 2026-11-24: `image_channels` /
+`ImageCamera.channels`, `channel@N`, the form's `"0,2,3"` from the row's
+checkboxes, one per channel the file names; a set saved with one
+`channel` opens on it) are **overlaid** on each tile on one axis and one
+y scale (the shared range spans every picked channel), coloured by
+channel number (`C0`, `C1` … in the PNG, `--trace-N` in the big view) so a
+channel keeps its colour on every tile, a small legend past one; a bin
+overlays each channel's own mean (`images.channel_traces`). A shot whose
+file lacks a picked channel draws the others; a tile with none of them
+says why. Every tile, levels and trace URL repeats `channel=` per
+channel; the last checkbox ticked stays ticked. Its **x window** (the
 author, 2026-11-16: `image_xmin` / `image_xmax`, `xmin@N` / `xmax@N`,
 each `None` for no limit on that side) crops every tile
 (`images.windowed` → Data-Utils' `shot_traces.crop_trace`, nothing
@@ -1092,6 +1144,38 @@ clean-ups, background, colour bar and ROI do not apply and are not shown.
 `tile.png` and `levels` answer for either kind (the device decides);
 `/plot/api/images/trace` is a trace tile as a figure, which the big view
 draws so it zooms.
+**Analysis outputs** (the author, 2026-11-23): the per-shot products an
+analysis run wrote under `{day}/analysis/ScanNNN/<folder>/`
+(`ScanNNN_<stem>_SSS.png` images, `.txt` column tables) are rows too,
+named `analysis:<folder>` (the folder's own series) or
+`analysis:<folder>/<series>` (`geecs_data_utils.io.analysis_outputs`).
+The picker lists the analysis folders after the device folders (one more
+listing), marked `analysis · <folder>`; a picked folder of several series
+offers each (`images.devices(folder, picked)`). An image output is a
+camera row, a table a trace row whose channels are its y columns. A shot
+is its series' file of that number, never a neighbour's; no processing
+recipe is offered on one (`/api/run/{uid}/device`). A recipe may read one
+(`input.folder: analysis:<folder>[/<series>]`, ScanAnalysis' rule): the
+Analysis tab lists it applicable where that output folder exists, and its
+previews resolve the shot through `_image_folder`, which checks such a name
+against the scan's analysis folder by the same reader.
+**Physical axes** (the author, 2026-11-24): an image output with axis
+tables (`images.calibrated_device`: a magspec's `-interpSpec` momentum and
+`-interpDiv` angle siblings, `geecs_data_utils.io.magspec`) offers
+"pixels | GeV/c · mrad" on its row (`image_axes` / `ImageCamera.axes`,
+`axes@N`). On its axes a tile is charge density, pC/mrad/(GeV/c)
+(`images.calibrated_tile`: each shot's image on its own axes, its
+background and hit filter applied in the PNG's counts, never centred —
+centring would move charge off its momentum and angle, so the row hides
+the box — then `magspec.charge_density`; a bin's shots averaged index-wise
+with their axes, `magspec.average_shots`; a shot missing a table left out),
+drawn by matplotlib with titled axes and, with a bar, a titled colour bar
+(`routes.images._calibrated_png`), the big view the same at full size;
+the shared scale is in that unit, and the row's one bar names it.
+`tile.png`, `levels` and every URL carry `axes=true`; on any other device
+it is ignored. A tile is kept under the image's and both tables' folder
+times, so a table landing after its image is read again; whether a device
+has its tables is remembered while those three times hold. The ROI stays in pixels (the axes crop with it).
 `plotter/static/images.js` draws the **big view**: the tile
 clicked (or stepped to with ‹ › along its camera's row; a click on another
 row moves it to that camera) at full size: the tile's own picture

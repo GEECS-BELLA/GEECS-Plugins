@@ -20,6 +20,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images and device array variables (lineouts, scope traces) as NTNDArray PVs (gated subscriptions, latest-wins; per-devicetype exclusions from `geecs_core.db.device_streams`; arrays at native length). Non-scalars stay off the central CA gateway by design |
 | `GEECS-MCP/` | The GEECS facility MCP server for AI agents (OSPREY's htu-assistant): **the entry point for an agent's writes where it is deployed, a thin HTTP client** of the web scanner (:8300), the Data Portal (:8200) and the logbook (:8400) — its `DESIGN.md` (#1099) is the plan. One server, bound to the main experiment's scanner: an agent at an experiment instance (the bench's scanner on :8310) speaks that scanner's HTTP API directly — the same routes this server calls, `docs/web_services/scanner.md` § "From a script or an agent" — and never a device. The scans domain speaks GeecsScanner's HTTP API (`submit_preset` with the scanner's preflight questions relayed verbatim and never acknowledged by the server, `move`, `wait_for_scan`, the reads, the halt family); the analysis domain speaks the portal's (`run_analysis` / `wait_for_analysis` on its Analysis-tab route, `get_scan_analysis`, `get_analysis_artifact` and `get_scan_scalars` for the numbers, `get_scan_figure` for a reference); the logbook domain writes `post_logbook_entry` — an agent draft in the scans book, figures attached by the portal from artifact references. Every write carries `agent, admin supervision (<operator>)`. It imports nothing in the repo at runtime (the `mcp-is-a-client` import contract) and re-implements no preflight, limit or check. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
+| `GEECS-Interlocks/` | The software interlock server: watches device values (`geecs_core.client.GeecsDevice` subscriptions) and UDP status packets from programs outside GEECS against one of the experiment's named configurations (`<experiment>/interlocks/<name>.yaml`, GEECS-Schemas' `InterlockSet`: OR groups of threshold, alignment, stale, external and settings-held checks), and **reports** the verdict to Master Control on a length-prefixed TCP stream that holds a single `SAFE` or `WARNING` per frame — it never pauses a scan. Runs headless (`geecs-interlocks serve`) and serves a read-only web page on the kit (port 8600); its configurations are edited in the configurator (tier `maintainer`). Fail-safe throughout: nothing heard yet, disconnected, silent, unarmed or unreadable is unsafe |
 | `GEECS-LogTriage/` | Scan-log triage, stage 1 of an auto-debugger pipeline: walks a day's `scan.log` files, fingerprints and classifies the errors (bug candidate / config / hardware / operator) into a `TriageReport` JSON document; deterministic, no LLM, no GitHub writes — the `/triage` skill runs it |
 | `GeecsScanner/` | The web scanner console (FastAPI, port 8300 on the worker host): submit, watch and stop scans from a browser over `geecs_bluesky.qs_client` — the third surface on the GEECS surface kit and the operator front end (it replaced the PySide6 GEECS-Console, deleted 2026-09-14). A service layer (`geecs_scanner.service`: pure Python, every answer a Pydantic model) under a JSON API + an SSE stream that reduces the worker's pickled document stream to JSON; a `--demo` manager for development (#869) |
 | `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab, the logbook send and the Plot tab's settings sets: day → scan → metadata/scalar plots/images in any browser, over the `ScanCatalog` layer in GEECS-Data-Utils. Its Plot and Images tabs are GEECSplotter's pages (`geecs_portal/plotter/`, mounted at `/plot`; GeecsPlotter folded in and was deleted, 2026-10-29), opening a browser tab at start (`--browser`, `none` in the service unit) |
@@ -229,6 +230,14 @@ GeecsCanopy          →  GEECS-Core (pv_naming, configs_repo; GeecsDb in
 GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),
                         GEECS-Schemas (schema-only vocabulary for optional
                         derived-channel overlays)
+GEECS-Interlocks     →  GEECS-Core (client.GeecsDevice for the device
+                        subscriptions, configs_repo for the configurations),
+                        GEECS-Schemas (InterlockSet and its condition
+                        kinds), GeecsWebTheme (web extra — the read-only
+                        page's kit and glue). Imports nothing else: it
+                        reports, never acts (the `interlocks-edges`
+                        import contract) — Master Control decides what a
+                        trip stops
 GEECS-LogTriage      →  GEECS-Data-Utils (ScanPaths and the scan_log_loader
                         it fingerprints) — the /triage skill's engine
 GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming, the DB
@@ -392,6 +401,9 @@ actively developed analysis packages. `LogMaker4GoogleDocs` is a standalone lega
   │       ├── ScanInfoScan{NNN}.ini    (scan metadata)
   │       ├── <device>/...             (raw per-shot data)
   │       └── analysis_status/         (ScanAnalysis task queue YAML files)
+  ├── ECS Live dumps/
+  │   └── Scan{N}.txt                  (every settable at the scan's start, N unpadded;
+  │                                      the scanner's opt-in ECS live dump)
   └── analysis/
       ├── s{NNN}.txt                   (watched s-file copy)
       └── Scan{NNN}/...                (analysis output tree)
@@ -486,7 +498,7 @@ Every package has a `CHANGELOG.md` following
 `GEECS-Analysis/`, `GEECS-Data-Utils/`, `ScanAnalysis/`,
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
 `GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-MCP/`, `GEECS-DataPortal/`,
-`GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`,
+`GEECS-Interlocks/`, `GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`,
 `GeecsArchiver/`, `GeecsCanopy/`, `GeecsControlRoom/`, `GeecsConfigurator/`,
 `GeecsAnalysisWorker/`
 (`scripts/doc_audit.py` checks this list and the repository map above

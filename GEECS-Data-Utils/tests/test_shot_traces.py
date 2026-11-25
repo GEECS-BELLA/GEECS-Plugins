@@ -95,6 +95,16 @@ def test_a_missed_shot_is_never_a_neighbours_trace(scan_folder):
     assert found.reason == "the device missed this shot"
 
 
+def test_a_scope_with_no_stamp_on_any_row_reads_by_shot_number(scan_folder):
+    # Scans 29-30 of 2026-11-24: the scope outside scan mode, its acq_timestamp 0.0
+    frame = pd.DataFrame(
+        {f"{DEVICE} acq_timestamp": [0.0] * 3, "Shotnumber": [1, 2, 3]}
+    )
+    found = shot_traces.load_row_trace(scan_folder, frame, DEVICE, 2, channel=0)
+    assert found.kind == "native"
+    np.testing.assert_allclose(found.result.data[:, 1], np.full(5, 2) * 0.5 + 1)
+
+
 def test_a_row_past_the_table_is_refused(scan_folder):
     frame = pd.DataFrame({"Shotnumber": [1, 2]})
     assert shot_traces.load_row_trace(scan_folder, frame, DEVICE, 3).result is None
@@ -389,3 +399,14 @@ def test_a_csv_that_is_not_an_fts_spectrum_is_not_a_trace(tmp_path, content):
     path = tmp_path / "f.csv"
     path.write_bytes(content)
     assert shot_traces.read_text_trace(path) is None
+
+
+def test_index_wise_x_skips_a_nan_sample_as_the_core_does():
+    from geecs_data_utils.io.array1d import Data1DResult
+
+    a = Data1DResult(data=np.array([[1.0, 1.0], [2.0, 1.0]]))
+    b = Data1DResult(data=np.array([[np.nan, 3.0], [2.2, 3.0]]))
+    mean = shot_traces.average_traces([a, b], per_shot_axes=True)
+    assert mean is not None
+    assert mean.data[0, 0] == 1.0  # one shot's NaN x is skipped
+    assert mean.data[1, 0] == pytest.approx(2.1)

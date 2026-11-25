@@ -209,6 +209,7 @@ def test_recipe_schema_binds_the_registry_vocabulary():
     measures = schema["properties"]["measure"]["discriminator"]["mapping"]
     assert set(measures) == {
         "beam",
+        "discharge_delay",
         "downramp_phase",
         "frog",
         "frog_spectral_phase",
@@ -244,3 +245,20 @@ def test_recipe_schema_binds_the_registry_vocabulary():
     import json
 
     json.dumps(schema)
+
+
+def test_a_blank_over_an_analysis_output_reads_it_and_writes_under_the_name():
+    """The start form's device box names an earlier analysis's output: it is
+    the input's folder, and the device (what the run writes) is the name."""
+    from geecs_analysis.recipe import blank_recipe
+
+    doc = blank_recipe(
+        "line",
+        name="MagSpecLineout",
+        device="analysis:py-magspec-interpSpec",
+        input_fields={"loading": {"data_type": "tsv"}},
+    )
+    assert doc["device"] == "MagSpecLineout" == doc["output_name"]
+    assert doc["input"]["folder"] == "analysis:py-magspec-interpSpec"
+    plain = blank_recipe("camera", name="N", device="UC_Cam")
+    assert plain["device"] == "UC_Cam" and "folder" not in plain["input"]

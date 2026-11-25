@@ -1,0 +1,53 @@
+# GEECS-Interlocks, per-experiment instance — systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time; the GEECS_INTERLOCKS_* keys reach the command line from site.env.
+#
+# Type=notify + WatchdogSec: the server says READY=1 once serving and the
+# evaluation loop feeds the watchdog, so a stalled loop, not only a dead
+# process, is restarted. Master Control treats the stream's gap as unsafe.
+#
+# Never add --arm-at-start here: a restart would arm whatever settings arrive
+# first, one someone may just have changed. The server refuses it under
+# systemd (exit 2, which RestartPreventExitStatus keeps from looping). The
+# settings checks are armed from the web page by an operator.
+#
+# One instance per experiment: `systemctl enable --now geecs-interlocks@<Instance>`.
+# Runtime values come from site.env and THEN @EXPERIMENTS_DIR@/<Instance>.env,
+# which overrides it (keys in deploy/experiments.env.example). The
+# configuration and the ports are read from GEECS_INTERLOCKS_INSTANCE_* keys,
+# names site.env never sets: an instance file without them leaves the
+# configuration and port arguments empty, and the server refuses to start
+# (exit 2, not restarted), so an instance never runs on the main experiment's
+# configuration or stream port. The
+# non-templated unit is the main experiment's.
+#
+# Upgrade: GEECS-Interlocks/DEPLOYMENT.md.
+
+[Unit]
+Description=GEECS interlock server (experiment instance %i)
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=10
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
+# Its own clone: a safety reporter never moves with another service's pull
+# (docs/platform/fleet_map.md, one clone per service).
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/interlocks-checkout/GEECS-Interlocks
+ExecStart=@POETRY@ run geecs-interlocks serve --experiment ${GEECS_EXPERIMENT} --config ${GEECS_INTERLOCKS_INSTANCE_CONFIG} --status-host ${GEECS_INTERLOCKS_STATUS_HOST} --status-port ${GEECS_INTERLOCKS_INSTANCE_STATUS_PORT} --web-host ${GEECS_INTERLOCKS_WEB_HOST} --web-port ${GEECS_INTERLOCKS_INSTANCE_WEB_PORT} --external-host ${GEECS_INTERLOCKS_EXTERNAL_HOST} --gate-port ${GEECS_INTERLOCKS_INSTANCE_GATE_PORT} $GEECS_INTERLOCKS_EXTRA_ARGS
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=2
+TimeoutStopSec=15
+SyslogIdentifier=geecs-interlocks@%i
+
+[Install]
+WantedBy=multi-user.target

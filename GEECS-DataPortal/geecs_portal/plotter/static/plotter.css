@@ -52,6 +52,8 @@
 .kit .cam-bar { flex-wrap: wrap; gap: 6px; align-items: center; }
 .kit .cam-bar .cam-pick { width: min(16rem, 100%); }
 .kit .cam-bar .cam-pick .combo { width: 100%; }
+.kit .cam-bar .channels { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; }
+.kit .cam-bar .channels label { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
 /* The grid's one colour bar (a shared or fixed z scale): upright in the
    cell after the last tile, its height the tiles' picture height (plotter.js). */
 .kit .strip-bar-cell { margin: 0; min-width: 0; }
@@ -140,3 +142,8 @@
 /* The grid export's "full res" switch: pressed reads like the kit's .seg pick. */
 .kit .btn[data-strip-full][aria-pressed="true"] { color: var(--ink); background: var(--surface-2); font-weight: 600; }
 .conditions + .scan-scalars { margin-top: calc(-0.5 * var(--gap)); }
+
+/* The clipboard help dialog (clipboard_help.js), at the kit's dialog width:
+   an address or flags page selected whole on one click, to copy by hand. */
+.kit #clip-help ol { margin: 0; padding-left: 1.25rem; font-size: 13px; color: var(--slate); display: flex; flex-direction: column; gap: 6px; }
+.kit .clip-paste { user-select: all; word-break: break-all; color: var(--ink); }

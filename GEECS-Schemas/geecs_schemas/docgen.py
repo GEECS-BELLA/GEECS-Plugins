@@ -146,6 +146,35 @@ trigger_profile: htu_shot_control
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 """,
+    "interlocks": """\
+schema_version: 1
+# interlocks/<name>.yaml: one named configuration. An interlock is unsafe
+# while any of its conditions is; a disconnected device, or one silent
+# for stale_after_s, is always unsafe
+stale_after_s: 5
+interlocks:
+  - name: chamber vacuum
+    conditions:
+      - kind: threshold
+        device: U_HP_Vacuum
+        variable: Pressure
+        operator: ">"
+        limit: 1.0e-5
+        hysteresis: 2.0e-6
+    settle_s: 5
+  - name: tape camera
+    description: saturation and pointing, reported as one
+    conditions:
+      - {kind: threshold, device: UC_TapeCam, variable: MaxCounts, operator: ">=", limit: 4095}
+      - {kind: alignment, device: UC_TapeCam, variable: CentroidX, target_variable: TargetX, tolerance: 5}
+      - {kind: alignment, device: UC_TapeCam, variable: CentroidY, target_variable: TargetY, tolerance: 5}
+  - name: stage motion
+    conditions:
+      - {kind: external, port: 5050, source: stage motion controller}
+  - name: windmill settings
+    conditions:
+      - {kind: config_change, device: U_Windmill, variables: [Position, Speed]}
+""",
     "archive_policy": """\
 schema_version: 1
 # the archive set is derived from the DB (served readbacks, :SP, connected,
@@ -314,6 +343,22 @@ device_pages:
   - title: Cameras
     families: [ad_camera_chain]             # the picker lists the roster's devices of these
 links: [scanner, portal, logbook, config_editor]
+""",
+    "plot_settings": """\
+schema_version: 1
+# <experiment>/plot_settings/<name>.yaml: a set of the portal's Plot and Images pages.
+# Every field has a default; a field this portal does not know is kept, not refused.
+day: 2026-11-23                  # the scan the set reopens
+scan: 12
+x_auto: true                     # X is the open scan's variable
+y: U_BCaveICT Python Results.ChA Beam Charge (pC)
+y_fit: gaussian
+xy_view: bin
+extra_scans:
+  - {day: 2026-11-22, scan: 4}
+image_device: UC_TopView
+image_zscale: shared
+image_rois: {UC_TopView: [100, 80, 500, 400]}   # x0, y0, x1, y1 in pixels
 """,
     "analysis_recipe": """\
 schema_version: 3

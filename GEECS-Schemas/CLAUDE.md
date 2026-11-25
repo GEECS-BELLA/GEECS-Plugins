@@ -74,13 +74,18 @@ top-level `kind` starting `scalar` as a scalar job, any other `kind` as a
 `.himg` job (a recipe has none), else validates a recipe, which refuses
 another `schema_version` and the retired v2 layout (`analyzer:` +
 `image:`); every loader goes through it. `processing_1d` keeps only
-`Data1DType` / `Data1DLoading`, the line input's loading section. Every document carries
+`Data1DType` / `Data1DLoading`, the line input's loading section. A recipe's
+`input.folder` may name an earlier analysis's per-shot outputs,
+`analysis:<folder>[/<series>]` (`ANALYSIS_OUTPUT_PREFIX`, data-utils'
+`OUTPUT_PREFIX` by test; `reads_analysis_output`); its rules are the
+recipe's validator (`_analysis_output_input`), its reading ScanAnalysis'.
+Every document carries
 the same neutral names (`device`, `data_folder`, `effective_output_name`,
 `destructive`, `scan.priority`, `source_id`) so a host lists them
 without asking which it holds. The recipe types the document's frame —
 naming, `input`, `inputs`, `scan`, `figure` (`FigureStyle`, the per-frame
 draw) and the summary kinds' option models (`image_grid`, `waterfall`,
-`average`, `scalar_fit`, each declaring the frame dimensionality it draws,
+`average`, `band`, `scalar_fit`, each declaring the frame dimensionality it draws,
 which the document checks against the input) — and carries `steps` /
 `measure` as registry references (`StepRef` / `MeasureRef`, extra keys
 allowed on purpose): the numerical vocabulary is GEECS-Analysis' registry and is
@@ -191,6 +196,18 @@ family, and the named links (`HomeLink`: scanner, portal, logbook,
 config_editor). A link is a word; its URL is a deployment setting, never in
 the file. Whether a screen file exists or a family is installed is the
 page's check (a disabled entry with the reason), not the model's.
+
+## Plot settings
+
+`plot_settings.py`: `PlotterSettings`, a named settings set of the Data
+Portal's Plot and Images pages (`<experiment>/plot_settings/<name>.yaml`,
+operator tier): every control, each with its default, with `ScanRef` and
+`ImageCamera` nested. All three **keep unknown fields** (`extra="allow"`,
+as `StepRef` / `MeasureRef` keep extra keys) instead of refusing them: a portal must load and
+re-save, without dropping, a set a newer portal wrote (a rollback, two hosts
+on different versions against one configs repo). Choice fields are plain
+strings for the same reason; the portal checks the choices where its page
+posts them (`geecs_portal.plotter.settings.CHOICES`), never here.
 
 ## Sweep payload
 

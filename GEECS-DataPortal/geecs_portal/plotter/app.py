@@ -31,9 +31,17 @@ from geecs_web_theme.web import (
     root_of,
 )
 
+from geecs_portal.plotter import scans
 from geecs_portal.plotter.routes import STATIC_DIR, TEMPLATES_DIR, Context, api, pages
 from geecs_portal.plotter.routes import images as image_routes
 from geecs_portal.plotter.settings import resolve_store
+from geecs_portal.plotter.shared_sets import (
+    ConfiguratorSets,
+    SetBook,
+    SetSaver,
+    SharedSets,
+    shared_folder,
+)
 
 
 def _version() -> str:
@@ -54,6 +62,9 @@ def create_app(
     root_path: str = "",
     mount: str = "",
     logbook_url: str = "",
+    configs_root: Optional[Union[Path, str]] = None,
+    configurator_url: str = "",
+    set_saver: Optional[SetSaver] = None,
 ) -> FastAPI:
     """Build the plotter application.
 
@@ -80,6 +91,16 @@ def create_app(
         The portal's ``--logbook-url``. Absolute, the plot's toolbar offers
         "send to the scan's log entry", which posts to the portal's own
         ``/api/run/{uid}/logbook`` (server to server, as the scan page's).
+    configs_root : Path or str, optional
+        The configs repo's root (the share's clone, or the configurator's
+        live checkout): the shared sets are read from the experiment's
+        ``plot_settings/`` folder there. ``None``: no shared sets.
+    configurator_url : str, optional
+        The configurator as this process reaches it: Save as shares a set
+        through it (:mod:`geecs_portal.plotter.shared_sets`). Empty: Save
+        as is refused, saying so.
+    set_saver : SetSaver, optional
+        Replaces the configurator client (the tests' double).
 
     Returns
     -------
@@ -108,7 +129,9 @@ def create_app(
         experiment=experiment,
         templates=make_templates(TEMPLATES_DIR, context_processors=[portal_context]),
         catalog=FolderScanCatalog(Path(base_directory) if base_directory else None),
-        store=resolve_store(Path(settings_dir) if settings_dir else None),
+        store=_set_book(
+            experiment, settings_dir, configs_root, configurator_url, set_saver
+        ),
         logbook_send=logbook_url.startswith(("http://", "https://")),
     )
     router = APIRouter()
@@ -123,3 +146,27 @@ def create_app(
         return {"ok": True, "version": __version__}
 
     return app
+
+
+def _set_book(
+    experiment: str,
+    settings_dir: Optional[Union[Path, str]],
+    configs_root: Optional[Union[Path, str]],
+    configurator_url: str,
+    set_saver: Optional[SetSaver],
+) -> SetBook:
+    """The set book: this host's sets and the shared ones, for the experiment the pages open.
+
+    The experiment is resolved once, at start (``config.ini`` when the flag
+    names none); without one there are no shared sets, since their folder is
+    the experiment's.
+    """
+    name = scans.resolved_experiment(experiment)
+    saver = set_saver or (
+        ConfiguratorSets(configurator_url, name) if configurator_url and name else None
+    )
+    folder = shared_folder(Path(configs_root), name) if configs_root and name else None
+    return SetBook(
+        local=resolve_store(Path(settings_dir) if settings_dir else None),
+        shared=SharedSets(folder=folder, saver=saver),
+    )

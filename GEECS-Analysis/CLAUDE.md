@@ -263,6 +263,18 @@ sign convention (τ0 ≥ 0 is the later pulse; the arms are
 indistinguishable from one spectrum) is in the module and in
 `docs/analysis/spectral_interferometry.md`. Numpy only.
 
+The `discharge_delay` measure (`algorithms.discharge_delay`, new; the
+LabVIEW "open scope trace file and calc delay" VI without its
+cable-charging thresholds): a scope's discharge-current channel as the
+trace and the laser photodiode as the `photodiode` **channel**
+(`tek_scope_hdf5` reads another trace index as an auxiliary column).
+Each trace's time axis is shifted by its channel's offset, the current is
+volts × `amps_per_volt`, no baseline is subtracted; start and arrival are
+the last rising crossings of a fraction of each trace's peak before it,
+interpolated. No photodiode, or a photodiode peak below
+`photodiode_min_v` (a shot without the laser), → the laser scalars are
+NaN, with a note.
+
 ## Array-level numerics for viewers (curve fits, image clean-ups)
 
 Two things here are called on plain arrays by the Data Portal's plot
@@ -335,12 +347,20 @@ the layout function `(results, positions, label, options, figure)` returning a
 and `notes`, e.g. `scalar_fit`'s zero crossings; the ScanAnalysis sink writes
 them as a `<stem>.json` sidecar beside the PNG, nonfinite as null) —
 consumers normalise either through `registry.summary_output`, never isinstance,
-whether it consumes the ordered panels or the noscan average, and the file
+what it consumes (`registry.CONSUMES`: the ordered `panels`, the noscan
+`average`, or every one of the `shots` at its bin's position, `None` for
+all of an unbinned run's), and the file
 marker the sink appends to the device name (the portal's filename parser and
 MCP's display-file contract read those markers — never change one). The
 frame dimensionality a kind draws is the option model's `frame_ndim`, checked
-by the document; adding a kind is one file here plus its option model in
-GEECS-Schemas, no sink or dispatcher edit. The waterfall kind deliberately
+by the document; adding a kind that draws an existing product is one file here
+plus its option model in GEECS-Schemas, no sink or dispatcher edit (a new
+product is a new `CONSUMES` value and its ScanAnalysis planning). The `band`
+kind (`shots`) groups the shots by position and draws, per sample over the
+shots whose sample is not NaN, mean ± `sigma` sample standard deviations
+(ddof 1) or the median between two `percentiles`; it reads traces through
+`display_trace`, so above `MAX_COLUMNS` its band is the spread of block
+means. The waterfall kind deliberately
 keeps legacy geometry (index-wise stack on the first trace's x grid, midpoint
 cell edges, a sort key implying even row spacing unless overridden) rather
 than weakening the general renderer's same-grid rule. It draws a trace

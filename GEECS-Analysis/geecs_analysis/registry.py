@@ -373,8 +373,10 @@ class SummaryDefinition:
     The layout returns a ``Figure`` or a :class:`SummaryOutput` (a figure
     plus scan-level scalars the sink writes as a JSON sidecar); consumers
     normalise through :func:`summary_output`. ``consumes`` names the scan product the layout draws: ``"panels"`` (one
-    measurement per bin, or per shot on a noscan waterfall) or
-    ``"average"`` (the scan's one averaged measurement). ``filename`` is the
+    measurement per bin, or per shot on a noscan waterfall),
+    ``"average"`` (the scan's one averaged measurement) or ``"shots"``
+    (every shot's measurement, each at its bin's position; ``None`` for
+    every shot of an unbinned run, which is one group). ``filename`` is the
     marker the sink appends to the device name; the portal's filename
     parser and MCP's display-file contract read these markers.
     """
@@ -387,6 +389,9 @@ class SummaryDefinition:
 
 
 _SUMMARIES: dict[type, SummaryDefinition] = {}
+
+#: The scan products a summary kind can draw (:class:`SummaryDefinition`).
+CONSUMES = frozenset({"panels", "average", "shots"})
 
 
 def summary(
@@ -402,8 +407,8 @@ def summary(
     ndim = getattr(spec, "frame_ndim", None)
     if not ndim or not frozenset(ndim) <= {1, 2}:
         raise ValueError("A summary spec must declare frame_ndim within {1, 2}")
-    if consumes not in {"panels", "average"}:
-        raise ValueError("A summary consumes 'panels' or 'average'")
+    if consumes not in CONSUMES:
+        raise ValueError(f"A summary consumes one of {sorted(CONSUMES)}")
     if not filename or "/" in filename or "\\" in filename:
         raise ValueError("A summary needs a single-component filename marker")
 

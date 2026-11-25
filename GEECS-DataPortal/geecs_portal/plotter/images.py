@@ -21,6 +21,7 @@ its s-file, or a ScanSet with its merged frame.
 
 from __future__ import annotations
 
+import functools
 import threading
 import time
 from collections import OrderedDict
@@ -28,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -37,7 +38,7 @@ from geecs_data_utils.data.row_filters import RowFilters, filter_mask
 from geecs_analysis.image_prep import HIT_FILTERS, ImagePrep
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec, background_frame
 from geecs_data_utils.frames import Frame
-from geecs_data_utils.io import shot_images, shot_traces
+from geecs_data_utils.io import analysis_outputs, magspec, shot_images, shot_traces
 from geecs_data_utils.io.array1d import Data1DResult
 from geecs_data_utils.data.scan_merge import (
     MERGED_BIN_COLUMN,
@@ -81,6 +82,11 @@ CMAPS = (
     "coolwarm",
     "gray_r",
 )
+
+#: A calibrated output's density unit, as the row's one colour bar names it:
+#: a magspec image (aC per pixel) over its momentum (GeV/c) and angle (mrad)
+#: tables. Each tile's own bar names the unit its files give.
+CALIBRATED_UNIT = "pC/mrad/(GeV/c)"
 
 #: A region of interest, ``(x0, y0, x1, y1)`` in pixels, the end excluded.
 Roi = tuple[int, int, int, int]
@@ -269,15 +275,38 @@ def trace_device(
     return found
 
 
-def devices(folder: Path) -> list[str]:
-    """The scan's device folders: one listing, no probe of each.
+def devices(folder: Path, picked: Sequence[str] = ()) -> list[str]:
+    """The scan's device folders, then its analysis outputs: one listing each.
 
     Probing every folder for pictures costs a listing of each over the
     share (tens of seconds cold, for a scan with 70 devices), so the list
     is every folder and the picked one is checked
-    (:func:`is_image_device`).
+    (:func:`is_image_device`). The analysis outputs are the subfolders of
+    ``analysis/ScanNNN`` (``analysis:<folder>``,
+    ``geecs_data_utils.io.analysis_outputs``); an output folder *picked*
+    is looked into, and its series follow it (``analysis:<folder>/<series>``),
+    so a folder of several (an image and its lineouts) offers each.
     """
-    return shot_images.image_devices(folder)
+    found = shot_images.image_devices(folder)
+    for name in analysis_outputs.output_folders(folder):
+        found.append(name)
+        if any(_output_folder(p) == name for p in picked):
+            series = analysis_outputs.output_series(folder, name)
+            if len(series) > 1:
+                found.extend(s.name for s in series)
+    return found
+
+
+def _output_folder(name: str) -> str:
+    """The output folder's own name for an output or series name; ``""`` for a device."""
+    if not analysis_outputs.is_output_name(name):
+        return ""
+    return name.partition("/")[0]
+
+
+def device_label(name: str) -> str:
+    """How the picker shows *name*: an analysis output marked as one."""
+    return analysis_outputs.output_label(name)
 
 
 def bins(
@@ -589,6 +618,26 @@ def tile_array(
     NoImage
         No shot of the tile has an image; the reason why.
     """
+    found = shot_images.average_scan_rows(
+        _parts(folder, frame, rows),
+        device,
+        prepare=_preparer(device, prep, background),
+    )
+    if found.array is None:
+        raise NoImage(found.reason or found.kind)
+    return found.array
+
+
+def _preparer(
+    device: str, prep: ImagePrep, background: Optional[Background]
+) -> Optional[Callable[[np.ndarray], np.ndarray]]:
+    """What each shot goes through first: the background off, then *prep*; ``None``: nothing.
+
+    Raises
+    ------
+    NoImage
+        The background scan has no image of *device*, or one unusable.
+    """
     back = background_array(background, device) if background is not None else None
     # By array index: neither the image nor the average carries coordinates.
     by_index = BackgroundFrameSpec(source="background", alignment="samples")
@@ -611,14 +660,7 @@ def tile_array(
             image = np.array(less.data)  # a frame's samples are read-only
         return prep.apply(image)
 
-    found = shot_images.average_scan_rows(
-        _parts(folder, frame, rows),
-        device,
-        prepare=prepare if (prep.active or back is not None) else None,
-    )
-    if found.array is None:
-        raise NoImage(found.reason or found.kind)
-    return found.array
+    return prepare if (prep.active or back is not None) else None
 
 
 _kept: OrderedDict[tuple, object] = OrderedDict()
@@ -630,8 +672,12 @@ def _size(value: object) -> int:
     """The bytes a kept value holds: pixels, a trace's samples, or a reason (0)."""
     if isinstance(value, np.ndarray):
         return value.nbytes
+    if isinstance(value, Frame):
+        return value.data.nbytes
     if isinstance(value, Data1DResult):
         return value.data.nbytes
+    if isinstance(value, shot_traces.ShotTrace) and value.result is not None:
+        return value.result.data.nbytes
     return 0
 
 
@@ -669,9 +715,19 @@ def _remembered(key: tuple, compute: Callable[[], object]) -> object:
 
 
 def _folder_stamp(folder: Path, device: str) -> Optional[int]:
-    """The device folder's modification time (``None``: it cannot be read)."""
+    """The device folder's modification time (``None``: it cannot be read).
+
+    An analysis output's is its output folder's, by path alone.
+    """
+    path = (
+        analysis_outputs.output_dir(folder, device)
+        if analysis_outputs.is_output_name(device)
+        else folder / device
+    )
+    if path is None:
+        return None
     try:
-        return (folder / device).stat().st_mtime_ns
+        return path.stat().st_mtime_ns
     except OSError:
         return None
 
@@ -722,6 +778,168 @@ def kept_tile_array(
     return found
 
 
+def _axis_outputs(device: str) -> tuple[str, str]:
+    """The sibling outputs that carry *device*'s momentum and angle."""
+    folder = _output_folder(device)
+    return folder + magspec.MOMENTUM_SUFFIX, folder + magspec.ANGLE_SUFFIX
+
+
+def _calibrated_stamp(source: Source, device: str) -> object:
+    """The image's and both axis tables' folder times (``None``: one cannot be read).
+
+    A table landing after its image changes the key, so a bin read in
+    between (that shot left out) is read again.
+    """
+    stamps = tuple(_source_stamp(source, n) for n in (device, *_axis_outputs(device)))
+    return None if None in stamps else stamps
+
+
+@functools.lru_cache(maxsize=256)
+def _has_magspec_series(folder: str, device: str, stamp: object) -> bool:
+    """``magspec_series`` found, remembered while the three folders' times hold."""
+    return magspec.magspec_series(Path(folder), device) is not None
+
+
+def calibrated_device(folder: Path, device: str) -> bool:
+    """Whether *device* is an image output with physical axes (a magspec's).
+
+    ``geecs_data_utils.io.magspec.magspec_series``: an analysis output
+    whose sibling ``-interpSpec`` and ``-interpDiv`` folders carry each
+    shot's momentum and angle. Three stats per call; the folder listings
+    only when one of the three folders changed.
+    """
+    if not analysis_outputs.is_output_name(device):
+        return False
+    stamp = _calibrated_stamp(folder, device)
+    if stamp is None:
+        return False
+    return _has_magspec_series(str(folder), device, stamp)
+
+
+def calibrated_tile(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
+) -> Frame:
+    """The tile as charge density on its physical axes: one shot, or its shots' mean.
+
+    Each shot is its image with its own momentum and angle
+    (``magspec.magspec_shot``), cleaned in its PNG's counts as
+    :func:`tile_array` cleans a camera's (the background, the X-ray-hit
+    filter; never centring, which would move charge off its momentum and
+    angle), then made charge density (``magspec.charge_density``: ``pC/mrad/(GeV/c)``). A
+    bin is its shots' mean, pixel by pixel with their axes averaged
+    (``magspec.average_shots``). A shot missing any of its three files, or
+    whose files are malformed, is left out, never a neighbour's.
+
+    Raises
+    ------
+    NoImage
+        No shot of the tile has its image and both axes; the reason why.
+    """
+    prepare = _preparer(device, ImagePrep(hits=prep.hits), background)
+    shots: list[Frame] = []
+    reason = "no shots"
+    for part in _parts(folder, frame, rows):
+        series = magspec.magspec_series(part.scan_folder, device)
+        if series is None:
+            reason = f"{device} has no momentum and angle tables in this scan"
+            continue
+        for row in part.rows:
+            found = _calibrated_shot(part, row, device, series, prepare)
+            if isinstance(found, str):
+                reason = found
+            else:
+                shots.append(found)
+    if not shots:
+        raise NoImage(reason)
+    try:
+        return magspec.average_shots(shots)
+    except ValueError as why:
+        raise NoImage(str(why)) from None
+
+
+def _calibrated_shot(
+    part: ScanRows,
+    row: int,
+    device: str,
+    series: tuple,
+    prepare: Optional[Callable[[np.ndarray], np.ndarray]],
+) -> Union[Frame, str]:
+    """One row of *part* as charge density on its own axes, or why it has none."""
+    if part.frame is not None and not 1 <= row <= len(part.frame):
+        return f"no shot {row} in this scan"
+    number = shot_images.row_file_shot(part.frame, row) or row
+    try:
+        shot = magspec.magspec_shot(part.scan_folder, device, number, series=series)
+        if shot is None:
+            return f"shot {number} lacks its image or an axis table"
+        charge = shot.frame
+        if prepare is not None:
+            # The background and the hit filter work in counts.
+            counts = np.array(charge.data) / shot.charge_per_count
+            charge = charge.replace(data=prepare(counts) * shot.charge_per_count)
+        return magspec.charge_density(charge)
+    except ValueError as why:
+        return str(why)
+
+
+def kept_calibrated_tile(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
+) -> Frame:
+    """:func:`calibrated_tile`, remembered as :func:`kept_tile_array` remembers.
+
+    The key carries the image's and both axis tables' folder times
+    (:func:`_calibrated_stamp`), the table's length and the clean-ups.
+
+    Raises
+    ------
+    NoImage
+        As :func:`calibrated_tile`.
+    """
+    stamp = _calibrated_stamp(folder, device)
+    args = (folder, frame, device, rows, prep, background)
+    if stamp is None:
+        return calibrated_tile(*args)
+    key = (
+        "calibrated",
+        _source_key(folder),
+        device,
+        rows,
+        len(frame),
+        stamp,
+        prep,
+        background,
+        _background_stamp(background, device),
+    )
+    found = _remembered(key, lambda: calibrated_tile(*args))
+    assert isinstance(found, Frame)
+    return found
+
+
+def crop_frame(image: Frame, roi: Optional[Roi]) -> Frame:
+    """:func:`crop` of a frame: its pixels and its axes together.
+
+    Raises
+    ------
+    NoImage
+        The region lies wholly outside the image.
+    """
+    if roi is None:
+        return image
+    crop(image.data, roi)  # the refusal, for a region off the image
+    x0, y0, x1, y1 = roi
+    return image.crop((slice(y0, y1), slice(x0, x1)))
+
+
 def _keep(key: tuple, value: object) -> None:
     """Store *value*, dropping the oldest until the store fits its bytes."""
     global _kept_bytes
@@ -747,11 +965,34 @@ def trace_tile(
 ) -> Data1DResult:
     """The tile's trace: one shot's, or its shots' sample-by-sample mean.
 
+    The trace of :func:`trace_tile_found`.
+
+    Raises
+    ------
+    NoImage
+        No shot of the tile has a trace, or the axes differ; the reason.
+    """
+    found = trace_tile_found(folder, frame, device, rows, channel)
+    assert found.result is not None
+    return found.result
+
+
+def trace_tile_found(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    channel: int = 0,
+) -> shot_traces.ShotTrace:
+    """The tile's trace with its ``note`` (how a bin's mean was made).
+
     ``geecs_data_utils.io.shot_traces.average_trace_scan_rows``: shots the
     device missed, or whose file is missing or unreadable, are left out;
-    a bin whose shots' x axes differ has no mean (nothing is resampled).
-    Remembered as :func:`kept_tile_array` is, until the folder changes.
-    *folder* is one scan's, or a :class:`ScanSet`.
+    a bin whose shots' x axes differ has no mean (nothing is resampled),
+    except an analysis output's, whose shots of one length average
+    index-wise (the note says so). Remembered as :func:`kept_tile_array`
+    is, until the folder changes. *folder* is one scan's, or a
+    :class:`ScanSet`.
 
     Raises
     ------
@@ -761,20 +1002,99 @@ def trace_tile(
     parts = _parts(folder, frame, rows)
     probes = [trace_device(p.scan_folder, device) for p in parts]
 
-    def compute() -> Data1DResult:
+    def compute() -> shot_traces.ShotTrace:
         found = shot_traces.average_trace_scan_rows(parts, device, channel, probes)
         if found.result is None:
             raise NoImage(found.reason or found.kind)
         found.result.data.flags.writeable = False  # shared between requests
-        return found.result
+        return found
 
     stamp = _source_stamp(folder, device)
     if stamp is None:
         return compute()
     key = ("trace", _source_key(folder), device, rows, len(frame), stamp, channel)
     found = _remembered(key, compute)
-    assert isinstance(found, Data1DResult)
+    assert isinstance(found, shot_traces.ShotTrace)
     return found
+
+
+def channel_finds(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    channels: Sequence[int],
+) -> list[tuple[int, Union[shot_traces.ShotTrace, str]]]:
+    """Each picked channel's trace of the tile, or why it has none, in order.
+
+    A trace row overlays its *channels* on one tile, each
+    :func:`trace_tile_found` on its own (a bin: each channel's own mean).
+    """
+    out: list[tuple[int, Union[shot_traces.ShotTrace, str]]] = []
+    for channel in channels:
+        try:
+            out.append(
+                (channel, trace_tile_found(folder, frame, device, rows, channel))
+            )
+        except NoImage as reason:
+            out.append((channel, str(reason)))
+    return out
+
+
+def channel_traces(
+    folder: Source,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    channels: Sequence[int],
+) -> list[tuple[int, shot_traces.ShotTrace]]:
+    """The tile's trace of each picked channel it has, in order: ``(channel, found)``.
+
+    :func:`channel_finds` without the channels the tile has no trace of (a
+    shot whose file lacks one, a channel the scope does not have): only a
+    tile with none of them is refused.
+
+    Raises
+    ------
+    NoImage
+        No picked channel has a trace on this tile; each one's reason.
+    """
+    finds = channel_finds(folder, frame, device, rows, channels)
+    found = [(ch, one) for ch, one in finds if not isinstance(one, str)]
+    if not found:
+        raise no_channel(finds)
+    return found
+
+
+def no_channel(
+    finds: Sequence[tuple[int, Union[shot_traces.ShotTrace, str]]],
+) -> NoImage:
+    """The refusal of a tile none of whose picked channels has a trace: each reason once."""
+    why = list(dict.fromkeys(one for _, one in finds if isinstance(one, str)))
+    return NoImage("; ".join(why) if why else "no channel picked")
+
+
+def windowed_each(
+    traces: Sequence[Data1DResult], window: Optional[XWindow]
+) -> list[Optional[Data1DResult]]:
+    """Each of a tile's traces inside the x *window*, ``None`` for one with no sample there.
+
+    Raises
+    ------
+    NoImage
+        None of them has a sample in the window (:func:`windowed`'s reason).
+    """
+    out: list[Optional[Data1DResult]] = []
+    why: Optional[NoImage] = None
+    for trace in traces:
+        try:
+            out.append(windowed(trace, window))
+        except NoImage as reason:
+            out.append(None)
+            why = reason
+    if why is not None and all(t is None for t in out):
+        raise why
+    return out
 
 
 #: A trace row's x window: ``(low, high)``, either ``None`` for no limit.
@@ -803,14 +1123,15 @@ def trace_levels(
     frame: pd.DataFrame,
     device: str,
     tiles: list[Tile],
-    channel: int = 0,
+    channels: Sequence[int] = (0,),
     window: Optional[XWindow] = None,
 ) -> tuple[float, float, int]:
     """One y range for every trace tile: the lowest and highest sample of them all.
 
     The trace row's "shared" scale, as :func:`shared_levels` is a camera's:
-    every tile given (the page's shown ones) is read first, a few at a time.
-    With an x *window*, only the samples inside it count.
+    every tile given (the page's shown ones) is read first, a few at a time,
+    over every picked channel (they overlay on one axis). With an x
+    *window*, only the samples inside it count.
 
     Returns
     -------
@@ -825,12 +1146,21 @@ def trace_levels(
 
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
-            trace = trace_tile(folder, frame, device, tile.rows, channel)
-            y = windowed(trace, window).data[:, 1]
+            found = channel_traces(folder, frame, device, tile.rows, channels)
+            inside = windowed_each([one.result for _, one in found], window)
         except NoImage:
             return None
-        finite = y[np.isfinite(y)]
-        return (float(finite.min()), float(finite.max())) if finite.size else None
+        ranges = []
+        for trace in inside:
+            if trace is None:
+                continue
+            y = trace.data[:, 1]
+            finite = y[np.isfinite(y)]
+            if finite.size:
+                ranges.append((float(finite.min()), float(finite.max())))
+        if not ranges:
+            return None
+        return min(lo for lo, _ in ranges), max(hi for _, hi in ranges)
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         found = [w for w in pool.map(levels, tiles) if w is not None]
@@ -874,8 +1204,11 @@ def shared_levels(
     roi: Optional[Roi] = None,
     prep: ImagePrep = ImagePrep(),
     background: Optional[Background] = None,
+    calibrated: bool = False,
 ) -> tuple[float, float, int]:
     """One black and one white for *tiles*: the darkest and brightest pixel.
+
+    *calibrated*: of each tile as charge density (:func:`calibrated_tile`).
 
     Over each tile's ROI; the brightest tile sets white, so none of them
     saturates. Reads every tile given, a few at a time: the page gives the
@@ -897,9 +1230,18 @@ def shared_levels(
 
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
-            pixels = crop(
-                kept_tile_array(folder, frame, device, tile.rows, prep, background), roi
-            )
+            if calibrated:
+                pixels = crop_frame(
+                    kept_calibrated_tile(
+                        folder, frame, device, tile.rows, prep, background
+                    ),
+                    roi,
+                ).data
+            else:
+                pixels = crop(
+                    kept_tile_array(folder, frame, device, tile.rows, prep, background),
+                    roi,
+                )
         except NoImage:
             return None
         return window_levels(pixels, 0.0, 100.0)  # its darkest and brightest

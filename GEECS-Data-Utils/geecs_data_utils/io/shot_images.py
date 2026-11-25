@@ -41,7 +41,8 @@ shot the same way.
 from __future__ import annotations
 
 import logging
-import math
+import threading
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Protocol, Sequence
@@ -49,6 +50,7 @@ from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Protocol, Sequ
 import numpy as np
 
 from geecs_data_utils import tiled_schema
+from geecs_data_utils.io import analysis_outputs
 from geecs_data_utils.io.display_png import to_display_png
 from geecs_data_utils.io.array1d import (
     Data1DConfig,
@@ -206,7 +208,14 @@ def device_kind(
         ``("unrenderable", device_dir, ext)`` for non-image native formats,
         ``("native", device_dir, ext)`` otherwise; ``("missing", …)`` for
         an unknown device.
+
+    An analysis output's name (``analysis:<folder>[/<series>]``,
+    :mod:`~geecs_data_utils.io.analysis_outputs`) is its series' per-shot
+    files: ``native`` for images, ``unrenderable`` (with the extension) for
+    anything else, such as text traces.
     """
+    if analysis_outputs.is_output_name(device):
+        return _output_kind(scan_folder, device)
     if device not in (devices if devices is not None else image_devices(scan_folder)):
         return DeviceKind("missing", reason="unknown device")
     device_dir = scan_folder / device
@@ -222,6 +231,51 @@ def device_kind(
     if ext not in DISPLAYABLE_IMAGE_EXTS:
         return DeviceKind("unrenderable", device_dir, ext)
     return DeviceKind("native", device_dir, ext)
+
+
+#: Seconds an analysis output's resolved series is reused: one tile's shots
+#: share one resolution, not two folder listings per shot on the share.
+OUTPUT_SERIES_TTL_S = 2.0
+_OUTPUT_SERIES_KEPT = 256
+_output_series: dict[
+    tuple[str, str], tuple[float, Optional[analysis_outputs.OutputSeries]]
+] = {}
+_output_series_lock = threading.Lock()
+
+
+def _resolved_output(
+    scan_folder: Path, name: str
+) -> Optional[analysis_outputs.OutputSeries]:
+    """:func:`analysis_outputs.resolve_output`, reused for :data:`OUTPUT_SERIES_TTL_S`.
+
+    A tile reads every shot of a bin within moments, and each shot would
+    otherwise list the scan's analysis folder and the output folder again
+    (tens of seconds cold over SMB). Kept briefly only, so a series an
+    analysis run is still writing shows its new shots on the next tile.
+    """
+    key = (str(scan_folder), name)
+    now = time.monotonic()
+    with _output_series_lock:
+        held = _output_series.get(key)
+        if held is not None and now - held[0] <= OUTPUT_SERIES_TTL_S:
+            return held[1]
+    series = analysis_outputs.resolve_output(scan_folder, name)
+    with _output_series_lock:
+        if len(_output_series) >= _OUTPUT_SERIES_KEPT:
+            _output_series.clear()
+        # Stamped when the resolution ends: a slow (cold SMB) one is reused too.
+        _output_series[key] = (time.monotonic(), series)
+    return series
+
+
+def _output_kind(scan_folder: Path, name: str) -> DeviceKind:
+    """:func:`device_kind` for an analysis output's series."""
+    series = _resolved_output(scan_folder, name)
+    if series is None:
+        return DeviceKind("missing", reason="no such analysis output in this scan")
+    if series.ext in DISPLAYABLE_IMAGE_EXTS:
+        return DeviceKind("native", series.folder, series.ext)
+    return DeviceKind("unrenderable", series.folder, series.ext)
 
 
 def stack_parent_device(
@@ -259,8 +313,12 @@ def stack_parent_device(
         The parent's name; ``None`` without a folder, for a folder that is
         itself known, with no such parent, or with no capture stack.
     """
-    if scan_folder is None or Path(device).name != device:
-        return None  # a name that is not one path part is no device folder
+    if (
+        scan_folder is None
+        or Path(device).name != device
+        or analysis_outputs.is_output_name(device)
+    ):
+        return None  # not a device folder of the scan
     parent = tiled_schema.derived_folder_parent(device, known)
     if parent is None or find_stack_file(scan_folder / device) is None:
         return None
@@ -299,7 +357,9 @@ def row_acq_timestamp(
     -------
     tuple of (float or None, bool)
         ``(value, column_present)``. No column (or no such row) →
-        ``(None, False)``, and a loader may fall back to file order.
+        ``(None, False)``, and a loader may fall back to file order; so
+        does a column that is 0.0 on every row
+        (:func:`~geecs_data_utils.tiled_schema.carries_stamps`).
         Column present but the row invalid (NaN or non-positive: the
         device missed this shot; or its ``valid`` companion false: the
         frame belongs to a different physical shot) → ``(None, True)`` —
@@ -324,11 +384,13 @@ def row_acq_timestamp(
                 return (None, True)
         except (TypeError, ValueError):  # pd.NA: unknown, not false
             pass
+    if column is None or not tiled_schema.carries_stamps(frame[column]):
+        return (None, False)  # 0.0 on every row: the files map by number
     try:
         value = float(frame[column].iloc[shot - 1])
     except (TypeError, ValueError):
         return (None, True)
-    if not math.isfinite(value) or value <= 0:
+    if not tiled_schema.is_stamp(value):
         return (None, True)
     return (value, True)
 
@@ -546,7 +608,12 @@ def native_shot_file(
     reads as missing, never as a neighbouring shot's file. Shared by the
     image and trace ladders (:func:`load_shot_array`,
     ``io.shot_traces.load_row_trace``).
+
+    An analysis output's shot is its series' file of that number, exactly:
+    no timestamp probe and no listing order.
     """
+    if analysis_outputs.is_output_name(device):
+        return _output_shot_file(scan_folder, device, shot, file_shot)
     device_dir = scan_folder / device
     try:
         native = ScanPaths(folder=scan_folder).build_asset_path(
@@ -569,6 +636,19 @@ def native_shot_file(
     if chosen is None:
         return native, False, "file not found"
     return chosen, cacheable, ""
+
+
+def _output_shot_file(
+    scan_folder: Path, name: str, shot: int, file_shot: Optional[int]
+) -> tuple[Optional[Path], bool, str]:
+    """:func:`native_shot_file` for an analysis output's series."""
+    series = _resolved_output(scan_folder, name)
+    if series is None:
+        return None, False, "no such analysis output in this scan"
+    path = series.shot_file(shot if file_shot is None else file_shot)
+    if path.is_file():
+        return path, True, ""
+    return path, False, "file not found"
 
 
 def load_shot_image(
@@ -803,6 +883,9 @@ class ShotTrace:
     content: str = ""
     path: Optional[Path] = None
     reason: str = ""
+    #: What a reader of the trace should know about how it was made (a
+    #: bin's mean over shots whose axes differ, ``io.shot_traces``).
+    note: str = ""
 
 
 #: The one reader config for array capture stacks: the stack

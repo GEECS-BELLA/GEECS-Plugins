@@ -140,8 +140,11 @@
       .then(({ r, body }) => {
         if (current !== i || !traceRow()) return;
         if (!r.ok) { shownFigure = null; Plotly.purge(host); note.textContent = String(body.detail || r.statusText); return; }
-        note.textContent = mode === "bins" && body.shots > 1
-          ? "The bin's mean, sample by sample: drag to zoom, double-click to reset." : "Drag to zoom, double-click to reset.";
+        const how = body.note
+          ? `The bin's mean: ${body.note}. Drag to zoom, double-click to reset.`
+          : "The bin's mean, sample by sample: drag to zoom, double-click to reset.";
+        const lacks = (body.missing || []).length ? `Not drawn: ${body.missing.join("; ")}. ` : "";
+        note.textContent = lacks + (mode === "bins" && body.shots > 1 ? how : "Drag to zoom, double-click to reset.");
         drawFigure(body.figure);
       })
       .catch((error) => { note.textContent = String(error); });

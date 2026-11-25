@@ -140,8 +140,33 @@ geecs_data_utils/
                                #   missed row is refused, never a
                                #   neighbour's), average_traces (sample by
                                #   sample on ONE shared x axis, else None —
-                               #   never resampled); native_shot_file in
-                               #   shot_images is the file lookup both share
+                               #   never resampled; an analysis output's
+                               #   tables, per_shot_axes, average shots of
+                               #   one length index-wise, x too, as the
+                               #   core averages magspec); native_shot_file
+                               #   in shot_images is the file lookup both share
+                               #   + analysis_outputs.py: a scan's per-shot
+                               #   analysis products, {day}/analysis/ScanNNN/
+                               #   <folder>/ScanNNN_<stem>_SSS.<ext>, as a
+                               #   source named analysis:<folder>[/<series>]
+                               #   (one series per stem; checked against both
+                               #   listings, read-only); the image and trace
+                               #   ladders take the name, a text table of 2+
+                               #   columns is x then a channel per y column
+                               #   + magspec.py: a magspec output's shot as
+                               #   a Frame with real axes — the PNG (charge
+                               #   per pixel; its "<n> <unit>/count" Comment,
+                               #   else 1 aC/count) joined with its sibling
+                               #   folders <folder>-interpSpec (momentum,
+                               #   one row per column) and <folder>-interpDiv
+                               #   (angle, one row per row), read per shot
+                               #   ; charge_density (per pixel → per unit
+                               #   of each axis, pC/mrad/(GeV/c)) and
+                               #   average_shots (index-wise, axes averaged)
+                               #   (the momentum axis moves with the field);
+                               #   a length mismatch is refused, never
+                               #   resampled; read_lineout_table reads the
+                               #   <label>_<unit> tables
                                #   + display_png.py: frame → 8-bit PNG
                                #   through a percentile window, optional
                                #   matplotlib colour map (lazy import; no
@@ -259,7 +284,10 @@ and calendar use it). Pinned by `tests/test_data_root_experiment.py`.
   └── scan_info.ini          (scan parameters)
   └── analysis/              (created by ScanAnalysis)
 {base_path}/{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/
-  └── ECS Live dumps/        (device state snapshots, one per scan)
+  └── ECS Live dumps/        (every settable at a scan's start, Scan{N}.txt —
+                               written by GeecsBluesky's opt-in
+                               ecs_dump_preprocessor, or
+                               LabVIEW Master Control where it still runs)
 ```
 
 `ScanPaths` validates this convention and raises if the path doesn't conform.

@@ -32,6 +32,7 @@ from geecs_data_utils.io.scan_stack import (
 )
 from geecs_data_utils.tiled_schema import (
     announced_shots,
+    carries_stamps,
     device_acq_timestamp_column,
     device_valid_column,
 )
@@ -264,11 +265,15 @@ class _ShotFileMapper:
         The shared rule (:func:`~geecs_data_utils.tiled_schema.device_acq_timestamp_column`):
         every spelling — ``"<Device> acq_timestamp"`` (s-file header),
         ``"<Device>:acq_timestamp"`` (in-memory frame), ``"<device>-acq_timestamp"``
-        (raw event key). Returns ``None`` (→ legacy shot-number mapping) when absent.
+        (raw event key). Returns ``None`` (→ legacy shot-number mapping) when absent,
+        or when it is 0.0 on every row (:func:`~geecs_data_utils.tiled_schema.carries_stamps`).
         """
         if self.rows is None:
             return None
-        return device_acq_timestamp_column(list(self.rows.columns), self.device)
+        column = device_acq_timestamp_column(list(self.rows.columns), self.device)
+        if column is None or not carries_stamps(self.rows[column]):
+            return None
+        return column
 
     def _matching_valid_column(self) -> Optional[str]:
         """Find this device's ``valid`` column, if the frame carries one.

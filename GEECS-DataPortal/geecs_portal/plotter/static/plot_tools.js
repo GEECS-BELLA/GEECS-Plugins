@@ -303,6 +303,10 @@ window.PlotTools = (function () {
 
   // ---- copy the plot, or send it to the scan's logbook entry ----
   const CLIPBOARD_OK = !!(navigator.clipboard && window.ClipboardItem);
+  const refused = () => {
+    if (window.ClipboardHelp) window.ClipboardHelp.show();
+    else toast("Clipboard needs an https or localhost page: downloaded the PNG instead");
+  };
   const sendable = data.logbookSend === "true";
   const AUTHOR_KEY = "geecs-portal:author";
   // Per scan (day and number), as the scan page keys it, so plots sent
@@ -353,8 +357,9 @@ window.PlotTools = (function () {
   }
   async function copy(gd) {
     // A bitmap reaches the clipboard only on a secure (https or localhost)
-    // page; elsewhere the plot downloads, and the toast says why.
-    if (!CLIPBOARD_OK) { download(gd); toast("Clipboard needs an https or localhost page: downloaded the PNG instead"); return; }
+    // page; elsewhere the plot downloads, and a dialog says why and how to
+    // copy from this address (it stays until read; a toast was missed).
+    if (!CLIPBOARD_OK) { download(gd); refused(); return; }
     try {
       const png = picture(gd).then((url) => fetch(url)).then((r) => r.blob());
       await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);

@@ -509,6 +509,7 @@ def summary_examples() -> dict:
     """Each summary kind drawn by its registered layout on a synthetic scan."""
     from geecs_schemas.analysis.recipe import (
         AverageSummary,
+        BandSummary,
         ImageGridSummary,
         ScalarFitSummary,
         WaterfallSummary,
@@ -577,11 +578,32 @@ def summary_examples() -> dict:
         ScalarFitSummary(scalars=["kick_1", "kick_2"]),
         FigureSpec(),
     )
+    # Shot-to-shot spread: a pulse whose arrival jitters more as the delay
+    # grows, eight shots per bin. Its own seed, after the fit's draws.
+    jitter = np.random.default_rng(11)
+    shots, at = [], []
+    for p in (0.0, 4.0, 8.0):
+        for _ in range(8):
+            centre = 560 + 18 * p + jitter.normal(0, 4 + 3 * p)
+            tr = np.exp(-0.5 * ((t - centre) / 30) ** 2) + jitter.normal(
+                0, 0.02, t.size
+            )
+            f = Frame.from_array(tr, axes=(Axis(values=t, unit="nm"),))
+            shots.append(Measurement({}, f))
+            at.append(p)
+    band = layouts[BandSummary](
+        shots,
+        at,
+        "delay (ps)",
+        BandSummary(),
+        FigureSpec(axes={"xlabel": "wavelength (nm)"}),
+    )
     return {
         "image_grid": fig_png(grid),
         "waterfall": fig_png(fall),
         "average": fig_png(avg),
         "scalar_fit": fig_png(fit.figure),
+        "band": fig_png(band),
     }
 
 

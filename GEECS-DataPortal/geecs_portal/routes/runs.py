@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from geecs_data_utils.io import shot_images
+from geecs_data_utils.io import analysis_outputs, shot_images
 
 from geecs_portal import analysis_runs
 from geecs_portal.state import PortalState, get_state
@@ -63,7 +63,8 @@ def run_analysis_list(
     """The scan's analyzers: applicability, job record, files on disk.
 
     ``applicable`` = the diagnostic's data device (``scan.device``,
-    else its name) has a data folder in this scan; a scalar-columns job
+    else its name) has a data folder in this scan (an ``analysis:<folder>``
+    input: that output folder under the scan's analysis folder); a scalar-columns job
     reads the s-file alone, so it applies to every scan (a missing
     input column is the run's ``no_data``, naming the column). Every loadable
     diagnostic is listed regardless, so a device-less one is still
@@ -76,6 +77,9 @@ def run_analysis_list(
         present = {p.name for p in folder.iterdir() if p.is_dir()}
     except OSError:
         present = set()
+    # a recipe reading an earlier analysis's outputs applies where that
+    # output folder exists (one listing of the analysis folder)
+    present.update(analysis_outputs.output_folders(folder))
     jobs = portal.runner.jobs_for(uid)
     analyzers = []
     for name, info in portal.processing_infos().items():
@@ -95,7 +99,8 @@ def run_analysis_list(
                 "device": info.device,
                 "applicable": info.kind == "scalar"
                 or info.device in devices
-                or info.device in present,
+                or info.device in present
+                or info.device.partition("/")[0] in present,
                 "output_dir": info.output_name,
                 "destructive": info.destructive,
                 "kind": info.kind,

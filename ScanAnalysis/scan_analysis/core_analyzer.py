@@ -13,6 +13,7 @@ from geecs_analysis.registry import (
     MeasureDefinition,
     SiblingOutput,
     measure_definition,
+    summary_definition,
 )
 from geecs_data_utils.shot_files import StackMappingUnavailable
 from geecs_schemas.analysis import WaterfallSummary
@@ -28,7 +29,7 @@ from scan_analysis.core_sink import (
     write_shot_table,
     write_sibling_outputs,
 )
-from scan_analysis.core_source import source_directory
+from scan_analysis.core_source import OutputUnavailable, source_directory
 from scan_analysis.core_workers import effective_workers
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
             )
         try:
             prepared = prepare_scan(document, scan_folder, self.auxiliary_data)
-        except StackMappingUnavailable as exc:
+        except (StackMappingUnavailable, OutputUnavailable) as exc:
             raise DataUnavailableWarning(str(exc)) from exc
         self.display_contents = []
         self.last_plan = None
@@ -161,6 +162,9 @@ class CoreScanAnalyzer(ScanAnalyzer):
             average_before_analysis=prepared.average_before_analysis,
             noscan=self.noscan,
             sort_requested=bool(sort_key),
+            keep_shots=any(
+                summary_definition(s).consumes == "shots" for s in self.spec.summaries
+            ),
         )
         self._execute(prepared, collector)
         plan = collector.plan(
@@ -170,7 +174,11 @@ class CoreScanAnalyzer(ScanAnalyzer):
             sort_bounds=stack.sort_bounds if stack is not None else None,
             sort_sigma=stack.sort_sigma if stack is not None else 3.0,
         )
-        if (plan.singles or plan.summary) and not self.noscan and not sort_key:
+        if (
+            (plan.singles or plan.summary or plan.shots)
+            and not self.noscan
+            and not sort_key
+        ):
             # Figures name the scan by the cleaned ScanInfo string, not the
             # s-file column, exactly as the legacy renderers did (bin singles
             # included, so a one-bin scan is labelled the same way).
