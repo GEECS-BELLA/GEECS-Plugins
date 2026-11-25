@@ -74,10 +74,12 @@ the code.
   a rebuilt listener would forget the last state and read unsafe until the
   next one. A reload that names a port it cannot bind is refused whole, and
   a failed reload closes only the ports it opened.
-- **A packet reads safe only when it plainly says so.** Its first word
-  decides (`safe`, `warning`, `unsafe`); a `safe` followed by a negation,
-  and every other packet, is unrecognised (`not safe`, `safe: false`,
-  `motion done: safe`), and an unrecognised packet makes the signal
+- **A packet reads safe only when it says `safe` and nothing against it.**
+  The whole text is searched, any case, whole words: `warning` / `unsafe`
+  anywhere is unsafe and wins; otherwise `safe` anywhere is safe
+  (`stage1 safe`), unless a negation stands right next to it (`not safe`,
+  `safe: false`, `safe=0`), which is unrecognised. A packet with none of the
+  words is unrecognised too, and an unrecognised packet makes the signal
   unknown (unsafe), never keeps the last state. Pinned in
   `tests/test_external.py` and `tests/test_monitor.py`.
 - **A stalled evaluation trips the stream.** Past `present.STALL_S` (ten

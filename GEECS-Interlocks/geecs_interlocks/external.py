@@ -2,11 +2,14 @@
 
 A program that is not a GEECS device — a motion controller on another
 computer, say — sends one short text packet to the interlock server whenever
-its state changes, and nothing in between. A packet's text must **start**
-with one of three words (case does not matter): ``warning`` or ``unsafe``
-means unsafe; ``safe`` means safe, unless a negation follows it (``not``,
-``no``, ``false``, ``off``, ``0``). Anything else (``not safe``,
-``safe: false``, ``motion done: safe``) is unrecognised: it is logged and
+its state changes, and nothing in between. The whole text is searched for
+three words, anywhere and in any case (whole words: ``safety`` is not
+``safe``): ``warning`` or ``unsafe`` means unsafe, and wins over a ``safe``
+in the same packet; otherwise ``safe`` means safe (``stage1 safe``,
+``motion done: safe``), unless a negation stands right next to it
+(``not safe``, ``safe: false``, ``safe=0``; the negations are ``not``,
+``no``, ``never``, ``isn't``, ``false``, ``off``, ``0``). A packet with
+none of the words, or a negated ``safe``, is unrecognised: it is logged and
 makes the signal **unknown**, which every reader treats as unsafe, until a
 recognised packet arrives. A sender that changes its wording when its hazard
 begins must never be left reading safe. Before the first packet the signal
@@ -35,10 +38,15 @@ logger = logging.getLogger(__name__)
 RECV_POLL_S = 0.5
 #: The longest packet text kept for display.
 RAW_KEPT = 200
-#: The words a packet may start with, and what may follow them.
-_LEADING_WORD = re.compile(r"^(safe|warning|unsafe)\b(.*)$", re.DOTALL)
-#: A word after ``safe`` that turns it around.
-_NEGATION = re.compile(r"\b(not|no|false|off|0)\b")
+#: The words that make a packet unsafe, anywhere in it.
+_UNSAFE_WORD = re.compile(r"\b(warning|unsafe)\b")
+#: The word that makes a packet safe, anywhere in it.
+_SAFE_WORD = re.compile(r"\bsafe\b")
+#: A negation right before or after ``safe`` (only non-word characters between).
+_NEGATIONS = r"(?:not|no|never|isn't|isnt|false|off|0)"
+_NEGATED_SAFE = re.compile(
+    rf"\b{_NEGATIONS}[\W_]*\bsafe\b|\bsafe\b[\W_]*\b{_NEGATIONS}\b"
+)
 
 
 @dataclass(frozen=True)
@@ -79,18 +87,16 @@ class SignalSource(Protocol):
 def decode(payload: bytes) -> bool | None:
     """A packet's state: ``True`` unsafe, ``False`` safe, ``None`` unrecognised.
 
-    Only the packet's first word decides, and a ``safe`` reads safe only when
-    no negation follows it: reading a "not safe" as safe is the one failure
-    this module must never have, so anything unclear is unrecognised.
+    The whole text is searched (any case): ``warning`` / ``unsafe`` anywhere
+    is unsafe, and wins over ``safe``; a ``safe`` anywhere is safe unless a
+    negation stands right next to it. Reading a "not safe" as safe is the
+    one failure this module must never have, so a negated ``safe`` is
+    unrecognised, never safe.
     """
     text = payload.decode("utf-8", errors="replace").strip().lower()
-    match = _LEADING_WORD.match(text)
-    if match is None:
-        return None
-    word, rest = match.group(1), match.group(2)
-    if word in ("warning", "unsafe"):
+    if _UNSAFE_WORD.search(text):
         return True
-    if _NEGATION.search(rest):
+    if not _SAFE_WORD.search(text) or _NEGATED_SAFE.search(text):
         return None
     return False
 

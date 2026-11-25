@@ -84,7 +84,7 @@ say). Master Control sees one line per interlock.
 | Threshold | A variable crosses a limit (`>`, `>=`, `<`, `<=`, `==`, `!=`) |
 | Alignment | A variable is the tolerance or further from a target variable |
 | Stale | A device disconnects, or (with a maximum age) stops publishing |
-| External signal | A program outside GEECS sends a UDP packet starting with `warning` or `unsafe`, until it sends one starting with `safe` (from its `sender` address, when one is set) |
+| External signal | A program outside GEECS sends a UDP packet holding `warning` or `unsafe`, until it sends one holding `safe` (from its `sender` address, when one is set) |
 | Settings unchanged | A device's settings move from the values recorded when it was armed |
 
 An interlock is also unsafe before anything has been heard from its
@@ -93,13 +93,15 @@ the configuration's `stale_after_s` (5 s unless changed), when a value is
 not a number, and while it is **settling**: clear again after a trip but
 not yet clear for its settle time.
 
-A sender's packet must **start** with `safe`, `warning` or `unsafe`
-(any case). A `safe` followed by a negation (`not`, `no`, `false`, `off`,
-`0`) and anything else is logged and makes the signal unknown, which
-counts as unsafe until a recognised packet arrives, so `not safe` can never
-read as safe. A sender that also sends keepalive or status packets in
-other words trips the signal with each one: it should send only those
-three words. Set the check's `sender` to the sending computer's address so
+The whole packet is searched, in any case, for the words `safe`, `warning`
+and `unsafe` (whole words: `safety` does not count). `warning` or `unsafe`
+anywhere makes it unsafe, even beside a `safe`; otherwise `safe` anywhere
+makes it safe, so `stage1 safe` and `motion done: safe` both read safe. A
+`safe` with a negation right next to it (`not safe`, `safe: false`,
+`safe=0`), or a packet with none of the words, is logged and makes the
+signal unknown, which counts as unsafe until a recognised packet arrives,
+so `not safe` can never read as safe. A sender that also sends keepalive
+or status packets without those words trips the signal with each one. Set the check's `sender` to the sending computer's address so
 no other host can clear the signal: a packet from anywhere else counts as
 unsafe.
 

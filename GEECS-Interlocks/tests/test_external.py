@@ -41,17 +41,27 @@ def wait_for(predicate, timeout=2.0):
         (b"SAFE", False),
         (b"safe\n", False),
         (b"Safe: motion done", False),
+        # The word anywhere, any case (the windmill sends "stage1 safe").
+        (b"stage1 safe", False),
+        (b"Stage1 SAFE", False),
+        (b"motion done: safe", False),
         (b"WARNING", True),
         (b"warning: moving", True),
+        (b"stage1 warning", True),
         (b"UNSAFE", True),  # holds "safe": never read as safe
-        # Never safe unless it plainly says so: these are unrecognised.
+        (b"stage1 unsafe", True),
+        (b"safe until moving, warning now", True),  # unsafe wins
+        # A negated safe, or no word at all: unrecognised, never safe.
         (b"NOT SAFE", None),
+        (b"stage1 not safe", None),
         (b"not_safe", None),
         (b"safe: false", None),
         (b"Safe=0", None),
         (b"safe no", None),
-        (b"motion done: safe", None),
+        (b"stage1 isn't safe", None),
+        (b"never safe", None),
         (b"safety", None),
+        (b"stage1 moving", None),
         (b"hello", None),
         (b"\xff\xfe", None),
     ],
