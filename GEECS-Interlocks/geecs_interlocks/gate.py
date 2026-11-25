@@ -21,11 +21,14 @@ then UTF-8 JSON::
   fire (+ its ``holdoff_s``), so a shot never fires on readings taken
   before the last one. External (UDP) signals carry no stamp: a sender
   reports on a change, so its last packet may rightly predate the fire.
-  An interlock reading no device (external signals only) sends ``null``,
-  and the client then requires the frame itself to arrive after the fire.
+  An interlock reading no device (external signals only) is stamped with
+  the evaluation's own time, so a frame computed before a fire and re-sent
+  after it never counts.
   A stamp is an arrival time, not the device's acquisition time: a reading
   delayed in transit past the fire counts as fresh, which the profile's
-  ``holdoff_s`` covers. The worker compares stamps with its own clock, so
+  ``holdoff_s`` covers. A device whose frames permanently leave out a
+  watched variable keeps that variable's last value under a fresh stamp
+  (GEECS frames normally carry every subscribed variable). The worker compares stamps with its own clock, so
   the two hosts' clocks must agree (the same host on a services box).
 - A stalled evaluation sends ``ok: false`` with one unsafe entry naming
   the server, never the last verdict again.

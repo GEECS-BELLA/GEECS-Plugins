@@ -134,9 +134,9 @@ class InterlockStatus:
         Each condition on its own, in file order (empty while ``off``).
     data_stamp :
         Wall-clock seconds when the oldest device reading this tick's
-        verdict rests on arrived (``None``: it reads no device, a device
-        has sent nothing yet, or it is ``off``). External signals are left
-        out. The shot gate sends it so a fire waits for readings taken after
+        verdict rests on arrived; the tick's own time for an interlock that
+        reads no device (``None``: a device has sent nothing yet, or it is
+        ``off``). External signals are left out. The shot gate sends it so a fire waits for readings taken after
         the last one (:mod:`geecs_interlocks.gate`).
     """
 
@@ -522,6 +522,11 @@ class Monitor:
     ) -> float | None:
         """When the oldest device reading *interlock* rests on arrived, on the wall clock.
 
+        An interlock reading no device (external signals only) is stamped with
+        the tick itself, *now_wall*, taken before it is evaluated: its verdict
+        was at least computed then, so a cached frame re-sent after a fire
+        never passes for a verdict on data after it.
+
         Read *before* the inputs the verdict is evaluated on, so a reading
         that arrives in between makes the verdict rest on newer data than the
         stamp says, never older: the stamp may undersell a verdict's freshness
@@ -529,7 +534,7 @@ class Monitor:
         """
         devices = {d for c in interlock.conditions for d, _ in watched(c)}
         if not devices:
-            return None
+            return now_wall
         updated = [self._source.reading(d).updated for d in devices]
         if any(u is None for u in updated):
             return None

@@ -14,8 +14,8 @@
 # systemd (exit 2, which RestartPreventExitStatus keeps from looping). The
 # settings checks are armed from the web page by an operator.
 #
-# GEECS_INTERLOCKS_GATE_PORT unset or blank serves no shot gate (an empty
-# argument, which the server reads as no value).
+# GEECS_INTERLOCKS_GATE_PORT unset or blank is an empty argument, which the
+# server reads as no value: config.ini's gate_port, else no shot gate.
 #
 # Upgrade: GEECS-Interlocks/DEPLOYMENT.md.
 

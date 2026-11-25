@@ -141,10 +141,15 @@ class TestDataStamp:
         (status,) = self.monitor(source, signals, threshold()).step().statuses
         assert status.state == "waiting" and status.data_stamp is None
 
-    def test_external_signals_carry_none(self, source, signals):
-        signals.send(5005, "safe")
-        (status,) = self.monitor(source, signals, external()).step().statuses
-        assert status.state == "ok" and status.data_stamp is None
+    def test_an_interlock_reading_no_device_carries_the_tick(self, source, signals):
+        signals.send(5005, "safe")  # its packet is older than the tick
+        source.now = 1010.0
+        before = time.time()
+        snapshot = self.monitor(source, signals, external()).step()
+        (status,) = snapshot.statuses
+        assert status.state == "ok"
+        assert status.data_stamp == snapshot.taken
+        assert before <= status.data_stamp <= time.time()
 
     def test_a_mixed_interlock_stamps_its_devices_only(self, source, signals):
         mixed = {
