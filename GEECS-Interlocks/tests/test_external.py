@@ -50,6 +50,9 @@ def wait_for(predicate, timeout=2.0):
         (b"stage1 warning", True),
         (b"UNSAFE", True),  # holds "safe": never read as safe
         (b"stage1 unsafe", True),
+        (b"non-safe", True),  # a split "unsafe" never leaves a bare safe
+        (b"UN-SAFE", True),
+        (b"un safe", True),
         (b"safe until moving, warning now", True),  # unsafe wins
         # A negated safe, or no word at all: unrecognised, never safe.
         (b"NOT SAFE", None),
@@ -59,7 +62,15 @@ def wait_for(predicate, timeout=2.0):
         (b"Safe=0", None),
         (b"safe no", None),
         (b"stage1 isn't safe", None),
+        ("stage1 isn\u2019t safe".encode(), None),  # a curly apostrophe
+        (b"aren't safe", None),
+        (b"wasnt safe", None),
+        (b"cannot be safe", None),
         (b"never safe", None),
+        # A negation anywhere, however far from the safe.
+        (b"not currently safe", None),
+        (b"no longer safe", None),
+        (b"stage1 safe, 0 errors", None),
         (b"safety", None),
         (b"stage1 moving", None),
         (b"hello", None),

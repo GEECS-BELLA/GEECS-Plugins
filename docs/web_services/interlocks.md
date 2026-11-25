@@ -97,10 +97,12 @@ The whole packet is searched, in any case, for the words `safe`, `warning`
 and `unsafe` (whole words: `safety` does not count). `warning` or `unsafe`
 anywhere makes it unsafe, even beside a `safe`; otherwise `safe` anywhere
 makes it safe, so `stage1 safe` and `motion done: safe` both read safe. A
-`safe` with a negation right next to it (`not safe`, `safe: false`,
-`safe=0`), or a packet with none of the words, is logged and makes the
-signal unknown, which counts as unsafe until a recognised packet arrives,
-so `not safe` can never read as safe. A sender that also sends keepalive
+`safe` in a packet holding a negation anywhere (`not currently safe`,
+`safe: false`, `safe=0`, `isn’t safe`), or a packet with none of the
+words, is logged and makes the signal unknown, which counts as unsafe
+until a recognised packet arrives. A sender must report a hazard with
+`warning` or `unsafe`: no other word (`fault`, `error`, `fail-safe`)
+overrides a `safe` in the same packet. A sender that also sends keepalive
 or status packets without those words trips the signal with each one. Set the check's `sender` to the sending computer's address so
 no other host can clear the signal: a packet from anywhere else counts as
 unsafe.

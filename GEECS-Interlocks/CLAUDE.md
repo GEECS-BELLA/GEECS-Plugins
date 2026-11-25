@@ -76,9 +76,11 @@ the code.
   a failed reload closes only the ports it opened.
 - **A packet reads safe only when it says `safe` and nothing against it.**
   The whole text is searched, any case, whole words: `warning` / `unsafe`
-  anywhere is unsafe and wins; otherwise `safe` anywhere is safe
-  (`stage1 safe`), unless a negation stands right next to it (`not safe`,
-  `safe: false`, `safe=0`), which is unrecognised. A packet with none of the
+  (also `un-safe`, `non-safe`) anywhere is unsafe and wins; otherwise `safe`
+  anywhere is safe (`stage1 safe`), unless the packet holds a negation
+  anywhere (`not currently safe`, `safe: false`, `isn’t safe`), which is
+  unrecognised. Any other hazard word (`fault`, `fail-safe`) does not
+  override `safe`: a sender reports a hazard with `warning` or `unsafe`. A packet with none of the
   words is unrecognised too, and an unrecognised packet makes the signal
   unknown (unsafe), never keeps the last state. Pinned in
   `tests/test_external.py` and `tests/test_monitor.py`.

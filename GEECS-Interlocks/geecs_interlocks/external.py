@@ -4,12 +4,13 @@ A program that is not a GEECS device — a motion controller on another
 computer, say — sends one short text packet to the interlock server whenever
 its state changes, and nothing in between. The whole text is searched for
 three words, anywhere and in any case (whole words: ``safety`` is not
-``safe``): ``warning`` or ``unsafe`` means unsafe, and wins over a ``safe``
-in the same packet; otherwise ``safe`` means safe (``stage1 safe``,
-``motion done: safe``), unless a negation stands right next to it
-(``not safe``, ``safe: false``, ``safe=0``; the negations are ``not``,
-``no``, ``never``, ``isn't``, ``false``, ``off``, ``0``). A packet with
-none of the words, or a negated ``safe``, is unrecognised: it is logged and
+``safe``): ``warning`` or ``unsafe`` (also ``un-safe``, ``non-safe``)
+means unsafe, and wins over a ``safe`` in the same packet; otherwise
+``safe`` means safe (``stage1 safe``, ``motion done: safe``), unless the
+packet holds a negation anywhere (``not``, ``no``, ``never``, ``cannot``,
+any ``…n't``, ``false``, ``off``, ``0``: ``not currently safe``,
+``safe: false``, ``safe=0``). A packet with none of the words, or a
+``safe`` beside a negation, is unrecognised: it is logged and
 makes the signal **unknown**, which every reader treats as unsafe, until a
 recognised packet arrives. A sender that changes its wording when its hazard
 begins must never be left reading safe. Before the first packet the signal
@@ -38,14 +39,17 @@ logger = logging.getLogger(__name__)
 RECV_POLL_S = 0.5
 #: The longest packet text kept for display.
 RAW_KEPT = 200
-#: The words that make a packet unsafe, anywhere in it.
-_UNSAFE_WORD = re.compile(r"\b(warning|unsafe)\b")
+#: The words that make a packet unsafe, anywhere in it (``un-safe``,
+#: ``non safe`` too: a split "unsafe" must never leave a bare ``safe``).
+_UNSAFE_WORD = re.compile(r"\b(?:warning|(?:un|non)[\W_]*safe)\b")
 #: The word that makes a packet safe, anywhere in it.
 _SAFE_WORD = re.compile(r"\bsafe\b")
-#: A negation right before or after ``safe`` (only non-word characters between).
-_NEGATIONS = r"(?:not|no|never|isn't|isnt|false|off|0)"
-_NEGATED_SAFE = re.compile(
-    rf"\b{_NEGATIONS}[\W_]*\bsafe\b|\bsafe\b[\W_]*\b{_NEGATIONS}\b"
+#: A negation anywhere in the packet: a ``safe`` beside one is never safe,
+#: however far apart (``not currently safe``). Any apostrophe, curly too.
+_NEGATION = re.compile(
+    r"\b(?:not|no|never|cannot|false|off|0)\b"
+    r"|n['\u2019`]t\b"
+    r"|\b(?:isnt|arent|wasnt|werent|cant|dont|doesnt|didnt|wont|aint)\b"
 )
 
 
@@ -88,15 +92,15 @@ def decode(payload: bytes) -> bool | None:
     """A packet's state: ``True`` unsafe, ``False`` safe, ``None`` unrecognised.
 
     The whole text is searched (any case): ``warning`` / ``unsafe`` anywhere
-    is unsafe, and wins over ``safe``; a ``safe`` anywhere is safe unless a
-    negation stands right next to it. Reading a "not safe" as safe is the
-    one failure this module must never have, so a negated ``safe`` is
+    is unsafe, and wins over ``safe``; a ``safe`` anywhere is safe unless
+    the packet holds a negation anywhere. Reading a "not safe" as safe is
+    the one failure this module must never have, so any doubt is
     unrecognised, never safe.
     """
     text = payload.decode("utf-8", errors="replace").strip().lower()
     if _UNSAFE_WORD.search(text):
         return True
-    if not _SAFE_WORD.search(text) or _NEGATED_SAFE.search(text):
+    if not _SAFE_WORD.search(text) or _NEGATION.search(text):
         return None
     return False
 

@@ -160,9 +160,10 @@ class ExternalCondition(SchemaModel):
     say — that sends one short text packet to the interlock server whenever
     its state changes. The whole text is searched, in any case, for whole
     words: ``warning`` or ``unsafe`` anywhere makes the condition unsafe;
-    otherwise ``safe`` anywhere (``stage1 safe``) makes it safe, unless a
-    negation stands right next to it (``not safe``, ``safe: false``). Any
-    other packet makes the signal unknown, which is unsafe until a
+    otherwise ``safe`` anywhere (``stage1 safe``) makes it safe, unless the
+    packet holds a negation (``not currently safe``, ``safe: false``). A
+    hazard must be sent as ``warning`` or ``unsafe``: no other word
+    overrides ``safe``. Any other packet makes the signal unknown, which is unsafe until a
     recognised packet arrives; so is the time before the first packet.
     """
 
