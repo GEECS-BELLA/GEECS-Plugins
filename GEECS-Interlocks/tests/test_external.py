@@ -44,6 +44,8 @@ def wait_for(predicate, timeout=2.0):
         (b"  Safe: motion done", False),
         (b"safe stage1 parked", False),
         (b"safe: false", False),  # informative only, by the operators' rule
+        (b"safe-mode on", False),  # a hyphen ends the first word
+        ("\ufeffsafe".encode(), True),  # a byte-order mark: never safe
         # Anything else is unsafe: no keyword needed.
         (b"stage1 safe", True),
         (b"WARNING", True),

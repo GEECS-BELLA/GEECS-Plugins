@@ -184,7 +184,7 @@ class ExternalCondition(SchemaModel):
         "",
         description=(
             "The sending computer's IPv4 address. When set, a packet from any "
-            "other address is unrecognised (unsafe): no other host can clear "
+            "other address is unsafe: no other host can clear "
             "the signal. Leave empty to accept any sender."
         ),
     )

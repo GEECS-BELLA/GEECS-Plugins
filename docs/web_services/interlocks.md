@@ -94,8 +94,10 @@ not a number, and while it is **settling**: clear again after a trip but
 not yet clear for its settle time.
 
 A packet whose **first word** is `safe` (any case) means it is OK to fire;
-whatever follows is shown to operators but changes nothing
-(`safe stage1 parked`). Every other packet is unsafe: `stage1 safe`,
+whatever follows changes nothing (`safe stage1 parked`): it is shown in the
+alarm reason of an unsafe packet and logged when the state changes. Send
+plain text: a packet starting with a byte-order mark or another control
+character never reads safe. Every other packet is unsafe: `stage1 safe`,
 `not safe`, `moving` or an empty packet all trip the signal, so a sender
 needs no special word for a hazard, only to stop starting with `safe`. A
 sender that also sends keepalive or status packets trips the signal with
