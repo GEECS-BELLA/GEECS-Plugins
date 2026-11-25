@@ -58,10 +58,16 @@ the code.
   The original server's per-interlock `SAFE: <name>` form is gone: it put
   `SAFE` in a frame while another interlock was tripped. Pinned over every
   mix of states in `tests/test_wire.py`.
-- **This is not ShotGate's server.** GeecsBluesky's `ShotGate` (a trigger
-  profile's `shot_gate`) reads a JSON v1 frame with per-interlock
-  `data_stamp`s; this server's frame is text, so it cannot be a ShotGate
-  gate. Serving ShotGate's frame is its own slice.
+- **The shot gate is a second stream, never a change to Master Control's.**
+  With `--gate-port` (site.env `GEECS_INTERLOCKS_GATE_PORT`, blank: off) the
+  same snapshot is served on that port, on the stream's host, as the JSON v1
+  frame GeecsBluesky's `ShotGate` reads (`gate.py`); a trigger profile's
+  `shot_gate {host, port}` names it, and the scan worker holds each strict
+  fire for it. One `StatusServer`, two renderers. A `data_stamp` is when
+  the oldest device reading an interlock rests on arrived (wall clock),
+  read before the inputs so it can only undersell freshness, never make old
+  data look fresh; external signals carry none (they report on a change).
+  The worker compares it with its own clock: same host, or agreeing clocks.
 - **UDP listeners outlive a reload.** Senders transmit only on a change, so
   a rebuilt listener would forget the last state and read unsafe until the
   next one. A reload that names a port it cannot bind is refused whole, and

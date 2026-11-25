@@ -608,8 +608,9 @@ A profile without one changes nothing: no gate, no start key, no column —
 and a laser-off or bench profile at a gated facility leaves it out.  **The
 server's protocol decides when a shot may fire** (its authors' call);
 this package decides how the worker waits for it.
-This is not GEECS-Interlocks' server: that one sends Master Control a
-text frame, not this JSON, so a `shot_gate` cannot point at it (yet).
+GEECS-Interlocks serves this protocol on its own gate port
+(`GEECS_INTERLOCKS_GATE_PORT`), beside the text stream it sends Master
+Control: a `shot_gate` points at that port, never at the stream's.
 `shot_gate.ShotGate` is the client — one reader per address for the
 process (`gate_for`), so the last-fire mark follows the physical server
 across runs and profiles, and each profile's view keeps its own hold

@@ -92,6 +92,13 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--status-host", help="Master Control stream's bind address")
     serve.add_argument("--status-port", type=int, help="Master Control stream's port")
     serve.add_argument(
+        "--gate-port",
+        help=(
+            "serve the shot gate (the scan worker's ShotGate protocol) on this "
+            "port, on the stream's host; blank: no gate"
+        ),
+    )
+    serve.add_argument(
         "--external-host", help="where external (UDP) signals are received"
     )
     serve.add_argument("--web-host", help="the web client's bind address")
@@ -128,11 +135,13 @@ def _settings(args: argparse.Namespace) -> Settings:
             "external_host",
             "web_host",
             "web_port",
+            "gate_port",
         )
         # A blank value (an empty site.env key) is no value: never "every interface".
         if (value := getattr(args, key)) not in (None, "")
     }
-    return settings.model_copy(update=overrides)
+    # Validated, not copied: --gate-port arrives as text (blank means no gate).
+    return Settings.model_validate({**settings.model_dump(), **overrides})
 
 
 def _path(args: argparse.Namespace, settings: Settings) -> Path | None:
@@ -256,7 +265,11 @@ def serve(args: argparse.Namespace) -> int:
         # setting someone had just changed.
         logger.error("--arm-at-start is refused under systemd: arm from the web page")
         return EXIT_REFUSED
-    settings = _settings(args)
+    try:
+        settings = _settings(args)
+    except ValidationError as exc:  # a malformed port: a restart cannot fix it
+        logger.error("not starting: %s", exc)
+        return EXIT_REFUSED
     opened = _open(args, settings, notifier)
     if isinstance(opened, str):
         logger.error("not starting: %s", opened)
@@ -282,6 +295,8 @@ def serve(args: argparse.Namespace) -> int:
         host,
         port,
     )
+    if engine.gate is not None:
+        logger.info("shot gate on %s:%d", *engine.gate.address)
     experiment = None if args.interlocks else (args.experiment or settings.experiment)
     web = None if args.no_web else WebClient(engine, settings, experiment)
     if web is not None and not web.start():
