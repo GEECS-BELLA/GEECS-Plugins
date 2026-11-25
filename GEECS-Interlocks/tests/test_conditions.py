@@ -166,15 +166,11 @@ class TestExternal:
         assert verdict.unsafe and verdict.waiting
         assert "no packet yet on UDP port 5050" in verdict.diagnostic
 
-    def test_safe_and_warning(self):
+    def test_safe_and_not_safe(self):
         assert not self.check(False, "safe").unsafe
         verdict = self.check(True, "warning: moving")
-        assert verdict.unsafe and "alarm" in verdict.diagnostic
-
-    def test_only_unrecognised_packets_are_unsafe(self):
-        verdict = self.check(None, "hello")
         assert verdict.unsafe and not verdict.waiting
-        assert "unrecognised" in verdict.diagnostic
+        assert "alarm ('warning: moving')" in verdict.diagnostic
 
     def test_silence_is_normal_without_max_age(self):
         assert not self.check(False, "safe", age=1e6).unsafe

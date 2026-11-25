@@ -98,7 +98,7 @@
     },
     "ExternalCondition": {
       "additionalProperties": false,
-      "description": "Unsafe while an external program says so over UDP.\n\nFor a program outside GEECS \u2014 a motion controller on another computer,\nsay \u2014 that sends one short text packet to the interlock server whenever\nits state changes. The packet's first word decides (case does not\nmatter): ``warning`` or ``unsafe`` makes the condition unsafe; ``safe``\nmakes it safe unless a negation follows (``not``, ``no``, ``false``,\n``off``, ``0``). Any other packet makes the signal unknown, which is\nunsafe until a recognised packet arrives; so is the time before the\nfirst packet.",
+      "description": "Unsafe while an external program says so over UDP.\n\nFor a program outside GEECS \u2014 a motion controller on another computer,\nsay \u2014 that sends one short text packet to the interlock server whenever\nits state changes. A packet whose first word is ``safe`` (any case)\nmakes the condition safe: it is OK to fire. Whatever follows is\ninformation only (``safe stage1 parked``). Every other packet makes it\nunsafe (``stage1 safe``, ``moving``); so does the time before the first\npacket.",
       "properties": {
         "kind": {
           "const": "external",
@@ -121,7 +121,7 @@
         },
         "sender": {
           "default": "",
-          "description": "The sending computer's IPv4 address. When set, a packet from any other address is unrecognised (unsafe): no other host can clear the signal. Leave empty to accept any sender.",
+          "description": "The sending computer's IPv4 address. When set, a packet from any other address is unsafe: no other host can clear the signal. Leave empty to accept any sender.",
           "title": "Sender",
           "type": "string"
         },

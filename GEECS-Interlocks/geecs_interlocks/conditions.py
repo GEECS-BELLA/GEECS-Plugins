@@ -269,9 +269,8 @@ def _external(
             f"{name}: packet from {signal.sender or 'an unknown sender'}, "
             f"expected {condition.sender}",
         )
-    if signal.state is None:
-        return Verdict(True, f"{name}: unrecognised packet {signal.raw!r}")
-    if signal.state:
+    if signal.state is not False:  # True, or None (a reading with no state)
+        # Never the word itself: the server's own reasons hold no keyword.
         return Verdict(True, f"{name}: alarm ({signal.raw!r})")
     return SAFE
 
