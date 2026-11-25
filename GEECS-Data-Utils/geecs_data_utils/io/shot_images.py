@@ -263,7 +263,8 @@ def _resolved_output(
     with _output_series_lock:
         if len(_output_series) >= _OUTPUT_SERIES_KEPT:
             _output_series.clear()
-        _output_series[key] = (now, series)
+        # Stamped when the resolution ends: a slow (cold SMB) one is reused too.
+        _output_series[key] = (time.monotonic(), series)
     return series
 
 

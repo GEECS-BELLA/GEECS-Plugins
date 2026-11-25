@@ -300,3 +300,21 @@ def test_a_resolution_is_reread_after_its_ttl(scan_folder, monkeypatch):
     now[0] += shot_images.OUTPUT_SERIES_TTL_S + 0.1
     shot_images.device_kind(scan_folder, "analysis:py-ebeam")
     assert len(calls) == 2
+
+
+def test_a_slow_resolution_is_still_reused(scan_folder, monkeypatch):
+    """The TTL runs from the end of a resolution, so a cold listing longer than it counts."""
+    now = [5000.0]
+    calls = []
+    real = analysis_outputs.resolve_output
+
+    def slow(folder, name):
+        calls.append(name)
+        now[0] += shot_images.OUTPUT_SERIES_TTL_S + 1  # a cold listing
+        return real(folder, name)
+
+    monkeypatch.setattr(analysis_outputs, "resolve_output", slow)
+    monkeypatch.setattr(shot_images.time, "monotonic", lambda: now[0])
+    shot_images.device_kind(scan_folder, "analysis:py-magspec")
+    shot_images.device_kind(scan_folder, "analysis:py-magspec")
+    assert len(calls) == 1
