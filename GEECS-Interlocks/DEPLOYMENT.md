@@ -57,6 +57,7 @@ The `GEECS_INTERLOCKS_*` block of `deploy/site.env.example`:
 | `GEECS_INTERLOCKS_STATUS_HOST`, `_STATUS_PORT` | Master Control's stream. The port must match the GEECS DB's entry for the interlock server: Master Control reads the address and port from the DB |
 | `GEECS_INTERLOCKS_WEB_HOST`, `_WEB_PORT` | The page. Not 8600 on a box that runs Canopy |
 | `GEECS_INTERLOCKS_EXTERNAL_HOST` | Where the external (UDP) signals arrive: an interface of this host. The senders are repointed at it |
+| `GEECS_INTERLOCKS_GATE_PORT` | The shot gate the scan worker reads (a trigger profile's `shot_gate {host, port}`), on `STATUS_HOST`. Optional: blank or absent falls back to config.ini's `[interlocks] gate_port`, else serves none |
 | `GEECS_INTERLOCKS_EXTRA_ARGS` | Extra flags (`--log-level debug`). A flag the server does not know exits 2 and the unit stays down |
 
 The experiment is `GEECS_EXPERIMENT`. The configs repository comes from the
@@ -67,7 +68,7 @@ GEECS DB named there.
 An instance's file `/etc/geecs/experiments/<Instance>.env` carries
 `GEECS_INTERLOCKS_INSTANCE_CONFIG`, `_INSTANCE_STATUS_PORT` and
 `_INSTANCE_WEB_PORT` (`deploy/experiments.env.example`: stream `5001+100N`,
-page `8650+N` for slot N): names site.env never sets, so an instance file
+page `8650+N` for slot N), and optionally `_INSTANCE_GATE_PORT` (`5002+100N`): names site.env never sets, so an instance file
 without them makes the instance unit exit 2 rather than run on the main
 experiment's configuration and stream port.
 

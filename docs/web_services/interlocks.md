@@ -174,6 +174,18 @@ the server through the GEECS database, which holds its address and port.
 
 `poetry run geecs-interlocks listen <server>:5001` prints what it receives.
 
+## The scanner's shot gate
+
+The scanner can wait for the interlocks too, without Master Control. With
+`GEECS_INTERLOCKS_GATE_PORT` set (5002 in the example site.env), the server
+also serves the shot gate on that port. A trigger profile names it in its
+`shot_gate` field (`host`: the server, `port`: the gate port), and the scan
+worker then holds every strict single shot until the interlocks say safe on
+readings that arrived after the previous shot. A shot that waits longer
+than the profile's `hold_pause_s` pauses the scan.
+
+`/api/status` counts the gate's readers in `gate_clients`.
+
 ## When the server stops
 
 The unit restarts it within seconds if it exits, and also if its

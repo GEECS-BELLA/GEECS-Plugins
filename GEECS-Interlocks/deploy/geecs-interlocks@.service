@@ -42,7 +42,7 @@ EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
 # Its own clone: a safety reporter never moves with another service's pull
 # (docs/platform/fleet_map.md, one clone per service).
 WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/interlocks-checkout/GEECS-Interlocks
-ExecStart=@POETRY@ run geecs-interlocks serve --experiment ${GEECS_EXPERIMENT} --config ${GEECS_INTERLOCKS_INSTANCE_CONFIG} --status-host ${GEECS_INTERLOCKS_STATUS_HOST} --status-port ${GEECS_INTERLOCKS_INSTANCE_STATUS_PORT} --web-host ${GEECS_INTERLOCKS_WEB_HOST} --web-port ${GEECS_INTERLOCKS_INSTANCE_WEB_PORT} --external-host ${GEECS_INTERLOCKS_EXTERNAL_HOST} $GEECS_INTERLOCKS_EXTRA_ARGS
+ExecStart=@POETRY@ run geecs-interlocks serve --experiment ${GEECS_EXPERIMENT} --config ${GEECS_INTERLOCKS_INSTANCE_CONFIG} --status-host ${GEECS_INTERLOCKS_STATUS_HOST} --status-port ${GEECS_INTERLOCKS_INSTANCE_STATUS_PORT} --web-host ${GEECS_INTERLOCKS_WEB_HOST} --web-port ${GEECS_INTERLOCKS_INSTANCE_WEB_PORT} --external-host ${GEECS_INTERLOCKS_EXTERNAL_HOST} --gate-port ${GEECS_INTERLOCKS_INSTANCE_GATE_PORT} $GEECS_INTERLOCKS_EXTRA_ARGS
 Restart=on-failure
 RestartSec=2
 RestartPreventExitStatus=2

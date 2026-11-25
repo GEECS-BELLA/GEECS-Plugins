@@ -1,6 +1,6 @@
-"""The engine: the interlocks file, its source, its monitor, and Master Control's stream, as one unit.
+"""The engine: the interlocks file, its source, its monitor, Master Control's stream and the shot gate, as one unit.
 
-The stream outlives a reload: it reads :meth:`Engine.snapshot`, which goes to
+The streams outlive a reload: it reads :meth:`Engine.snapshot`, which goes to
 whichever monitor is current, so Master Control stays connected while the
 file is re-read. So do the external-signal listeners, which keep the last
 state each sender reported. A reload that does not validate, or names a UDP
@@ -20,6 +20,7 @@ from geecs_schemas import ExternalCondition, InterlockSet
 from geecs_interlocks.conditions import watched
 from geecs_interlocks.config import Settings, load_interlocks
 from geecs_interlocks.external import ExternalSignals
+from geecs_interlocks.gate import render_gate, render_gate_stalled
 from geecs_interlocks.monitor import Event, Monitor, Snapshot
 from geecs_interlocks.sources import DeviceReading, DeviceSource, Source
 from geecs_interlocks.status_server import StatusServer
@@ -115,6 +116,20 @@ class Engine:
             settings.status_host,
             settings.status_port,
         )
+        #: The shot gate (``None`` without ``gate_port``): the same snapshot
+        #: as the scan worker's ShotGate reads it, on the stream's host.
+        self.gate: StatusServer | None = (
+            None
+            if settings.gate_port is None
+            else StatusServer(
+                self.snapshot,
+                settings.status_host,
+                settings.gate_port,
+                render=render_gate,
+                render_stalled=render_gate_stalled,
+                name="shot gate",
+            )
+        )
 
     def _build(self, interlocks: InterlockSet, origin: str) -> Monitor:
         return Monitor(
@@ -126,25 +141,30 @@ class Engine:
         )
 
     def start(self) -> None:
-        """Listen for external signals, start the monitor, then the stream.
+        """Listen for external signals, start the monitor, then the streams.
 
         Raises
         ------
         OSError
-            A UDP port or the stream's port cannot be bound; nothing is left
-            running.
+            A UDP port, the stream's or the gate's port cannot be bound;
+            nothing is left running.
         """
         self.signals.open(external_ports(self._interlocks))
         try:
             self._monitor.start()
             self.stream.start()
+            if self.gate is not None:
+                self.gate.start()
         except OSError:
+            self.stream.stop()
             self._monitor.stop()
             self.signals.stop()
             raise
 
     def stop(self) -> None:
-        """Stop the stream, the monitor and the external-signal listeners."""
+        """Stop the streams, the monitor and the external-signal listeners."""
+        if self.gate is not None:
+            self.gate.stop()
         self.stream.stop()
         with self._lock:
             self._monitor.stop()

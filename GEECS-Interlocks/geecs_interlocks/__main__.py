@@ -92,6 +92,13 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--status-host", help="Master Control stream's bind address")
     serve.add_argument("--status-port", type=int, help="Master Control stream's port")
     serve.add_argument(
+        "--gate-port",
+        help=(
+            "serve the shot gate (the scan worker's ShotGate protocol) on this "
+            "port, on the stream's host; blank: no gate"
+        ),
+    )
+    serve.add_argument(
         "--external-host", help="where external (UDP) signals are received"
     )
     serve.add_argument("--web-host", help="the web client's bind address")
@@ -128,11 +135,13 @@ def _settings(args: argparse.Namespace) -> Settings:
             "external_host",
             "web_host",
             "web_port",
+            "gate_port",
         )
         # A blank value (an empty site.env key) is no value: never "every interface".
         if (value := getattr(args, key)) not in (None, "")
     }
-    return settings.model_copy(update=overrides)
+    # Validated, not copied: --gate-port arrives as text (blank means no gate).
+    return Settings.model_validate({**settings.model_dump(), **overrides})
 
 
 def _path(args: argparse.Namespace, settings: Settings) -> Path | None:
@@ -227,13 +236,18 @@ def _wait_for_stop() -> None:
 
 
 def _open(
-    args: argparse.Namespace, settings: Settings, notifier: Notifier
-) -> tuple[Engine, FakeDevices | None] | str:
-    """The engine and its fake devices, or why the start is refused.
+    args: argparse.Namespace, notifier: Notifier
+) -> tuple[Engine, FakeDevices | None, Settings] | str:
+    """The engine, its fake devices and the settings, or why the start is refused.
 
-    A missing or invalid configuration is refused (exit 2): a restart cannot
-    fix it, so the unit stops in a plain failed state.
+    A malformed setting or a missing or invalid configuration is refused
+    (exit 2): a restart cannot fix it, so the unit stops in a plain failed
+    state.
     """
+    try:
+        settings = _settings(args)
+    except ValidationError as exc:  # a malformed port
+        return f"bad setting: {exc}"
     try:
         path = _path(args, settings)
     except SystemExit as exc:  # no experiment or no configuration named
@@ -245,7 +259,7 @@ def _open(
         engine = Engine(path, make_source, settings, on_tick=notifier.watchdog)
     except (ValidationError, yaml.YAMLError) as exc:
         return f"{path} does not validate: {exc}"
-    return engine, fakes
+    return engine, fakes, settings
 
 
 def serve(args: argparse.Namespace) -> int:
@@ -256,12 +270,11 @@ def serve(args: argparse.Namespace) -> int:
         # setting someone had just changed.
         logger.error("--arm-at-start is refused under systemd: arm from the web page")
         return EXIT_REFUSED
-    settings = _settings(args)
-    opened = _open(args, settings, notifier)
+    opened = _open(args, notifier)
     if isinstance(opened, str):
         logger.error("not starting: %s", opened)
         return EXIT_REFUSED
-    engine, fakes = opened
+    engine, fakes, settings = opened
     engine.start()
     sender = None
     if args.fake_devices:
@@ -282,6 +295,8 @@ def serve(args: argparse.Namespace) -> int:
         host,
         port,
     )
+    if engine.gate is not None:
+        logger.info("shot gate on %s:%d", *engine.gate.address)
     experiment = None if args.interlocks else (args.experiment or settings.experiment)
     web = None if args.no_web else WebClient(engine, settings, experiment)
     if web is not None and not web.start():

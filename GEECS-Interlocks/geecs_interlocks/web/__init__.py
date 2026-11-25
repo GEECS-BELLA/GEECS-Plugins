@@ -143,6 +143,8 @@ def snapshot_json(snapshot: Snapshot, engine: Engine) -> dict[str, Any]:
         "source": snapshot.source,
         "configuration": engine.path.stem if engine.path is not None else None,
         "clients": len(engine.stream.clients()),
+        # The shot gate's readers (``None``: no gate served).
+        "gate_clients": None if engine.gate is None else len(engine.gate.clients()),
         "statuses": [status_json(s) for s in statuses],
     }
 

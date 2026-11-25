@@ -1,4 +1,7 @@
-"""The TCP stream Master Control reads: one :func:`~geecs_interlocks.wire.render_status` frame per client every interval.
+"""A TCP stream of the snapshot: one framed message per client every interval.
+
+Master Control's stream renders :func:`~geecs_interlocks.wire.render_status`
+(the default); the shot gate's renders :func:`~geecs_interlocks.gate.render_gate`.
 
 One accept thread, one sender thread per client. Every sender reads the
 monitor's current snapshot and sends the message rendered for it, rendered
@@ -53,6 +56,11 @@ class StatusServer:
         Where to listen; port ``0`` picks a free one (tests).
     interval :
         Seconds between frames to one client.
+    render, render_stalled :
+        The message for a snapshot, and for an evaluation stalled this many
+        seconds (default: Master Control's).
+    name :
+        What the stream is called in the log.
     """
 
     def __init__(
@@ -62,8 +70,13 @@ class StatusServer:
         port: int,
         *,
         interval: float = SEND_INTERVAL_S,
+        render: Callable[[Snapshot], str] = render_status,
+        render_stalled: Callable[[float], str] = render_stalled,
+        name: str = "Master Control stream",
     ) -> None:
         self._snapshot = snapshot
+        self._render, self._render_stalled = render, render_stalled
+        self.name = name
         self._host, self._port = host, port
         self._interval = interval
         self._stop = threading.Event()
@@ -114,7 +127,7 @@ class StatusServer:
             target=self._accept_loop, name="interlock-status", daemon=True
         )
         self._thread.start()
-        logger.info("Master Control stream on %s:%d", *self.address)
+        logger.info("%s on %s:%d", self.name, *self.address)
 
     def stop(self) -> None:
         """Stop accepting and close every client (each within one interval)."""
@@ -130,11 +143,11 @@ class StatusServer:
         stalled = stall_age(snapshot)
         if stalled is not None:
             # The loop has stopped replacing the snapshot: never re-send its verdict.
-            return frame(render_stalled(stalled))
+            return frame(self._render_stalled(stalled))
         with self._lock:
             rendered_for, data = self._rendered
             if rendered_for is not snapshot:
-                data = frame(render_status(snapshot))
+                data = frame(self._render(snapshot))
                 self._rendered = (snapshot, data)
             return data
 
@@ -147,7 +160,7 @@ class StatusServer:
                 continue
             except OSError:
                 if not self._stop.is_set():
-                    logger.exception("status stream: accept failed")
+                    logger.exception("%s: accept failed", self.name)
                 return
             threading.Thread(
                 target=self._serve,
@@ -157,7 +170,7 @@ class StatusServer:
             ).start()
 
     def _serve(self, conn: socket.socket, addr: tuple) -> None:
-        logger.info("status stream: client %s connected", addr[0])
+        logger.info("%s: client %s connected", self.name, addr[0])
         key = id(conn)
         with self._lock:
             self._clients[key] = StreamClient(f"{addr[0]}:{addr[1]}", time.time())
@@ -174,7 +187,7 @@ class StatusServer:
         finally:
             with self._lock:
                 self._clients.pop(key, None)
-        logger.info("status stream: client %s disconnected", addr[0])
+        logger.info("%s: client %s disconnected", self.name, addr[0])
 
 
 __all__ = ["ACCEPT_POLL_S", "SEND_TIMEOUT_S", "StatusServer", "StreamClient"]

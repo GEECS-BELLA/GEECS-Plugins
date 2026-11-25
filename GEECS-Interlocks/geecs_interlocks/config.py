@@ -15,6 +15,8 @@ client half of the site profile)::
     web_port = 8600
     ; where external (UDP) signals are received
     external_host = 0.0.0.0
+    ; the shot gate's port, on status_host (absent: no gate)
+    gate_port = 5002
 
 A comment goes on its own line: ``configparser`` keeps one written after a
 value as part of the value.
@@ -53,7 +55,7 @@ DEFAULT_WEB_PORT = 8600
 
 
 class Settings(BaseModel):
-    """Where the two servers listen, and for which experiment."""
+    """Where the servers listen, and for which experiment."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -63,6 +65,8 @@ class Settings(BaseModel):
     web_host: str = LOCAL_HOST
     web_port: int = Field(DEFAULT_WEB_PORT, ge=0, le=65535)
     external_host: str = LOCAL_HOST
+    #: The shot gate's port (on ``status_host``); ``None``: no gate is served.
+    gate_port: int | None = Field(None, ge=0, le=65535)
 
     @classmethod
     def from_config_ini(cls, config_path: Path | None = None) -> Settings:
@@ -79,8 +83,9 @@ class Settings(BaseModel):
                 "web_host",
                 "web_port",
                 "external_host",
+                "gate_port",
             )
-            if (value := entry(key)) is not None
+            if (value := entry(key)) not in (None, "")
         }
         experiment = read_config_entry("Experiment", "expt", config_path)
         return cls.model_validate({"experiment": experiment, **values})

@@ -22,8 +22,8 @@ Waiting (nothing received yet) and settling (clear again, holding for
 ``settle_s``) are sent as trips, the reason saying which: on this wire,
 anything not OK is a trip.
 
-This is not the JSON frame GeecsBluesky's ``ShotGate`` reads: that client
-cannot use this server as its gate (yet).
+This is not the JSON frame GeecsBluesky's ``ShotGate`` reads: that one is
+served on its own port (:mod:`geecs_interlocks.gate`).
 
 Nothing here imports the web stack.
 """

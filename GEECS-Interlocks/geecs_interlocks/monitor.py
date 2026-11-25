@@ -55,6 +55,7 @@ from geecs_interlocks.conditions import (
     describe,
     evaluate,
     number,
+    watched,
 )
 from geecs_interlocks.external import SignalSource
 from geecs_interlocks.sources import DeviceReading, Source
@@ -131,6 +132,12 @@ class InterlockStatus:
         It holds settings an operator arms (a ``config_change`` condition).
     checks :
         Each condition on its own, in file order (empty while ``off``).
+    data_stamp :
+        Wall-clock seconds when the oldest device reading this tick's
+        verdict rests on arrived; the tick's own time for an interlock that
+        reads no device (``None``: a device has sent nothing yet, or it is
+        ``off``). External signals are left out. The shot gate sends it so a fire waits for readings taken after
+        the last one (:mod:`geecs_interlocks.gate`).
     """
 
     name: str
@@ -143,6 +150,7 @@ class InterlockStatus:
     since: float = 0.0
     armable: bool = False
     checks: tuple[CheckStatus, ...] = ()
+    data_stamp: float | None = None
 
     @property
     def unsafe(self) -> bool:
@@ -462,6 +470,8 @@ class Monitor:
                 armable=armable,
             )
         tripped = tracker.state in ("tripped", "settling")
+        # Before the inputs are read: see _data_stamp.
+        stamp = self._data_stamp(interlock, now_wall, now)
         inputs = [
             self._inputs(interlock.name, i, c, now)
             for i, c in enumerate(interlock.conditions)
@@ -504,7 +514,31 @@ class Monitor:
             tracker.since,
             armable,
             checks,
+            stamp,
         )
+
+    def _data_stamp(
+        self, interlock: Interlock, now_wall: float, now: float
+    ) -> float | None:
+        """When the oldest device reading *interlock* rests on arrived, on the wall clock.
+
+        An interlock reading no device (external signals only) is stamped with
+        the tick itself, *now_wall*, taken before it is evaluated: its verdict
+        was at least computed then, so a cached frame re-sent after a fire
+        never passes for a verdict on data after it.
+
+        Read *before* the inputs the verdict is evaluated on, so a reading
+        that arrives in between makes the verdict rest on newer data than the
+        stamp says, never older: the stamp may undersell a verdict's freshness
+        (a shot waits one more tick) but never makes old data look fresh.
+        """
+        devices = {d for c in interlock.conditions for d, _ in watched(c)}
+        if not devices:
+            return now_wall
+        updated = [self._source.reading(d).updated for d in devices]
+        if any(u is None for u in updated):
+            return None
+        return now_wall - (now - min(u for u in updated if u is not None))
 
     def _next_state(
         self, tracker: _Tracker, verdict: Verdict, interlock: Interlock, now: float
