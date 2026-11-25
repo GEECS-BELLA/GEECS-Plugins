@@ -178,5 +178,28 @@ def test_a_save_the_configs_root_never_shows_is_forgotten(tmp_path: Path) -> Non
     shared = SharedSets(folder=tmp_path, saver=_Committed(), clock=lambda: now[0])
     shared.save("team", PlotterSettings(y="a"), operator="ada", overwrite=False)
     now[0] = PENDING_S + 1
-    assert shared.load("team") == PlotterSettings()
+    with pytest.raises(SettingsError, match="no shared set shared/team"):
+        shared.load("team")
+    assert shared.stems() == []
+
+
+def test_a_missing_shared_set_is_refused_not_the_defaults(
+    client: TestClient, shared_dir: Path, tmp_path: Path
+) -> None:
+    """A pick under a missing shared set never saves the defaults over the viewer's own."""
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    assert client.get("/api/settings/shared/nope").status_code == 422
+    reply = client.post(
+        "/api/settings/ada", data={"copy_from": "shared/nope", "y": "a"}
+    )
+    assert reply.status_code == 422
+
+
+def test_an_unlistable_shared_folder_lists_nothing(tmp_path: Path, monkeypatch) -> None:
+    shared = SharedSets(folder=tmp_path)
+
+    def broken(_self):
+        raise PermissionError("share blip")
+
+    monkeypatch.setattr(Path, "iterdir", broken)
     assert shared.stems() == []

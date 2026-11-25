@@ -249,15 +249,23 @@ class SharedSets:
             return held[1]
 
     def stems(self) -> list[str]:
-        """Every shared set's stem, the ones just saved included."""
+        """Every shared set's stem, the ones just saved included.
+
+        The folder is on the configs root, which may be a network share: a
+        listing that fails (a share blip, a permission error) lists the sets
+        just saved alone, logged, never a failed page.
+        """
         found: set[str] = set()
-        if self.folder is not None and self.folder.is_dir():
-            # Only a file named as Save as names it (a stray name is no set).
-            found |= {
-                p.stem
-                for p in self.folder.iterdir()
-                if p.suffix in _SUFFIXES and SHARED_STEM.fullmatch(p.stem)
-            }
+        try:
+            if self.folder is not None and self.folder.is_dir():
+                # Only a file named as Save as names it (a stray name is no set).
+                found |= {
+                    p.stem
+                    for p in self.folder.iterdir()
+                    if p.suffix in _SUFFIXES and SHARED_STEM.fullmatch(p.stem)
+                }
+        except OSError as exc:
+            log.warning("shared plot settings unavailable: %s", exc)
         with self._lock:
             found |= set(self._pending)
         return sorted(found)
@@ -267,10 +275,14 @@ class SharedSets:
         return self._file(stem) is not None or self._fresh_pending(stem) is not None
 
     def load(self, stem: str) -> PlotterSettings:
-        """The shared set; the defaults for one never saved.
+        """The shared set; a :class:`SettingsError` for one the configs root does not hold.
 
         A set this portal just saved is answered as saved until the
         configs root holds the same document (or :data:`PENDING_S` passes).
+        A missing one is refused, never answered with the defaults: a share
+        that is unreachable, a commit not yet on the share or a mistyped
+        link would otherwise open the defaults, and the viewer's next pick
+        would save them over their own set.
         """
         pending = self._fresh_pending(stem)
         path = self._file(stem)
@@ -280,7 +292,12 @@ class SharedSets:
                 with self._lock:
                     self._pending.pop(stem, None)
             return pending
-        return on_disk if on_disk is not None else PlotterSettings()
+        if on_disk is None:
+            raise SettingsError(
+                f"no shared set {SHARED_PREFIX}{stem} in the configs repo "
+                "(not saved yet, or the configs root is unreachable)"
+            )
+        return on_disk
 
     def save(
         self, stem: str, settings: PlotterSettings, *, operator: str, overwrite: bool
