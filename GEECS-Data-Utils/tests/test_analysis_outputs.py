@@ -268,3 +268,35 @@ def test_a_raw_text_device_keeps_the_strict_rule(tmp_path):
     mean = shot_traces.average_trace_rows(scan, None, "SPEC-X", [1, 2])
     assert mean.result is None
     assert "differ" in mean.reason
+
+
+def test_a_bin_resolves_its_output_once_not_per_shot(scan_folder, monkeypatch):
+    """One tile's shots share one resolution (two listings each over SMB otherwise)."""
+    calls = []
+    real = analysis_outputs.resolve_output
+
+    def counted(folder, name):
+        calls.append(name)
+        return real(folder, name)
+
+    monkeypatch.setattr(analysis_outputs, "resolve_output", counted)
+    found = shot_images.average_rows(
+        scan_folder, None, "analysis:py-magspec", [1, 2, 3]
+    )
+    assert found is not None
+    assert len(calls) == 1
+
+
+def test_a_resolution_is_reread_after_its_ttl(scan_folder, monkeypatch):
+    calls = []
+    real = analysis_outputs.resolve_output
+    monkeypatch.setattr(
+        analysis_outputs, "resolve_output", lambda f, n: calls.append(n) or real(f, n)
+    )
+    now = [1000.0]
+    monkeypatch.setattr(shot_images.time, "monotonic", lambda: now[0])
+    shot_images.device_kind(scan_folder, "analysis:py-ebeam")
+    shot_images.device_kind(scan_folder, "analysis:py-ebeam")
+    now[0] += shot_images.OUTPUT_SERIES_TTL_S + 0.1
+    shot_images.device_kind(scan_folder, "analysis:py-ebeam")
+    assert len(calls) == 2

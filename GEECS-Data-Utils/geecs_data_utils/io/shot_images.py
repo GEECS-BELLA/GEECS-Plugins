@@ -41,6 +41,8 @@ shot the same way.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Protocol, Sequence
@@ -231,9 +233,43 @@ def device_kind(
     return DeviceKind("native", device_dir, ext)
 
 
+#: Seconds an analysis output's resolved series is reused: one tile's shots
+#: share one resolution, not two folder listings per shot on the share.
+OUTPUT_SERIES_TTL_S = 2.0
+_OUTPUT_SERIES_KEPT = 256
+_output_series: dict[
+    tuple[str, str], tuple[float, Optional[analysis_outputs.OutputSeries]]
+] = {}
+_output_series_lock = threading.Lock()
+
+
+def _resolved_output(
+    scan_folder: Path, name: str
+) -> Optional[analysis_outputs.OutputSeries]:
+    """:func:`analysis_outputs.resolve_output`, reused for :data:`OUTPUT_SERIES_TTL_S`.
+
+    A tile reads every shot of a bin within moments, and each shot would
+    otherwise list the scan's analysis folder and the output folder again
+    (tens of seconds cold over SMB). Kept briefly only, so a series an
+    analysis run is still writing shows its new shots on the next tile.
+    """
+    key = (str(scan_folder), name)
+    now = time.monotonic()
+    with _output_series_lock:
+        held = _output_series.get(key)
+        if held is not None and now - held[0] <= OUTPUT_SERIES_TTL_S:
+            return held[1]
+    series = analysis_outputs.resolve_output(scan_folder, name)
+    with _output_series_lock:
+        if len(_output_series) >= _OUTPUT_SERIES_KEPT:
+            _output_series.clear()
+        _output_series[key] = (now, series)
+    return series
+
+
 def _output_kind(scan_folder: Path, name: str) -> DeviceKind:
     """:func:`device_kind` for an analysis output's series."""
-    series = analysis_outputs.resolve_output(scan_folder, name)
+    series = _resolved_output(scan_folder, name)
     if series is None:
         return DeviceKind("missing", reason="no such analysis output in this scan")
     if series.ext in DISPLAYABLE_IMAGE_EXTS:
@@ -605,7 +641,7 @@ def _output_shot_file(
     scan_folder: Path, name: str, shot: int, file_shot: Optional[int]
 ) -> tuple[Optional[Path], bool, str]:
     """:func:`native_shot_file` for an analysis output's series."""
-    series = analysis_outputs.resolve_output(scan_folder, name)
+    series = _resolved_output(scan_folder, name)
     if series is None:
         return None, False, "no such analysis output in this scan"
     path = series.shot_file(shot if file_shot is None else file_shot)

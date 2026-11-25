@@ -475,9 +475,10 @@ def average_traces(
     shot: a magspec spectrum's momentum axis follows the shot's field),
     traces of the same length whose x values differ are averaged index-wise
     instead, x and y alike: sample *k* of the mean is the mean of every
-    shot's sample *k*. That is the analysis core's own average for such a
-    measure (``per_shot_axes=True`` in GEECS-Analysis), so a bin tile
-    agrees with the run's saved bin average. Nothing is interpolated;
+    shot's sample *k* (``nanmean`` for x too). That is the analysis core's
+    own bin average for a rank-1 measure (GEECS-Analysis folds its
+    coordinates index-wise, skipping NaN), so a bin tile agrees with the
+    run's saved bin average. Nothing is interpolated;
     traces of different lengths are still refused.
     """
     if not traces:
@@ -490,7 +491,10 @@ def average_traces(
     if shared_axis(traces):
         x = first.data[:, 0]
     elif per_shot_axes:
-        x = np.mean(np.stack([t.data[:, 0] for t in traces]), axis=0)
+        with warnings.catch_warnings():
+            # As the core folds coordinates: a NaN sample in one shot is skipped.
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            x = np.nanmean(np.stack([t.data[:, 0] for t in traces]), axis=0)
     else:
         return None
     ys = np.stack([t.data[:, 1] for t in traces])
