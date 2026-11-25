@@ -399,3 +399,14 @@ def test_a_csv_that_is_not_an_fts_spectrum_is_not_a_trace(tmp_path, content):
     path = tmp_path / "f.csv"
     path.write_bytes(content)
     assert shot_traces.read_text_trace(path) is None
+
+
+def test_index_wise_x_skips_a_nan_sample_as_the_core_does():
+    from geecs_data_utils.io.array1d import Data1DResult
+
+    a = Data1DResult(data=np.array([[1.0, 1.0], [2.0, 1.0]]))
+    b = Data1DResult(data=np.array([[np.nan, 3.0], [2.2, 3.0]]))
+    mean = shot_traces.average_traces([a, b], per_shot_axes=True)
+    assert mean is not None
+    assert mean.data[0, 0] == 1.0  # one shot's NaN x is skipped
+    assert mean.data[1, 0] == pytest.approx(2.1)
