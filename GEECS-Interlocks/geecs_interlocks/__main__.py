@@ -236,13 +236,18 @@ def _wait_for_stop() -> None:
 
 
 def _open(
-    args: argparse.Namespace, settings: Settings, notifier: Notifier
-) -> tuple[Engine, FakeDevices | None] | str:
-    """The engine and its fake devices, or why the start is refused.
+    args: argparse.Namespace, notifier: Notifier
+) -> tuple[Engine, FakeDevices | None, Settings] | str:
+    """The engine, its fake devices and the settings, or why the start is refused.
 
-    A missing or invalid configuration is refused (exit 2): a restart cannot
-    fix it, so the unit stops in a plain failed state.
+    A malformed setting or a missing or invalid configuration is refused
+    (exit 2): a restart cannot fix it, so the unit stops in a plain failed
+    state.
     """
+    try:
+        settings = _settings(args)
+    except ValidationError as exc:  # a malformed port
+        return f"bad setting: {exc}"
     try:
         path = _path(args, settings)
     except SystemExit as exc:  # no experiment or no configuration named
@@ -254,7 +259,7 @@ def _open(
         engine = Engine(path, make_source, settings, on_tick=notifier.watchdog)
     except (ValidationError, yaml.YAMLError) as exc:
         return f"{path} does not validate: {exc}"
-    return engine, fakes
+    return engine, fakes, settings
 
 
 def serve(args: argparse.Namespace) -> int:
@@ -265,16 +270,11 @@ def serve(args: argparse.Namespace) -> int:
         # setting someone had just changed.
         logger.error("--arm-at-start is refused under systemd: arm from the web page")
         return EXIT_REFUSED
-    try:
-        settings = _settings(args)
-    except ValidationError as exc:  # a malformed port: a restart cannot fix it
-        logger.error("not starting: %s", exc)
-        return EXIT_REFUSED
-    opened = _open(args, settings, notifier)
+    opened = _open(args, notifier)
     if isinstance(opened, str):
         logger.error("not starting: %s", opened)
         return EXIT_REFUSED
-    engine, fakes = opened
+    engine, fakes, settings = opened
     engine.start()
     sender = None
     if args.fake_devices:
