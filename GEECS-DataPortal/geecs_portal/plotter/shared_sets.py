@@ -220,11 +220,22 @@ class SharedSets:
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def _file(self, stem: str) -> Optional[Path]:
+        """The set's file on the configs root; ``None`` when it is not there.
+
+        A share error (EIO, EACCES, a timeout) is a :class:`SettingsError`,
+        never an OSError that would fail the page.
+        """
         if self.folder is None:
             return None
-        return next(
-            (p for s in _SUFFIXES if (p := self.folder / f"{stem}{s}").is_file()), None
-        )
+        try:
+            return next(
+                (p for s in _SUFFIXES if (p := self.folder / f"{stem}{s}").is_file()),
+                None,
+            )
+        except OSError as exc:
+            raise SettingsError(
+                f"the shared sets cannot be read now (configs root: {exc})"
+            ) from exc
 
     def _read(self, path: Path) -> PlotterSettings:
         try:
@@ -272,7 +283,7 @@ class SharedSets:
 
     def exists(self, stem: str) -> bool:
         """Whether ``<stem>.yaml`` is a shared set (or was just saved as one)."""
-        return self._file(stem) is not None or self._fresh_pending(stem) is not None
+        return self._fresh_pending(stem) is not None or self._file(stem) is not None
 
     def load(self, stem: str) -> PlotterSettings:
         """The shared set; a :class:`SettingsError` for one the configs root does not hold.
@@ -285,7 +296,12 @@ class SharedSets:
         would save them over their own set.
         """
         pending = self._fresh_pending(stem)
-        path = self._file(stem)
+        try:
+            path = self._file(stem)
+        except SettingsError:
+            if pending is not None:
+                return pending  # just saved here: answered without the share
+            raise
         on_disk = self._read(path) if path is not None else None
         if pending is not None:
             if on_disk is not None and on_disk == pending:
@@ -295,7 +311,8 @@ class SharedSets:
         if on_disk is None:
             raise SettingsError(
                 f"no shared set {SHARED_PREFIX}{stem} in the configs repo "
-                "(not saved yet, or the configs root is unreachable)"
+                "(not saved yet, or the configs root is unreachable); "
+                "open your own set to keep working"
             )
         return on_disk
 
@@ -351,7 +368,7 @@ class SetBook:
         return [*self.local_names(), *self.shared_names()]
 
     def load(self, name: str) -> PlotterSettings:
-        """The set *name* names; the defaults for one never saved."""
+        """The set *name* names: this host's defaults for one never saved; a missing shared one is refused."""
         stored = set_name(name)
         if is_shared(stored):
             return self.shared.load(stored[len(SHARED_PREFIX) :])

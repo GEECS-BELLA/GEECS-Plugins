@@ -687,7 +687,7 @@ def _register_settings(router: APIRouter, ctx: Context) -> None:
 
     @router.get("/api/settings/{name:path}", response_model=PlotterSettings)
     def api_set(name: str) -> JSONResponse:
-        """One set (``shared/<stem>`` a shared one); a name never saved is the defaults."""
+        """One set (``shared/<stem>`` a shared one): a local name never saved is the defaults, a missing shared one a 422."""
         return _json(_settings(lambda: ctx.store.load(name)))
 
     @router.post("/api/settings/{name:path}", response_model=PlotterSettings)

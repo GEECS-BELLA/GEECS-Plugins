@@ -203,3 +203,25 @@ def test_an_unlistable_shared_folder_lists_nothing(tmp_path: Path, monkeypatch) 
 
     monkeypatch.setattr(Path, "iterdir", broken)
     assert shared.stems() == []
+
+
+def test_a_share_error_opening_a_shared_set_is_a_settings_problem(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """EIO on the share is a SettingsError (the page's problem line), never a 500."""
+    import errno
+
+    shared = SharedSets(folder=tmp_path, saver=_Committed())
+    real_stat = Path.stat
+
+    def broken(self, *a, **k):
+        if self.parent == tmp_path:
+            raise OSError(errno.EIO, "share blip")
+        return real_stat(self, *a, **k)
+
+    monkeypatch.setattr(Path, "stat", broken)
+    with pytest.raises(SettingsError, match="cannot be read now"):
+        shared.load("team")
+    shared.save("team", PlotterSettings(y="a"), operator="ada", overwrite=False)
+    assert shared.load("team").y == "a"  # just saved: answered without the share
+    assert shared.exists("team")
