@@ -246,7 +246,7 @@ class TestExternal:
         signals.send(5050, packet)
         snapshot = monitor.step()
         assert states(snapshot) == {"stage": "tripped"}
-        assert "not safe" in snapshot.statuses[0].diagnostic
+        assert "alarm" in snapshot.statuses[0].diagnostic
 
     def test_max_age(self, source, signals):
         monitor = self.make(source, signals, max_age_s=2)

@@ -270,7 +270,8 @@ def _external(
             f"expected {condition.sender}",
         )
     if signal.state is not False:  # True, or None (a reading with no state)
-        return Verdict(True, f"{name}: not safe ({signal.raw!r})")
+        # Never the word itself: the server's own reasons hold no keyword.
+        return Verdict(True, f"{name}: alarm ({signal.raw!r})")
     return SAFE
 
 

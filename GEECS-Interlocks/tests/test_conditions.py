@@ -170,7 +170,7 @@ class TestExternal:
         assert not self.check(False, "safe").unsafe
         verdict = self.check(True, "warning: moving")
         assert verdict.unsafe and not verdict.waiting
-        assert "not safe ('warning: moving')" in verdict.diagnostic
+        assert "alarm ('warning: moving')" in verdict.diagnostic
 
     def test_silence_is_normal_without_max_age(self):
         assert not self.check(False, "safe", age=1e6).unsafe
