@@ -269,10 +269,8 @@ def _external(
             f"{name}: packet from {signal.sender or 'an unknown sender'}, "
             f"expected {condition.sender}",
         )
-    if signal.state is None:
-        return Verdict(True, f"{name}: unrecognised packet {signal.raw!r}")
-    if signal.state:
-        return Verdict(True, f"{name}: alarm ({signal.raw!r})")
+    if signal.state is not False:  # True, or None (a reading with no state)
+        return Verdict(True, f"{name}: not safe ({signal.raw!r})")
     return SAFE
 
 

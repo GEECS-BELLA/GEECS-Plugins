@@ -84,7 +84,7 @@ say). Master Control sees one line per interlock.
 | Threshold | A variable crosses a limit (`>`, `>=`, `<`, `<=`, `==`, `!=`) |
 | Alignment | A variable is the tolerance or further from a target variable |
 | Stale | A device disconnects, or (with a maximum age) stops publishing |
-| External signal | A program outside GEECS sends a UDP packet starting with `warning` or `unsafe`, until it sends one starting with `safe` (from its `sender` address, when one is set) |
+| External signal | A program outside GEECS sends a UDP packet that does not start with `safe`, until it sends one that does (from its `sender` address, when one is set) |
 | Settings unchanged | A device's settings move from the values recorded when it was armed |
 
 An interlock is also unsafe before anything has been heard from its
@@ -93,13 +93,13 @@ the configuration's `stale_after_s` (5 s unless changed), when a value is
 not a number, and while it is **settling**: clear again after a trip but
 not yet clear for its settle time.
 
-A sender's packet must **start** with `safe`, `warning` or `unsafe`
-(any case). A `safe` followed by a negation (`not`, `no`, `false`, `off`,
-`0`) and anything else is logged and makes the signal unknown, which
-counts as unsafe until a recognised packet arrives, so `not safe` can never
-read as safe. A sender that also sends keepalive or status packets in
-other words trips the signal with each one: it should send only those
-three words. Set the check's `sender` to the sending computer's address so
+A packet whose **first word** is `safe` (any case) means it is OK to fire;
+whatever follows is shown to operators but changes nothing
+(`safe stage1 parked`). Every other packet is unsafe: `stage1 safe`,
+`not safe`, `moving` or an empty packet all trip the signal, so a sender
+needs no special word for a hazard, only to stop starting with `safe`. A
+sender that also sends keepalive or status packets trips the signal with
+each one unless they too start with `safe`. Set the check's `sender` to the sending computer's address so
 no other host can clear the signal: a packet from anywhere else counts as
 unsafe.
 

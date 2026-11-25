@@ -38,22 +38,24 @@ def wait_for(predicate, timeout=2.0):
 @pytest.mark.parametrize(
     "payload,state",
     [
+        # The first word "safe" (any case) is safe; the rest is information.
         (b"SAFE", False),
         (b"safe\n", False),
-        (b"Safe: motion done", False),
+        (b"  Safe: motion done", False),
+        (b"safe stage1 parked", False),
+        (b"safe: false", False),  # informative only, by the operators' rule
+        # Anything else is unsafe: no keyword needed.
+        (b"stage1 safe", True),
         (b"WARNING", True),
         (b"warning: moving", True),
-        (b"UNSAFE", True),  # holds "safe": never read as safe
-        # Never safe unless it plainly says so: these are unrecognised.
-        (b"NOT SAFE", None),
-        (b"not_safe", None),
-        (b"safe: false", None),
-        (b"Safe=0", None),
-        (b"safe no", None),
-        (b"motion done: safe", None),
-        (b"safety", None),
-        (b"hello", None),
-        (b"\xff\xfe", None),
+        (b"UNSAFE", True),
+        (b"NOT SAFE", True),
+        (b"not_safe", True),
+        (b"safety", True),
+        (b"safe_mode", True),
+        (b"hello", True),
+        (b"", True),
+        (b"\xff\xfe", True),
     ],
 )
 def test_decode(payload, state):
@@ -77,14 +79,14 @@ class TestUdpListener:
         assert wait_for(lambda: listener.reading().state is True)
         assert listener.reading().raw == "WARNING: moving"
 
-    def test_an_unrecognised_packet_makes_the_signal_unknown(self, listener):
+    def test_a_packet_not_starting_with_safe_is_unsafe(self, listener):
         """SAFE then NOT SAFE must never be left reading safe."""
         port = listener.address[1]
         send(port, "SAFE")
         assert wait_for(lambda: listener.reading().state is False)
         send(port, "NOT SAFE")
         assert wait_for(lambda: listener.reading().raw == "NOT SAFE")
-        assert listener.reading().state is None
+        assert listener.reading().state is True
 
     def test_a_taken_port_says_how_to_fix_it(self, listener):
         with pytest.raises(OSError, match="address of this machine"):

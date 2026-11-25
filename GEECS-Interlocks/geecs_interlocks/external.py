@@ -2,15 +2,13 @@
 
 A program that is not a GEECS device — a motion controller on another
 computer, say — sends one short text packet to the interlock server whenever
-its state changes, and nothing in between. A packet's text must **start**
-with one of three words (case does not matter): ``warning`` or ``unsafe``
-means unsafe; ``safe`` means safe, unless a negation follows it (``not``,
-``no``, ``false``, ``off``, ``0``). Anything else (``not safe``,
-``safe: false``, ``motion done: safe``) is unrecognised: it is logged and
-makes the signal **unknown**, which every reader treats as unsafe, until a
-recognised packet arrives. A sender that changes its wording when its hazard
-begins must never be left reading safe. Before the first packet the signal
-is unknown too.
+its state changes, and nothing in between. A packet whose **first word** is
+``safe`` (any case) means safe: it is OK to fire a shot. Whatever follows
+the first word is information for operators only (``safe stage1 parked``).
+Every other packet is **unsafe** (``stage1 safe``, ``safety``, ``moving``,
+an empty one), whatever it says: no keyword is needed to report a hazard,
+only the absence of a leading ``safe``. Before the first packet the signal
+is unknown, which every reader treats as unsafe too.
 
 The listeners belong to the engine, not to a monitor, and outlive a reload:
 a sender that only transmits on a change would otherwise leave a reloaded
@@ -35,10 +33,8 @@ logger = logging.getLogger(__name__)
 RECV_POLL_S = 0.5
 #: The longest packet text kept for display.
 RAW_KEPT = 200
-#: The words a packet may start with, and what may follow them.
-_LEADING_WORD = re.compile(r"^(safe|warning|unsafe)\b(.*)$", re.DOTALL)
-#: A word after ``safe`` that turns it around.
-_NEGATION = re.compile(r"\b(not|no|false|off|0)\b")
+#: A safe packet: its first word is ``safe`` (a whole word: ``safety`` is not).
+_SAFE_FIRST = re.compile(r"^safe\b")
 
 
 @dataclass(frozen=True)
@@ -48,8 +44,8 @@ class SignalReading:
     Attributes
     ----------
     state :
-        ``True`` unsafe (a ``warning`` packet), ``False`` safe, ``None``
-        before the first recognised packet.
+        ``True`` unsafe (any packet not starting with ``safe``), ``False``
+        safe, ``None`` before the first packet.
     received :
         ``time.monotonic()`` of the last packet of any kind; ``None`` before
         the first.
@@ -76,27 +72,17 @@ class SignalSource(Protocol):
         """The latest reading on *port* (from *sender* only, when given; :data:`NO_SIGNAL` if none yet)."""
 
 
-def decode(payload: bytes) -> bool | None:
-    """A packet's state: ``True`` unsafe, ``False`` safe, ``None`` unrecognised.
+def decode(payload: bytes) -> bool:
+    """A packet's state: ``False`` safe (its first word is ``safe``), ``True`` unsafe (anything else).
 
-    Only the packet's first word decides, and a ``safe`` reads safe only when
-    no negation follows it: reading a "not safe" as safe is the one failure
-    this module must never have, so anything unclear is unrecognised.
+    Only the first word decides; the rest is information for operators.
     """
     text = payload.decode("utf-8", errors="replace").strip().lower()
-    match = _LEADING_WORD.match(text)
-    if match is None:
-        return None
-    word, rest = match.group(1), match.group(2)
-    if word in ("warning", "unsafe"):
-        return True
-    if _NEGATION.search(rest):
-        return None
-    return False
+    return _SAFE_FIRST.match(text) is None
 
 
 class UdpListener:
-    """Listen on one UDP port and keep the state its last packet said (unknown when unrecognised).
+    """Listen on one UDP port and keep the state its last packet said.
 
     Parameters
     ----------
@@ -187,19 +173,16 @@ class UdpListener:
             self.receive(payload, sender[0])
 
     def receive(self, payload: bytes, sender: str = "") -> None:
-        """Take one packet: its state if recognised, its text and time always."""
+        """Take one packet: its state, its text and its time."""
         state = decode(payload)
         raw = payload.decode("utf-8", errors="replace").strip()[:RAW_KEPT]
         with self._lock:
             old = self._reading
-            # An unrecognised packet stores state None: unknown, so unsafe.
             self._reading = SignalReading(state, time.monotonic(), raw, sender)
             self._by_sender[sender] = self._reading
         port = self.address[1]
-        if state is None:
-            logger.warning("UDP %d: unrecognised packet %r from %s", port, raw, sender)
-        elif state != old.state:
-            label = "WARNING" if state else "SAFE"
+        if state != old.state:
+            label = "UNSAFE" if state else "SAFE"
             logger.info("UDP %d: %s from %s (%r)", port, label, sender, raw)
 
 

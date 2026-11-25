@@ -158,12 +158,11 @@ class ExternalCondition(SchemaModel):
 
     For a program outside GEECS — a motion controller on another computer,
     say — that sends one short text packet to the interlock server whenever
-    its state changes. The packet's first word decides (case does not
-    matter): ``warning`` or ``unsafe`` makes the condition unsafe; ``safe``
-    makes it safe unless a negation follows (``not``, ``no``, ``false``,
-    ``off``, ``0``). Any other packet makes the signal unknown, which is
-    unsafe until a recognised packet arrives; so is the time before the
-    first packet.
+    its state changes. A packet whose first word is ``safe`` (any case)
+    makes the condition safe: it is OK to fire. Whatever follows is
+    information only (``safe stage1 parked``). Every other packet makes it
+    unsafe (``stage1 safe``, ``moving``); so does the time before the first
+    packet.
     """
 
     kind: Literal["external"] = Field(

@@ -74,11 +74,12 @@ the code.
   a rebuilt listener would forget the last state and read unsafe until the
   next one. A reload that names a port it cannot bind is refused whole, and
   a failed reload closes only the ports it opened.
-- **A packet reads safe only when it plainly says so.** Its first word
-  decides (`safe`, `warning`, `unsafe`); a `safe` followed by a negation,
-  and every other packet, is unrecognised (`not safe`, `safe: false`,
-  `motion done: safe`), and an unrecognised packet makes the signal
-  unknown (unsafe), never keeps the last state. Pinned in
+- **A packet reads safe only when its first word is `safe`** (any case, a
+  whole word: `safety` is not). What follows is information for operators
+  (`safe stage1 parked`); every other packet is unsafe (`stage1 safe`,
+  `not safe`, `moving`), so a sender needs no hazard keyword, and no packet
+  keeps the last state. The operators' rule (2026-11-25), replacing the
+  `warning` / negation vocabulary. Pinned in
   `tests/test_external.py` and `tests/test_monitor.py`.
 - **A stalled evaluation trips the stream.** Past `present.STALL_S` (ten
   ticks) without a new snapshot, judged on the snapshot's monotonic stamp
